@@ -11,6 +11,8 @@ commitball.db-shm
 commitball.db-wal
 commitball.txt
 commitball.json
+commitball.log
+commitball.pos
 
 # Old weasel directory (locked by TSF, needs restart to delete)
 weasel_old/
