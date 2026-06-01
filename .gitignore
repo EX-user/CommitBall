@@ -1,0 +1,16 @@
+# CommitBall build artifacts
+commitball/CommitBall.exe
+commitball/CommitBall.exp
+commitball/CommitBall.lib
+commitball/CommitBall.pdb
+commitball/*.obj
+
+# CommitBall runtime files
+commitball.db
+commitball.db-shm
+commitball.db-wal
+commitball.txt
+commitball.json
+
+# Old weasel directory (locked by TSF, needs restart to delete)
+weasel_old/

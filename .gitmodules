@@ -1,0 +1,3 @@
+[submodule "weasel"]
+	path = weasel
+	url = https://github.com/rime/weasel.git
