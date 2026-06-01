@@ -18,10 +18,16 @@ bool g_running = true;
 const wchar_t MUTEX_NAME[] = L"CommitBallMutex";
 
 void OnStateChanged() {
-    if (g_state == RECORDING)
+    if (g_state == RECORDING) {
         UnsnapForRecording();
-    else
+        g_tgtR = 239; g_tgtG = 68; g_tgtB = 68;
+        g_tgtPenR = 180; g_tgtPenG = 30; g_tgtPenB = 30;
+    } else {
         ApplySnappedEdge();
+        g_tgtR = 59; g_tgtG = 130; g_tgtB = 246;
+        g_tgtPenR = 255; g_tgtPenG = 255; g_tgtPenB = 255;
+    }
+    SetTimer(g_hWnd, IDT_COLOR_ANIM, 16, NULL);
     RedrawBall();
 }
 

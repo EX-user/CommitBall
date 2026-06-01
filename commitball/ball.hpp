@@ -21,6 +21,7 @@ const int BALL_CY = BALL_SIZE / 2;
 const int SNAP_THRESHOLD = 20;
 
 #define IDT_OUTPUT 1
+#define IDT_COLOR_ANIM 2
 #define IDM_WRITE_TXT 1001
 #define IDM_EXIT      1002
 
@@ -29,12 +30,18 @@ extern Edge g_snappedEdge;
 extern HWND g_hWnd;
 extern ULONG_PTR g_gdiplusToken;
 
+inline int g_curR = 59, g_curG = 130, g_curB = 246;
+inline int g_tgtR = 59, g_tgtG = 130, g_tgtB = 246;
+inline int g_curPenR = 255, g_curPenG = 255, g_curPenB = 255;
+inline int g_tgtPenR = 255, g_tgtPenG = 255, g_tgtPenB = 255;
+
 const wchar_t BALL_CLASS_NAME[] = L"CommitBallClass";
 const wchar_t BALL_POS_FILE[] = L"commitball.pos";
 
 bool BallInit(HINSTANCE hInstance);
 void BallShutdown();
 void RedrawBall();
+void AnimateColor();
 void SavePosition();
 void LoadPosition();
 void ApplySnappedEdge();
@@ -85,6 +92,24 @@ inline void BallShutdown() {
     Gdiplus::GdiplusShutdown(g_gdiplusToken);
 }
 
+inline void AnimateColor() {
+    g_curR += (g_tgtR - g_curR) / 5;
+    g_curG += (g_tgtG - g_curG) / 5;
+    g_curB += (g_tgtB - g_curB) / 5;
+    g_curPenR += (g_tgtPenR - g_curPenR) / 5;
+    g_curPenG += (g_tgtPenG - g_curPenG) / 5;
+    g_curPenB += (g_tgtPenB - g_curPenB) / 5;
+
+    if (abs(g_tgtR - g_curR) <= 1 && abs(g_tgtG - g_curG) <= 1 && abs(g_tgtB - g_curB) <= 1 &&
+        abs(g_tgtPenR - g_curPenR) <= 1 && abs(g_tgtPenG - g_curPenG) <= 1 && abs(g_tgtPenB - g_curPenB) <= 1) {
+        g_curR = g_tgtR; g_curG = g_tgtG; g_curB = g_tgtB;
+        g_curPenR = g_tgtPenR; g_curPenG = g_tgtPenG; g_curPenB = g_tgtPenB;
+        KillTimer(g_hWnd, IDT_COLOR_ANIM);
+    }
+
+    RedrawBall();
+}
+
 inline void RedrawBall() {
     extern State g_state;
 
@@ -109,16 +134,14 @@ inline void RedrawBall() {
     graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
     graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
 
-    Gdiplus::Color ballColor = (g_state == RECORDING)
-        ? Gdiplus::Color(255, 239, 68, 68)
-        : Gdiplus::Color(255, 59, 130, 246);
+    Gdiplus::Color ballColor(255, g_curR, g_curG, g_curB);
 
     Gdiplus::SolidBrush brush(ballColor);
     graphics.FillEllipse(&brush,
         BALL_CX - BALL_RADIUS, BALL_CY - BALL_RADIUS,
         BALL_RADIUS * 2, BALL_RADIUS * 2);
 
-    Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 255), 2.5f);
+    Gdiplus::Pen pen(Gdiplus::Color(255, g_curPenR, g_curPenG, g_curPenB), 2.5f);
     graphics.DrawEllipse(&pen,
         BALL_CX - BALL_RADIUS + 1, BALL_CY - BALL_RADIUS + 1,
         (BALL_RADIUS - 1) * 2, (BALL_RADIUS - 1) * 2);
@@ -299,6 +322,8 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 g_lastOutputTime = GetTickCount();
             }
 #endif
+        } else if (wParam == IDT_COLOR_ANIM) {
+            AnimateColor();
         }
         return 0;
     }
