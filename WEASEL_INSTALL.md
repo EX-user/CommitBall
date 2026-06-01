@@ -2,6 +2,16 @@
 
 > 基于 x64-only 构建（无 Win32），不使用 WeaselSetup.exe。
 
+## 安装前置条件
+
+> 以下检查全部通过后再执行安装步骤。任何一项失败都需回到 WEASEL_BUILD.md 修复。
+
+```powershell
+Test-Path weasel\output\weaselx64.dll            # 构建产物
+Test-Path weasel\output\data\opencc\TSCharacters.ocd2  # OpenCC（缺少→繁体）
+Test-Path weasel\output\data\default.yaml         # 输入方案
+```
+
 ## 安装
 
 需要管理员权限。
@@ -129,6 +139,8 @@ Get-ChildItem "$env:APPDATA\Rime\build\*.table.bin" -ErrorAction SilentlyContinu
 |------|------|------|
 | 看不到"小狼毫"键盘 | 未添加输入法 | Windows 设置中添加 |
 | 输出繁体 | 步骤 4 未修改 default.yaml | 按步骤 4 设置 luna_pinyin_simp |
+| 输出繁体 | 缺少 OpenCC 数据 | 见 WEASEL_BUILD.md 步骤 10 |
+| 输出繁体 | 修改了 `$env:APPDATA\Rime\default.yaml` 而非 `output/data/default.yaml` | 确认修改的是 `output/data` 下的 |
 | 打字无候选词 | 词典未编译或旧缓存冲突 | 卸载→删除用户目录→重装 |
 | regsvr32 失败 | 未以管理员运行 | 用管理员权限的终端执行 |
 | DLL 被锁定无法删除 | 有进程加载了该 DLL | 重启后再删除 |

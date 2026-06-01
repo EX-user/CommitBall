@@ -22,6 +22,9 @@
 
 ## 快速开始
 
+> **必须按顺序完成以下所有步骤，不可跳过。**
+> 详见 [WEASEL_BUILD.md](WEASEL_BUILD.md) 和 [WEASEL_INSTALL.md](WEASEL_INSTALL.md)。
+
 ### 前置依赖
 
 - Windows 10/11
@@ -35,11 +38,11 @@
 git clone --recursive <repo-url>
 cd commit-ball
 
-# 2. 应用 Weasel patch
+# 2. 应用 Weasel 补丁（不可跳过）
 .\apply-patch.ps1
 
-# 3. 构建 Weasel（按 WEASEL_BUILD.md）
-# 4. 安装 Weasel（按 WEASEL_INSTALL.md）
+# 3. 构建 Weasel（按 WEASEL_BUILD.md 逐步执行）
+# 4. 安装 Weasel（按 WEASEL_INSTALL.md 逐步执行）
 
 # 5. 构建 CommitBall
 .\build-commitball.ps1

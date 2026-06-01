@@ -78,7 +78,24 @@ git clone --recursive https://github.com/rime/weasel.git weasel
 
 子模块：`librime/`（Rime 引擎）、`plum/`（输入方案包管理器）。
 
-## 3. 环境配置
+## 3. 应用 CommitBall 补丁
+
+> **不可跳过。** 未应用此补丁则 Weasel 不会通过 Named Pipe 转发 commit，CommitBall 无法接收数据。
+
+```powershell
+# 在 commit-ball 仓库根目录下执行
+.\apply-patch.ps1
+```
+
+验证：
+
+```powershell
+Get-Content weasel\RimeWithWeasel\RimeWithWeasel.cpp | Select-String "CommitBall"
+```
+
+应输出 `CommitBallBridge` 相关行。如需重新应用（例如重置了 weasel 子模块）：`cd weasel; git checkout -- .`，然后重新执行 `apply-patch.ps1`。
+
+## 4. 环境配置
 
 在 `weasel/` 目录下创建 `env.bat`（从 `env.bat.template` 复制修改）：
 
@@ -93,7 +110,7 @@ set DEVTOOLS_PATH=C:\Program Files\7-Zip;C:\Program Files\CMake\bin;
 - `PLATFORM_TOOLSET=v143` — VS 2022
 - `BOOST_ROOT` 使用 `%CD%` 使其相对于 weasel 目录
 
-## 4. b2 的 vcvarsall.bat 符号链接（一次性）
+## 5. b2 的 vcvarsall.bat 符号链接（一次性）
 
 Boost 的 b2 构建工具会在 `VC\Tools\MSVC\<版本>\bin\Hostx64\` 下找 `vcvarsall.bat`，
 但 VS 2022 Build Tools 把它放在 `VC\Auxiliary\Build\` 下。
@@ -114,9 +131,9 @@ New-Item -ItemType Directory -Path (Split-Path $target) -Force
 cmd /c "mklink `"$target`" `"$link`""
 ```
 
-## 5. 构建 Boost
+## 6. 构建 Boost
 
-**前提：** 步骤 4 的 vcvarsall 符号链接必须已创建，否则 b2 会报 `msvc-setup.nup` 错误。
+**前提：** 步骤 5 的 vcvarsall 符号链接必须已创建，否则 b2 会报 `msvc-setup.nup` 错误。
 
 确保 `7z`、`aria2c` 在 PATH 中（见步骤 1 的"自动化处理"）。
 
@@ -149,7 +166,7 @@ Invoke-WebRequest -Uri "https://archives.boost.io/release/1.84.0/source/boost_1_
 
 产物在 `deps/boost_1_84_0/stage/lib/` 下。
 
-## 6. 获取 librime
+## 7. 获取 librime
 
 ```powershell
 cd weasel
@@ -175,7 +192,9 @@ https://github.com/rime/librime/releases/latest
 | `dist/lib/rime.dll` (x64) | `output/` |
 | `dist/lib/rime.dll` (x86) | `output/Win32/` |
 
-## 7. 获取输入方案数据
+**注意：** 手动下载 librime 不会自动安装 OpenCC 数据，必须在步骤 10 手动处理。
+
+## 8. 获取输入方案数据
 
 ```powershell
 cd weasel
@@ -185,7 +204,7 @@ cmd /c "`"$vcvarsall`" x64 && build.bat data"
 
 需要 bash（Git Bash）在 PATH 中。
 
-## 8. 编译 Weasel x64
+## 9. 编译 Weasel x64
 
 ```powershell
 cd weasel
@@ -209,9 +228,11 @@ $msbuild = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBui
 
 产物在 `output/` 目录下。
 
-## 9. 验证 OpenCC 数据
+## 10. OpenCC 数据（必需）
 
-步骤 6 的 `get-rime.ps1` 已自动将 OpenCC 数据复制到 `output/data/opencc/`。
+> **缺少 OpenCC 数据会导致繁简转换不生效，所有输出为繁体。**
+
+步骤 7 的 `get-rime.ps1` 已自动将 OpenCC 数据复制到 `output/data/opencc/`。
 
 验证：
 
@@ -219,7 +240,7 @@ $msbuild = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBui
 Test-Path output\data\opencc\TSCharacters.ocd2
 ```
 
-如果缺失（例如跳过了步骤 6），从官方安装包手动获取：
+如果缺失（例如步骤 7 手动下载了 librime），从官方安装包获取：
 
 ```powershell
 Invoke-WebRequest -Uri "https://github.com/rime/weasel/releases/latest/download/weasel-0.17.4.0-installer.exe" -OutFile "$env:TEMP\weasel-official.exe" -TimeoutSec 120
@@ -227,11 +248,11 @@ Invoke-WebRequest -Uri "https://github.com/rime/weasel/releases/latest/download/
 Copy-Item "$env:TEMP\weasel-official\data\opencc\*" "output\data\opencc\" -Force
 ```
 
-## 10. 安装
+## 11. 安装
 
 见 `WEASEL_INSTALL.md`。
 
-## 11. 日志
+## 12. 日志
 
 ```
 %TEMP%\rime.weasel\*.log
@@ -243,7 +264,7 @@ Copy-Item "$env:TEMP\weasel-official\data\opencc\*" "output\data\opencc\" -Force
 
 排查步骤：先看 `*.ERROR.*`，再看 `*.WARNING.*`。日志文件名含进程名、时间戳和 PID。
 
-## 12. 已知问题
+## 13. 已知问题
 
 | 问题 | 原因 | 影响 |
 |------|------|------|
