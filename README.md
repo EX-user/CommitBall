@@ -5,19 +5,19 @@
 ## 产品形态
 
 - 始终置顶的小圆球，三击 `[` 激活/退出，不影响焦点
-- 激活期间记录中文（Weasel commit）和英文（LL 键盘钩子）
-- 定时持久化为 JSON（含时间戳、类型、IME 状态）+ Markdown（纯内容）
+- 激活期间记录中文（Weasel commit）、英文（Weasel 转发）和特殊键（LL 钩子）
+- 每 10 秒持久化到 `commitball.txt`，按 session 分段，含起迄时间戳
 
 ## 技术路线
 
-- **Weasel Fork**：`_Respond()` 中 `get_commit()` 捕获中文 commit，通过 Named Pipe 转发
-- **CommitBall.exe**：Pipe Server 接收 commit + WH_KEYBOARD_LL 捕获英文 + 三击检测 + 悬浮球 + JSON 输出
-- **构建**：C++ / MSVC x64，零外部依赖
+- **Weasel Fork**：`_Respond()` 中 `get_commit()` 捕获中文 commit；`ProcessKeyEvent()` 转发英文字符，均通过 Named Pipe 发送
+- **CommitBall.exe**：Pipe Server 接收 commit/keystroke + WH_KEYBOARD_LL 捕获特殊键 + 三击检测 + SQLite 存储 + 定时输出 txt
+- **构建**：C++ / MSVC x64，SQLite 直接编译（公有领域）
 
 ## 约束
 
 - 仅支持 Weasel（Rime）输入法用户
-- 英文模式（ascii_mode）下按键通过 LL 钩子直接记录
+- 中文 commit 和英文字符通过 WeaselServer 转发；特殊键（Backspace、方向键等）由 CommitBall 的 LL hook 直接捕获
 - 不侵入目标应用，不修改输入法核心逻辑
 
 ## 快速开始
@@ -55,9 +55,9 @@ cd commit-ball
 
 1. 启动 CommitBall.exe
 2. 三击 `[` 激活录音
-3. 打字（中文/英文）
+3. 打字（中文/英文/特殊键）
 4. 三击 `[` 停止录音
-5. 每 20 秒自动输出到 `commitball.txt`
+5. 每 10 秒自动输出到 `commitball.txt`（编译开关 `ENABLE_TXT_OUTPUT` 控制）
 
 ## 架构
 
@@ -67,17 +67,17 @@ WeaselServer.exe
        └─ CommitBallBridge.cpp
             └─ Named Pipe (\\.\pipe\CommitBall)
                  └─ CommitBall.exe
-                      ├─ Named Pipe Server
-                      ├─ WH_KEYBOARD_LL (三击检测)
-                      ├─ SQLite (数据存储)
-                      └─ commitball.txt (定期输出)
+                      ├─ Named Pipe Server (接收 commit + 英文字符)
+                      ├─ WH_KEYBOARD_LL (特殊键 + 三击检测)
+                      ├─ SQLite (数据存储, record_id 分 session)
+                      └─ commitball.txt (定时输出, DbToText)
 ```
 
 ## 文件说明
 
 | 文件 | 说明 |
 |------|------|
-| `diff_of_weasel.patch` | Weasel 侧改动（4 文件，72 行） |
+| `diff_of_weasel.patch` | Weasel 侧改动（4 文件，127 行） |
 | `apply-patch.ps1` | 验证并应用 patch |
 | `build-commitball.ps1` | 构建 CommitBall.exe |
 | `commitball/main.cpp` | CommitBall 源码 |
