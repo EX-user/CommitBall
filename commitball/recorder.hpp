@@ -15,10 +15,13 @@ extern HANDLE g_pipe;
 extern sqlite3* g_db;
 extern sqlite3_stmt* g_insertStmt;
 extern DWORD g_lastOutputTime;
+extern bool g_running;
+extern HWND g_hWnd;
 
 const int TRIPLE_PRESS_WINDOW = 600;
 #define ENABLE_TXT_OUTPUT 1
 const int OUTPUT_INTERVAL = 10000;
+#define WM_PIPE_MSG (WM_USER + 1)
 
 bool RecorderInit();
 void RecorderCleanup();
@@ -187,7 +190,10 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
 }
 
 inline void CreatePipeServer() {
-    while (true) {
+    const int BUF_SIZE = 4096;
+    char readBuf[BUF_SIZE];
+
+    while (g_running) {
         g_pipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\CommitBall",
             PIPE_ACCESS_INBOUND,
@@ -201,11 +207,20 @@ inline void CreatePipeServer() {
         }
 
         if (ConnectNamedPipe(g_pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
-            wchar_t buffer[4096];
+            std::string acc;
             DWORD bytesRead;
-            while (ReadFile(g_pipe, buffer, sizeof(buffer) - sizeof(wchar_t), &bytesRead, NULL)) {
-                buffer[bytesRead / sizeof(wchar_t)] = L'\0';
-                ProcessMessage(buffer);
+            while (g_running && ReadFile(g_pipe, readBuf, BUF_SIZE, &bytesRead, NULL)) {
+                acc.append(readBuf, bytesRead);
+                while (acc.size() >= 4) {
+                    uint32_t msgLen;
+                    memcpy(&msgLen, acc.data(), 4);
+                    if (msgLen > 1024 * 1024) { acc.clear(); break; }
+                    if (acc.size() < 4 + msgLen) break;
+                    std::wstring wmsg((const wchar_t*)(acc.data() + 4), msgLen / sizeof(wchar_t));
+                    acc.erase(0, 4 + msgLen);
+                    std::wstring* pMsg = new std::wstring(std::move(wmsg));
+                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pMsg, 0);
+                }
             }
         }
 
@@ -222,7 +237,6 @@ inline void ProcessMessage(const std::wstring& msg) {
 
     if (msg.find(L"COMMIT:") == 0) {
         std::wstring text = msg.substr(7);
-        if (!text.empty() && text.back() == L'\n') text.pop_back();
         std::string utf8 = WideToUtf8(text);
         sqlite3_reset(g_insertStmt);
         sqlite3_bind_int(g_insertStmt, 1, g_recordId);
@@ -232,7 +246,6 @@ inline void ProcessMessage(const std::wstring& msg) {
         sqlite3_step(g_insertStmt);
     } else if (msg.find(L"KEYSTROKE:") == 0) {
         std::wstring ch = msg.substr(10);
-        if (!ch.empty() && ch.back() == L'\n') ch.pop_back();
         if (!ch.empty()) {
             std::string utf8 = WideToUtf8(ch);
             sqlite3_reset(g_insertStmt);

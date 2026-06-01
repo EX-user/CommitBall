@@ -11,6 +11,7 @@ int g_recordId = 0;
 HWND g_hWnd = nullptr;
 DWORD g_lastOutputTime = 0;
 ULONG_PTR g_gdiplusToken = 0;
+bool g_running = true;
 
 const wchar_t MUTEX_NAME[] = L"CommitBallMutex";
 
@@ -42,7 +43,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     HHOOK hook = SetWindowsHookEx(WH_KEYBOARD_LL, LLKeyboardProc, NULL, 0);
 
-    CreateThread(NULL, 0, [](LPVOID) -> DWORD {
+    HANDLE hPipeThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
         CreatePipeServer();
         return 0;
     }, NULL, 0, NULL);
@@ -55,6 +56,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
+
+    g_running = false;
+    if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
+    WaitForSingleObject(hPipeThread, 2000);
+    CloseHandle(hPipeThread);
 
     UnhookWindowsHookEx(hook);
     BallShutdown();

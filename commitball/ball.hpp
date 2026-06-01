@@ -276,6 +276,13 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         PostQuitMessage(0);
         return 0;
 
+    case WM_PIPE_MSG: {
+        std::wstring* pMsg = (std::wstring*)wParam;
+        ProcessMessage(*pMsg);
+        delete pMsg;
+        return 0;
+    }
+
     case WM_TIMER:
         if (wParam == IDT_OUTPUT) {
 #if ENABLE_TXT_OUTPUT

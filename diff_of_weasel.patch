@@ -1,9 +1,9 @@
 diff --git a/RimeWithWeasel/CommitBallBridge.cpp b/RimeWithWeasel/CommitBallBridge.cpp
 new file mode 100644
-index 0000000..9413227
+index 0000000..7cbe97f
 --- /dev/null
 +++ b/RimeWithWeasel/CommitBallBridge.cpp
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,39 @@
 +#include "stdafx.h"
 +#include "CommitBallBridge.h"
 +#include <windows.h>
@@ -23,19 +23,23 @@ index 0000000..9413227
 +static void Send(const std::wstring& msg) {
 +    EnsureConnected();
 +    if (g_hPipe == INVALID_HANDLE_VALUE) return;
++    uint32_t len = static_cast<uint32_t>(msg.size() * sizeof(wchar_t));
++    std::vector<char> buf(sizeof(uint32_t) + len);
++    memcpy(buf.data(), &len, sizeof(uint32_t));
++    memcpy(buf.data() + sizeof(uint32_t), msg.c_str(), len);
 +    DWORD written;
-+    if (!WriteFile(g_hPipe, msg.c_str(), (DWORD)(msg.size() * sizeof(wchar_t)), &written, NULL)) {
++    if (!WriteFile(g_hPipe, buf.data(), (DWORD)buf.size(), &written, NULL)) {
 +        CloseHandle(g_hPipe);
 +        g_hPipe = INVALID_HANDLE_VALUE;
 +    }
 +}
 +
 +void NotifyCommit(const std::wstring& text) {
-+    Send(L"COMMIT:" + text + L"\n");
++    Send(L"COMMIT:" + text);
 +}
 +
 +void NotifyKeystroke(wchar_t ch) {
-+    Send(std::wstring(L"KEYSTROKE:") + ch + L"\n");
++    Send(std::wstring(L"KEYSTROKE:") + ch);
 +}
 +
 +}
