@@ -19,9 +19,18 @@ extern bool g_running;
 extern HWND g_hWnd;
 
 const int TRIPLE_PRESS_WINDOW = 600;
-#define ENABLE_TXT_OUTPUT 1
-const int OUTPUT_INTERVAL = 10000;
+const int FLUSH_INTERVAL = 30000;
+const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
 #define WM_PIPE_MSG (WM_USER + 1)
+
+const char DATA_DIR[]     = "data";
+const char DB_DIR[]       = "data/db";
+const char SESSIONS_DIR[] = "data/sessions";
+const char EXPORTS_DIR[]  = "data/exports";
+const char LIVE_DIR[]     = "data/live";
+const char LOG_DIR[]      = "data/log";
+const char CURRENT_DB[]   = "data/db/current.db";
+const char LIVE_TXT[]     = "data/live/commitball.txt";
 
 bool RecorderInit();
 void RecorderCleanup();
@@ -31,12 +40,61 @@ void ProcessMessage(const std::wstring& msg);
 const wchar_t* SpecialKeyName(UINT vk);
 std::string WideToUtf8(const std::wstring& wide);
 std::string GetTimestamp();
-std::string DbToText();
-void WriteTxtNow();
+std::string DbToText(sqlite3* db);
+void FlushLiveBuffer();
+void CheckSessionSplit();
+void ExportSessionDb(const std::string& dbPath, const std::string& txtPath);
 void Log(const char* fmt, ...);
 
-inline bool RecorderInit() {
-    if (sqlite3_open("commitball.db", &g_db) != SQLITE_OK) return false;
+inline void EnsureDir(const char* path) {
+    CreateDirectoryA(path, NULL);
+}
+
+inline void EnsureDirs() {
+    EnsureDir(DATA_DIR);
+    EnsureDir(DB_DIR);
+    EnsureDir(SESSIONS_DIR);
+    EnsureDir(EXPORTS_DIR);
+    EnsureDir(LIVE_DIR);
+    EnsureDir(LOG_DIR);
+}
+
+inline std::string GetSessionTs() {
+    time_t now = time(NULL);
+    struct tm ti;
+    localtime_s(&ti, &now);
+    char buf[32];
+    strftime(buf, 32, "%Y-%m-%d_%H%M%S", &ti);
+    return buf;
+}
+
+inline std::string GetMonthDir() {
+    time_t now = time(NULL);
+    struct tm ti;
+    localtime_s(&ti, &now);
+    char buf[16];
+    strftime(buf, 16, "%Y-%m", &ti);
+    return buf;
+}
+
+inline int64_t GetDbSize() {
+    sqlite3_stmt* stmt;
+    int64_t pages = 0, pageSize = 0;
+    if (sqlite3_prepare_v2(g_db, "PRAGMA page_count", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            pages = sqlite3_column_int64(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    if (sqlite3_prepare_v2(g_db, "PRAGMA page_size", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            pageSize = sqlite3_column_int64(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    return pages * pageSize;
+}
+
+inline bool OpenDb(const char* path) {
+    if (sqlite3_open(path, &g_db) != SQLITE_OK) return false;
 
     char* errMsg = nullptr;
     sqlite3_exec(g_db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &errMsg);
@@ -70,6 +128,12 @@ inline bool RecorderInit() {
         sqlite3_finalize(maxStmt);
     }
 
+    return true;
+}
+
+inline bool RecorderInit() {
+    EnsureDirs();
+    if (!OpenDb(CURRENT_DB)) return false;
     Log("CommitBall started, record_id=%d", g_recordId);
     return true;
 }
@@ -80,23 +144,69 @@ inline void RecorderCleanup() {
     if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
 }
 
-inline void WriteTxtNow() {
-    std::string text = DbToText();
+inline void FlushLiveBuffer() {
+    std::string text = DbToText(g_db);
     if (!text.empty()) {
-        FILE* f = fopen("commitball.txt", "w");
+        FILE* f = fopen(LIVE_TXT, "w");
         if (f) { fprintf(f, "%s", text.c_str()); fclose(f); }
     }
+}
+
+inline void ExportSessionDb(const std::string& dbPath, const std::string& txtPath) {
+    sqlite3* db;
+    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) return;
+
+    std::string text = DbToText(db);
+    sqlite3_close(db);
+
+    if (!text.empty()) {
+        FILE* f = fopen(txtPath.c_str(), "w");
+        if (f) { fprintf(f, "%s", text.c_str()); fclose(f); }
+    }
+}
+
+inline void CheckSessionSplit() {
+    if (GetDbSize() < SESSION_SPLIT_SIZE) return;
+
+    std::string sessionTs = GetSessionTs();
+    std::string month = GetMonthDir();
+
+    std::string sessionDir = std::string(SESSIONS_DIR) + "\\" + month;
+    EnsureDir(sessionDir.c_str());
+    std::string sessionPath = sessionDir + "\\" + sessionTs + ".db";
+
+    std::string exportDir = std::string(EXPORTS_DIR) + "\\" + month;
+    EnsureDir(exportDir.c_str());
+    std::string exportPath = exportDir + "\\commitball_" + sessionTs + ".txt";
+
+    Log("Session split: size=%lld, exporting...", (long long)GetDbSize());
+
+    sqlite3_finalize(g_insertStmt);
+    g_insertStmt = nullptr;
+    sqlite3_close(g_db);
+    g_db = nullptr;
+
+    rename(CURRENT_DB, sessionPath.c_str());
+
+    ExportSessionDb(sessionPath, exportPath);
+
+    OpenDb(CURRENT_DB);
+    Log("Session split done: new current.db, record_id=%d", g_recordId);
 }
 
 inline void Log(const char* fmt, ...) {
     static int logLineCount = 0;
     const int MAX_LOG_LINES = 1000;
     if (logLineCount >= MAX_LOG_LINES) {
-        FILE* f = fopen("commitball.log", "w");
+        char logPath[MAX_PATH];
+        snprintf(logPath, MAX_PATH, "%s\\commitball.log", LOG_DIR);
+        FILE* f = fopen(logPath, "w");
         if (f) fclose(f);
         logLineCount = 0;
     }
-    FILE* f = fopen("commitball.log", "a");
+    char logPath[MAX_PATH];
+    snprintf(logPath, MAX_PATH, "%s\\commitball.log", LOG_DIR);
+    FILE* f = fopen(logPath, "a");
     if (!f) return;
     char ts[64];
     time_t now = time(NULL);
@@ -175,6 +285,7 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
                 sqlite3_bind_text(g_insertStmt, 3, "keystroke", -1, SQLITE_STATIC);
                 sqlite3_bind_text(g_insertStmt, 4, utf8.c_str(), -1, SQLITE_TRANSIENT);
                 sqlite3_step(g_insertStmt);
+                CheckSessionSplit();
             } else if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && vk == 'V') {
                 std::string ts = GetTimestamp();
                 sqlite3_reset(g_insertStmt);
@@ -183,6 +294,7 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
                 sqlite3_bind_text(g_insertStmt, 3, "keystroke", -1, SQLITE_STATIC);
                 sqlite3_bind_text(g_insertStmt, 4, "[Paste]", -1, SQLITE_STATIC);
                 sqlite3_step(g_insertStmt);
+                CheckSessionSplit();
             }
         }
     }
@@ -244,6 +356,7 @@ inline void ProcessMessage(const std::wstring& msg) {
         sqlite3_bind_text(g_insertStmt, 3, "commit", -1, SQLITE_STATIC);
         sqlite3_bind_text(g_insertStmt, 4, utf8.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_step(g_insertStmt);
+        CheckSessionSplit();
     } else if (msg.find(L"KEYSTROKE:") == 0) {
         std::wstring ch = msg.substr(10);
         if (!ch.empty()) {
@@ -254,6 +367,7 @@ inline void ProcessMessage(const std::wstring& msg) {
             sqlite3_bind_text(g_insertStmt, 3, "keystroke", -1, SQLITE_STATIC);
             sqlite3_bind_text(g_insertStmt, 4, utf8.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(g_insertStmt);
+            CheckSessionSplit();
         }
     }
 }
@@ -275,7 +389,7 @@ inline std::string GetTimestamp() {
     return buffer;
 }
 
-inline std::string DbToText() {
+inline std::string DbToText(sqlite3* db) {
     static const std::pair<const char*, const char*> shortMap[] = {
         {"[Backspace]", "[<bs]"},
         {"[Tab]",       "[<tab]"},
@@ -296,8 +410,10 @@ inline std::string DbToText() {
         {"[Undo]",      "[<undo]"},
     };
 
+    if (!db) return "";
+
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(g_db,
+    int rc = sqlite3_prepare_v2(db,
         "SELECT record_id, ts, type, content FROM log ORDER BY record_id, id",
         -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return "";

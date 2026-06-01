@@ -264,7 +264,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
         case IDM_WRITE_TXT:
-            WriteTxtNow();
+            FlushLiveBuffer();
             break;
         case IDM_EXIT:
             PostMessage(g_hWnd, WM_CLOSE, 0, 0);
@@ -285,12 +285,10 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_TIMER:
         if (wParam == IDT_OUTPUT) {
-#if ENABLE_TXT_OUTPUT
-            if (GetTickCount() - g_lastOutputTime >= OUTPUT_INTERVAL) {
-                WriteTxtNow();
+            if (GetTickCount() - g_lastOutputTime >= FLUSH_INTERVAL) {
+                FlushLiveBuffer();
                 g_lastOutputTime = GetTickCount();
             }
-#endif
         }
         return 0;
     }
