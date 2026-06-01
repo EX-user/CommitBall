@@ -1,0 +1,53 @@
+# CommitBall Frontend Design
+
+## 悬浮球窗口
+
+- 48x48px 分层窗口（WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE）
+- GDI+ 绘制：20px 半径圆形，1.5px 白色边框，中心符号
+- 圆内左键拖拽（WM_NCHITTEST → HTCAPTION），圆外点击穿透（HTNOWHERE）
+- 三角形 ▶ 绘制时右移 2px 补偿视觉偏移
+
+## 状态显示
+
+- STOPPED：蓝 #3B82F6 + ⏸（U+23F8）
+- RECORDING：红 #EF4444 + ▶（U+25B6）
+- 符号用 Segoe UI Symbol 16px + DrawString，居中对齐
+
+## 右键菜单
+
+- WM_NCRBUTTONUP 触发（HTCAPTION 区域的右键事件）
+- SetForegroundWindow + TrackPopupMenu + PostMessage(WM_NULL) 确保菜单可关闭
+- 「写入 txt」→ WriteTxtNow()
+- 「退出 CommitBall」→ PostMessage(WM_CLOSE) → WM_DESTROY → PostQuitMessage(0)
+- 录制切换只能三击 `[`，右键菜单不提供此功能
+
+## 边缘吸附
+
+- WM_EXITSIZEMOVE 时检测四边距离，<20px（SNAP_THRESHOLD）则吸附
+- 吸附后球半露在屏幕边缘，窗口坐标 = -BALL_RADIUS 或 screen - BALL_RADIUS
+- 录制开始时 UnsnapForRecording（向内移动 BALL_RADIUS），停止时 ApplySnappedEdge（回弹）
+- 吸附状态（x, y, edge）持久化到 commitball.pos
+
+## 位置持久化
+
+- 启动时读取 commitball.pos（文本：`x y edge`），无则默认右下角
+- WM_CLOSE（退出时）写入当前坐标和吸附边
+
+## 单例
+
+- CreateMutexW("CommitBallMutex")，ERROR_ALREADY_EXISTS 时直接退出
+
+## 键盘 Hook
+
+- WH_KEYBOARD_LL 安装在主线程，需管理员权限运行
+- 三击 `[`（VK_OEM_4，600ms 窗口）切换 STOPPED/RECORDING
+
+## Debug 日志
+
+- Log() 写入 commitball.log，带时间戳，1000 行上限（超限清空）
+- 记录：启动、状态切换
+
+## 无控制台
+
+- WinMain 入口，/SUBSYSTEM:WINDOWS
+- 链接：user32.lib gdi32.lib gdiplus.lib
