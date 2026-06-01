@@ -22,6 +22,7 @@ const int SNAP_THRESHOLD = 20;
 
 #define IDT_OUTPUT 1
 #define IDT_COLOR_ANIM 2
+#define IDM_STATUS    1000
 #define IDM_WRITE_TXT 1001
 #define IDM_EXIT      1002
 
@@ -34,6 +35,15 @@ inline int g_curR = 59, g_curG = 130, g_curB = 246;
 inline int g_tgtR = 59, g_tgtG = 130, g_tgtB = 246;
 inline int g_curPenR = 255, g_curPenG = 255, g_curPenB = 255;
 inline int g_tgtPenR = 255, g_tgtPenG = 255, g_tgtPenB = 255;
+inline bool g_noAdmin = false;
+
+inline const wchar_t* GetStatusText() {
+    if (g_noAdmin) return L"\x72B6\x6001: \x65E0\x6743\x9650, \x7A0D\x540E\x9000\x51FA...";
+    extern State g_state;
+    return (g_state == RECORDING)
+        ? L"\x72B6\x6001: \x8BB0\x5F55"
+        : L"\x72B6\x6001: \x5C31\x7EEA";
+}
 
 const wchar_t BALL_CLASS_NAME[] = L"CommitBallClass";
 const wchar_t BALL_POS_FILE[] = L"commitball.pos";
@@ -146,11 +156,11 @@ inline void RedrawBall() {
         BALL_CX - BALL_RADIUS + 1, BALL_CY - BALL_RADIUS + 1,
         (BALL_RADIUS - 1) * 2, (BALL_RADIUS - 1) * 2);
 
-    const wchar_t* symbol = (g_state == RECORDING) ? L"\x25B6" : L"\x23F8";
+    const wchar_t* symbol = g_noAdmin ? L"?" : (g_state == RECORDING) ? L"\x25B6" : L"\x23F8";
 
     Gdiplus::FontFamily fontFamily(L"Segoe UI Symbol");
     if (fontFamily.IsAvailable()) {
-        Gdiplus::Font font(&fontFamily, 28.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+        Gdiplus::Font font(&fontFamily, 34.0f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
         Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 255, 255, 255));
         Gdiplus::StringFormat sf;
         sf.SetAlignment(Gdiplus::StringAlignmentCenter);
@@ -260,6 +270,8 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_NCRBUTTONUP: {
         HMENU hMenu = CreatePopupMenu();
+        AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_STATUS, GetStatusText());
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_WRITE_TXT, L"\x5199\x5165 txt");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_EXIT, L"\x9000\x51FA CommitBall");

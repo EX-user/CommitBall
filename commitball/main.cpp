@@ -2,6 +2,19 @@
 #include "ball.hpp"
 #include <shellscalingapi.h>
 #pragma comment(lib, "shcore.lib")
+#pragma comment(lib, "advapi32.lib")
+
+bool IsRunAsAdmin() {
+    BOOL isAdmin = FALSE;
+    PSID adminGroup = NULL;
+    SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
+    if (AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
+        DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup)) {
+        CheckTokenMembership(NULL, adminGroup, &isAdmin);
+        FreeSid(adminGroup);
+    }
+    return isAdmin != FALSE;
+}
 
 State g_state = STOPPED;
 Edge g_snappedEdge = EDGE_NONE;
@@ -49,6 +62,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         RecorderCleanup();
         if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
         return 1;
+    }
+
+    if (!IsRunAsAdmin()) {
+        g_noAdmin = true;
+        g_curR = 128; g_curG = 128; g_curB = 128;
+        g_tgtR = 128; g_tgtG = 128; g_tgtB = 128;
+        g_curPenR = 255; g_curPenG = 255; g_curPenB = 255;
+        g_tgtPenR = 255; g_tgtPenG = 255; g_tgtPenB = 255;
+        RedrawBall();
+        CreateThread(NULL, 0, [](LPVOID) -> DWORD {
+            Sleep(30000);
+            ExitProcess(0);
+            return 0;
+        }, NULL, 0, NULL);
+        MSG msg;
+        while (GetMessage(&msg, NULL, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
+        return 0;
     }
 
     HHOOK hook = SetWindowsHookEx(WH_KEYBOARD_LL, LLKeyboardProc, NULL, 0);

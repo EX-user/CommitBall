@@ -7,4 +7,4 @@ if (!(Test-Path $vcvarsall)) {
     exit 1
 }
 
-cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $PSScriptRoot\commitball && cl /EHsc /std:c++17 /Fe:CommitBall.exe main.cpp sqlite3.c /link user32.lib gdi32.lib gdiplus.lib shcore.lib /SUBSYSTEM:WINDOWS"
+cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $PSScriptRoot\commitball && cl /EHsc /std:c++17 /Fe:CommitBall.exe main.cpp sqlite3.c /link user32.lib gdi32.lib gdiplus.lib shcore.lib advapi32.lib /SUBSYSTEM:WINDOWS"
