@@ -7,8 +7,15 @@
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "gdiplus.lib")
 
-const int BALL_SIZE = 48;
-const int BALL_RADIUS = 20;
+inline float GetDpiScale() {
+    HDC hdc = GetDC(NULL);
+    int dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+    ReleaseDC(NULL, hdc);
+    return dpi / 96.0f;
+}
+
+const int BALL_SIZE = 80;
+const int BALL_RADIUS = 36;
 const int BALL_CX = BALL_SIZE / 2;
 const int BALL_CY = BALL_SIZE / 2;
 const int SNAP_THRESHOLD = 20;
@@ -99,6 +106,7 @@ inline void RedrawBall() {
     Gdiplus::Graphics graphics(hdcMem);
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
     graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
     graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
 
     Gdiplus::Color ballColor = (g_state == RECORDING)
@@ -110,7 +118,7 @@ inline void RedrawBall() {
         BALL_CX - BALL_RADIUS, BALL_CY - BALL_RADIUS,
         BALL_RADIUS * 2, BALL_RADIUS * 2);
 
-    Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 255), 1.5f);
+    Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 255), 2.5f);
     graphics.DrawEllipse(&pen,
         BALL_CX - BALL_RADIUS + 1, BALL_CY - BALL_RADIUS + 1,
         (BALL_RADIUS - 1) * 2, (BALL_RADIUS - 1) * 2);
@@ -119,13 +127,13 @@ inline void RedrawBall() {
 
     Gdiplus::FontFamily fontFamily(L"Segoe UI Symbol");
     if (fontFamily.IsAvailable()) {
-        Gdiplus::Font font(&fontFamily, 16.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+        Gdiplus::Font font(&fontFamily, 28.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
         Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 255, 255, 255));
         Gdiplus::StringFormat sf;
         sf.SetAlignment(Gdiplus::StringAlignmentCenter);
         sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
         Gdiplus::RectF rect(
-            (float)(BALL_CX - BALL_RADIUS) + (g_state == RECORDING ? 2.0f : 0.0f),
+            (float)(BALL_CX - BALL_RADIUS) + (g_state == RECORDING ? 4.0f : 0.0f),
             (float)(BALL_CY - BALL_RADIUS),
             (float)(BALL_RADIUS * 2), (float)(BALL_RADIUS * 2));
         graphics.DrawString(symbol, -1, &font, rect, &sf, &textBrush);

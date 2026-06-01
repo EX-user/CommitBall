@@ -1,5 +1,7 @@
 #include "recorder.hpp"
 #include "ball.hpp"
+#include <shellscalingapi.h>
+#pragma comment(lib, "shcore.lib")
 
 State g_state = STOPPED;
 Edge g_snappedEdge = EDGE_NONE;
@@ -24,6 +26,8 @@ void OnStateChanged() {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     HANDLE hMutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         if (hMutex) CloseHandle(hMutex);

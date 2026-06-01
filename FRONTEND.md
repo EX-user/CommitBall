@@ -2,16 +2,16 @@
 
 ## 悬浮球窗口
 
-- 48x48px 分层窗口（WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE）
-- GDI+ 绘制：20px 半径圆形，1.5px 白色边框，中心符号
+- 80x80px 分层窗口（WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE）
+- GDI+ 绘制：36px 半径圆形，2.5px 白色边框，中心符号，PixelOffsetModeHighQuality
 - 圆内左键拖拽（WM_NCHITTEST → HTCAPTION），圆外点击穿透（HTNOWHERE）
-- 三角形 ▶ 绘制时右移 2px 补偿视觉偏移
+- 三角形 ▶ 绘制时右移 3px 补偿视觉偏移
 
 ## 状态显示
 
 - STOPPED：蓝 #3B82F6 + ⏸（U+23F8）
 - RECORDING：红 #EF4444 + ▶（U+25B6）
-- 符号用 Segoe UI Symbol 16px + DrawString，居中对齐
+- 符号用 Segoe UI Symbol 28px + DrawString，居中对齐
 
 ## 右键菜单
 
@@ -50,4 +50,9 @@
 ## 无控制台
 
 - WinMain 入口，/SUBSYSTEM:WINDOWS
-- 链接：user32.lib gdi32.lib gdiplus.lib
+- 链接：user32.lib gdi32.lib gdiplus.lib shcore.lib
+
+## DPI 感知
+
+- SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)，避免高清屏幕模糊
+- 提供 GetDpiScale() 辅助函数（96dpi 基准），可按需动态缩放尺寸
