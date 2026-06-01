@@ -74,7 +74,7 @@ WeaselServer.exe
 
 | 文件 | 说明 |
 |------|------|
-| `weasel.patch` | Weasel 侧改动（4 文件，72 行） |
+| `diff_of_weasel.patch` | Weasel 侧改动（4 文件，72 行） |
 | `apply-patch.ps1` | 验证并应用 patch |
 | `build-commitball.ps1` | 构建 CommitBall.exe |
 | `commitball/main.cpp` | CommitBall 源码 |
