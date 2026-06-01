@@ -5,18 +5,18 @@
 ## 产品形态
 
 - 始终置顶的小圆球，三击 `[` 激活/退出，不影响焦点
-- 激活期间记录中文（Weasel commit）、英文（Weasel 转发）和特殊键（LL 钩子）
+- 激活期间记录中文（CB-Weasel commit）、英文（CB-Weasel 转发）和特殊键（LL 钩子）
 - 每 10 秒持久化到 `commitball.txt`，按 session 分段，含起迄时间戳
 
 ## 技术路线
 
-- **Weasel Fork**：`_Respond()` 中 `get_commit()` 捕获中文 commit；`ProcessKeyEvent()` 转发英文字符，均通过 Named Pipe 发送
+- **CB-Weasel Fork**：基于 Weasel（小狼毫）改名，避免与官方安装冲突。`_Respond()` 中 `get_commit()` 捕获中文 commit；`ProcessKeyEvent()` 转发英文字符，均通过 Named Pipe 发送
 - **CommitBall.exe**：Pipe Server 接收 commit/keystroke + WH_KEYBOARD_LL 捕获特殊键 + 三击检测 + SQLite 存储 + 定时输出 txt
 - **构建**：C++ / MSVC x64，SQLite 直接编译（公有领域）
 
 ## 约束
 
-- 仅支持 Weasel（Rime）输入法用户
+- 仅支持 CB-Weasel（Rime）输入法用户（基于 Weasel fork，可与官方 Weasel 共存）
 - 中文 commit 和英文字符通过 WeaselServer 转发；特殊键（Backspace、方向键等）由 CommitBall 的 LL hook 直接捕获
 - 不侵入目标应用，不修改输入法核心逻辑
 
@@ -38,11 +38,11 @@
 git clone --recursive <repo-url>
 cd commit-ball
 
-# 2. 应用 Weasel 补丁（不可跳过）
+# 2. 应用 CB-Weasel 补丁（不可跳过，含 CommitBallBridge + 改名）
 .\apply-patch.ps1
 
-# 3. 构建 Weasel（按 WEASEL_BUILD.md 逐步执行）
-# 4. 安装 Weasel（按 WEASEL_INSTALL.md 逐步执行）
+# 3. 构建 CB-Weasel（按 WEASEL_BUILD.md 逐步执行）
+# 4. 安装 CB-Weasel（按 WEASEL_INSTALL.md 逐步执行）
 
 # 5. 构建 CommitBall
 .\build-commitball.ps1
@@ -77,16 +77,18 @@ WeaselServer.exe
 
 | 文件 | 说明 |
 |------|------|
-| `diff_of_weasel.patch` | Weasel 侧改动（4 文件，127 行） |
+| `diff_of_weasel.patch` | CB-Weasel 侧改动（CommitBallBridge + 改名，26 文件，957 行） |
 | `apply-patch.ps1` | 验证并应用 patch |
 | `build-commitball.ps1` | 构建 CommitBall.exe |
-| `commitball/main.cpp` | CommitBall 源码 |
+| `commitball/main.cpp` | CommitBall 入口（WinMain + 全局变量） |
+| `commitball/recorder.hpp` | 录制逻辑（DB、hook、pipe、DbToText） |
+| `commitball/ball.hpp` | 悬浮球 UI（绘制、拖拽、吸附、右键菜单） |
 | `commitball/sqlite3.*` | SQLite 源码（公有领域） |
-| `WEASEL_BUILD.md` | Weasel 构建指南 |
-| `WEASEL_INSTALL.md` | Weasel 安装/卸载指南 |
+| `WEASEL_BUILD.md` | CB-Weasel 构建指南 |
+| `WEASEL_INSTALL.md` | CB-Weasel 安装/卸载指南 |
 
 ## 许可证
 
 - CommitBall：MIT
 - SQLite：公有领域
-- Weasel：GPL-3.0（见 weasel/ 目录）
+- CB-Weasel：GPL-3.0（基于 Weasel fork，见 weasel/ 目录）
