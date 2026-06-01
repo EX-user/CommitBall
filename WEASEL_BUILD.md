@@ -1,6 +1,7 @@
-# Weasel (小狼毫) 本地构建记录
+# CB-Weasel 本地构建记录
 
 > 在 Windows 11 + VS 2022 Build Tools 环境下成功构建 x64 的完整流程。
+> 基于 Weasel（小狼毫）fork，改名为 CB-Weasel 以避免与官方安装冲突。
 > 仅覆盖 x64 Release 构建，Win32 因 Boost 命名问题未解决。
 
 ## 1. 前置依赖
@@ -78,9 +79,11 @@ git clone --recursive https://github.com/rime/weasel.git weasel
 
 子模块：`librime/`（Rime 引擎）、`plum/`（输入方案包管理器）。
 
-## 3. 应用 CommitBall 补丁
+## 3. 应用 CommitBall + CB-Weasel 改名补丁
 
-> **不可跳过。** 未应用此补丁则 Weasel 不会通过 Named Pipe 转发 commit，CommitBall 无法接收数据。
+> **不可跳过。** 未应用此补丁则：
+> - WeaselServer 不会通过 Named Pipe 转发 commit，CommitBall 无法接收数据
+> - 产品名仍为 "Weasel"，会与官方安装冲突
 
 ```powershell
 # 在 commit-ball 仓库根目录下执行
@@ -91,9 +94,10 @@ git clone --recursive https://github.com/rime/weasel.git weasel
 
 ```powershell
 Get-Content weasel\RimeWithWeasel\RimeWithWeasel.cpp | Select-String "CommitBall"
+Get-Content weasel\include\WeaselConstants.h | Select-String "CBWeasel"
 ```
 
-应输出 `CommitBallBridge` 相关行。如需重新应用（例如重置了 weasel 子模块）：`cd weasel; git checkout -- .`，然后重新执行 `apply-patch.ps1`。
+第一行应输出 `CommitBallBridge` 相关行，第二行应输出 `CBWeasel`。如需重新应用（例如重置了 weasel 子模块）：`cd weasel; git checkout -- . && git clean -fd`，然后重新执行 `apply-patch.ps1`。
 
 ## 4. 环境配置
 
@@ -204,7 +208,7 @@ cmd /c "`"$vcvarsall`" x64 && build.bat data"
 
 需要 bash（Git Bash）在 PATH 中。
 
-## 9. 编译 Weasel x64
+## 9. 编译 CB-Weasel x64
 
 ```powershell
 cd weasel
@@ -226,7 +230,9 @@ $msbuild = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBui
 & $msbuild weasel.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /t:Build /verbosity:minimal
 ```
 
-产物在 `output/` 目录下。
+产物在 `output/` 目录下，关键文件：
+- `cb-weaselx64.dll` — TSF 输入法 DLL（新 GUID，不与官方 Weasel 冲突）
+- `WeaselServer.exe` — 算法服务（含 CommitBallBridge）
 
 ## 10. OpenCC 数据（必需）
 
@@ -255,7 +261,7 @@ Copy-Item "$env:TEMP\weasel-official\data\opencc\*" "output\data\opencc\" -Force
 ## 12. 日志
 
 ```
-%TEMP%\rime.weasel\*.log
+%TEMP%\rime.cb-weasel\*.log
 ```
 
 - `*.ERROR.*` — 错误（如 OpenCC 数据缺失、方案不存在）
