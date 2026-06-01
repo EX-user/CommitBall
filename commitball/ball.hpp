@@ -266,9 +266,18 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         POINT pt;
         GetCursorPos(&pt);
         SetForegroundWindow(hWnd);
-        TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
-        PostMessage(hWnd, WM_NULL, 0, 0);
+        int cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0, hWnd, NULL);
         DestroyMenu(hMenu);
+        if (cmd == IDM_EXIT) {
+            PostQuitMessage(0);
+            CreateThread(NULL, 0, [](LPVOID) -> DWORD {
+                Sleep(3000);
+                ExitProcess(0);
+                return 0;
+            }, NULL, 0, NULL);
+        } else if (cmd == IDM_WRITE_TXT) {
+            WriteTxtNow();
+        }
         return 0;
     }
 
@@ -298,7 +307,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             WriteTxtNow();
             break;
         case IDM_EXIT:
-            PostMessage(g_hWnd, WM_CLOSE, 0, 0);
+            DestroyWindow(g_hWnd);
             break;
         }
         return 0;
