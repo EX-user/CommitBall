@@ -323,7 +323,7 @@ inline void InsertFocusEvent(const std::wstring& title, const std::wstring& proc
     const char* eventType = "focus";
     char focusType[64];
     if (isDummy) {
-        snprintf(focusType, sizeof(focusType), "focus-dummy-%s", timeBuf);
+        snprintf(focusType, sizeof(focusType), "focus-stay-%s", timeBuf);
         eventType = focusType;
     }
 

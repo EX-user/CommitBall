@@ -220,6 +220,8 @@ inline void ApplySnappedEdge() {
     if (g_snappedEdge == EDGE_NONE) return;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
+    RECT workArea;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
     RECT rc;
     GetWindowRect(g_hWnd, &rc);
     int x = rc.left, y = rc.top;
@@ -227,8 +229,11 @@ inline void ApplySnappedEdge() {
         case EDGE_LEFT:   x = -BALL_RADIUS; break;
         case EDGE_RIGHT:  x = screenW - BALL_RADIUS; break;
         case EDGE_TOP:    y = -BALL_RADIUS; break;
-        case EDGE_BOTTOM: y = screenH - BALL_RADIUS; break;
+        case EDGE_BOTTOM: y = workArea.bottom - BALL_SIZE; break;
         default: break;
+    }
+    if (g_snappedEdge == EDGE_LEFT || g_snappedEdge == EDGE_RIGHT) {
+        y = max(-BALL_RADIUS, min((int)y, (int)(workArea.bottom - BALL_SIZE)));
     }
     SetWindowPos(g_hWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
@@ -326,9 +331,10 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_EXITSIZEMOVE: {
         RECT rc;
+        RECT workArea;
+        SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
         GetWindowRect(hWnd, &rc);
         int screenW = GetSystemMetrics(SM_CXSCREEN);
-        int screenH = GetSystemMetrics(SM_CYSCREEN);
         int x = rc.left, y = rc.top;
         g_snappedEdge = EDGE_NONE;
         if (x < SNAP_THRESHOLD) {
@@ -337,8 +343,11 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             g_snappedEdge = EDGE_RIGHT; x = screenW - BALL_RADIUS;
         } else if (y < SNAP_THRESHOLD) {
             g_snappedEdge = EDGE_TOP; y = -BALL_RADIUS;
-        } else if (y + BALL_SIZE > screenH - SNAP_THRESHOLD) {
-            g_snappedEdge = EDGE_BOTTOM; y = screenH - BALL_RADIUS;
+        } else if (y + BALL_SIZE > workArea.bottom - SNAP_THRESHOLD) {
+            g_snappedEdge = EDGE_BOTTOM; y = workArea.bottom - BALL_SIZE;
+        }
+        if (g_snappedEdge == EDGE_LEFT || g_snappedEdge == EDGE_RIGHT) {
+            y = min(y, (int)(workArea.bottom - BALL_SIZE));
         }
         SetWindowPos(hWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
