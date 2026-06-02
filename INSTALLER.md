@@ -95,7 +95,7 @@ C:\Windows\System32\
 ```
 installer/
   build-installer.ps1      # 构建脚本（含文件检查）
-  cb-weasel.nsi            # NSIS 脚本
+  commitball.nsi             # NSIS 脚本
   .gitignore               # 忽略 archives/ 和 staging/
   archives/                # 构建产物（git 忽略）
   staging/                 # 临时文件（git 忽略）

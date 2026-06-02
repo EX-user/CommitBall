@@ -25,8 +25,8 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
 ; MUI settings
-!define MUI_ICON "..\weasel\resource\weasel.ico"
-!define MUI_UNICON "..\weasel\resource\weasel.ico"
+!define MUI_ICON "..\tools\commitball.ico"
+!define MUI_UNICON "..\tools\commitball.ico"
 !define MUI_ABORTWARNING
 
 ; Pages
@@ -114,12 +114,16 @@ Section "CB-Weasel 输入法" SecMain
 
   ; Start WeaselServer
   DetailPrint "启动 WeaselServer..."
+  SetOutPath "$INSTDIR\cb-weasel"
   Exec "$INSTDIR\cb-weasel\WeaselServer.exe"
 
   ; Deploy input schemes
   DetailPrint "部署输入方案..."
   Sleep 2000
   nsExec::ExecToLog '"$INSTDIR\cb-weasel\WeaselDeployer.exe" /deploy'
+
+  ; Set working directory for CommitBall launch
+  SetOutPath "$INSTDIR"
 
   DetailPrint "安装完成！请在 Windows 设置中添加 CB-Weasel 键盘。"
 SectionEnd

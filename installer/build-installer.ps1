@@ -64,7 +64,7 @@ Copy-Item $prismBin staging\build\ -Force
 
 # === Build CommitBall ===
 Write-Host "Building CommitBall..."
-cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $root\commitball && cl /EHsc /std:c++17 /Fe:CommitBall.exe main.cpp sqlite3.c /link user32.lib gdi32.lib gdiplus.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"
+cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $root\commitball && rc /fo commitball.res commitball.rc && cl /EHsc /std:c++17 /Fe:CommitBall.exe main.cpp sqlite3.c commitball.res /link user32.lib gdi32.lib gdiplus.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"
 if (!(Test-Path "$root\commitball\CommitBall.exe")) {
     Write-Error "CommitBall.exe build failed. Check compiler errors above."
     exit 1
@@ -73,7 +73,7 @@ if (!(Test-Path "$root\commitball\CommitBall.exe")) {
 # === Build installer ===
 Write-Host "Building installer..."
 New-Item -ItemType Directory -Path archives -Force | Out-Null
-& $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DWEASEL_BUILD=0 /DPRODUCT_VERSION=0.17.4.0 cb-weasel.nsi
+& $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DWEASEL_BUILD=0 /DPRODUCT_VERSION=0.17.4.0 commitball.nsi
 
 if ($LASTEXITCODE -eq 0) {
     $exe = Get-Item "archives\CommitBall-0.17.4.0-installer.exe"
