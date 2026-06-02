@@ -10,14 +10,14 @@
 !ifndef WEASEL_VERSION
   !define WEASEL_VERSION "0.17.4"
 !endif
-!ifndef WEASEL_BUILD
-  !define WEASEL_BUILD "0"
+!ifndef COMMITBALL_VERSION
+  !define COMMITBALL_VERSION "0.1.0"
 !endif
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "${WEASEL_VERSION}.${WEASEL_BUILD}"
+  !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
 !endif
 
-Name "CommitBall ${WEASEL_VERSION}"
+Name "CommitBall ${COMMITBALL_VERSION}"
 OutFile "archives\CommitBall-${PRODUCT_VERSION}-installer.exe"
 InstallDir "$PROGRAMFILES64\CommitBall"
 InstallDirRegKey HKLM "SOFTWARE\Rime\CBWeasel" "InstallDir"
@@ -72,10 +72,11 @@ Section "CB-Weasel 输入法" SecMain
   File "..\weasel\output\rime.dll"
   File "..\weasel\output\WinSparkle.dll"
 
-  ; Data files
+  ; Data files (exclude unused schemas)
   SetOutPath "$INSTDIR\cb-weasel\data"
-  File /r "..\weasel\output\data\*.yaml"
+  File /r /x "cangjie5*" /x "terra_pinyin*" /x "bopomofo*" /x "stroke*" /x "detenele*" /x "zhuyin.yaml" /x "default.yaml" "..\weasel\output\data\*.yaml"
   File /r "..\weasel\output\data\*.txt"
+  File "default.yaml"
 
   SetOutPath "$INSTDIR\cb-weasel\data\opencc"
   File /r "..\weasel\output\data\opencc\*.*"
