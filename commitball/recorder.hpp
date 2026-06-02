@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <psapi.h>
 #include <string>
 #include <ctime>
 #include <cstdarg>
@@ -7,6 +8,7 @@
 #include "sqlite3.h"
 
 #pragma comment(lib, "user32.lib")
+#pragma comment(lib, "psapi.lib")
 
 enum State { STOPPED, RECORDING };
 extern State g_state;
@@ -17,11 +19,49 @@ extern sqlite3_stmt* g_insertStmt;
 extern DWORD g_lastOutputTime;
 extern bool g_running;
 extern HWND g_hWnd;
+extern HWND g_lastFocusHwnd;
+extern int g_focusNoChangeCount;
 
-const int TRIPLE_PRESS_WINDOW = 600;
 const int FLUSH_INTERVAL = 30000;
 const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
+const int FOCUS_TITLE_MAX = 128;
 #define WM_PIPE_MSG (WM_USER + 1)
+
+struct TriggerKey {
+    UINT vk;
+    DWORD maxDelay;
+};
+
+const int TRIGGER_PATTERNS_COUNT = 1;
+const int TRIGGER_PATTERNS_MAX_LEN = 4;
+const int TRIGGER_HISTORY_SIZE = 8;
+
+inline bool CheckTrigger(UINT vk) {
+    static UINT histVk[TRIGGER_HISTORY_SIZE] = {};
+    static DWORD histTime[TRIGGER_HISTORY_SIZE] = {};
+    static int histCount = 0;
+    static int histPos = 0;
+
+    DWORD now = GetTickCount();
+    histVk[histPos] = vk;
+    histTime[histPos] = now;
+    histPos = (histPos + 1) % TRIGGER_HISTORY_SIZE;
+    if (histCount < TRIGGER_HISTORY_SIZE) histCount++;
+
+    if (histCount < 4) return false;
+
+    for (int i = 0; i < 4; i++) {
+        int idx = (histPos - 4 + i + TRIGGER_HISTORY_SIZE) % TRIGGER_HISTORY_SIZE;
+        if (histVk[idx] != VK_CAPITAL) return false;
+        if (i > 0) {
+            int prevIdx = (histPos - 4 + i - 1 + TRIGGER_HISTORY_SIZE) % TRIGGER_HISTORY_SIZE;
+            if (histTime[idx] - histTime[prevIdx] > 500) return false;
+        }
+    }
+
+    histCount = 0;
+    return true;
+}
 
 const char DATA_DIR[]     = "data";
 const char DB_DIR[]       = "data/db";
@@ -44,6 +84,9 @@ std::string DbToText(sqlite3* db);
 void FlushLiveBuffer();
 void CheckSessionSplit();
 void ExportSessionDb(const std::string& dbPath, const std::string& txtPath);
+void CheckFocusChange();
+void InsertFocusEvent(const std::wstring& title, const std::wstring& processName, const RECT& rect, bool isDummy = false);
+std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProcess, RECT& outRect);
 void Log(const char* fmt, ...);
 
 inline void EnsureDir(const char* path) {
@@ -223,6 +266,110 @@ inline void Log(const char* fmt, ...) {
     logLineCount++;
 }
 
+inline std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProcess, RECT& outRect) {
+    HWND hwnd = GetForegroundWindow();
+    if (!hwnd) {
+        outTitle = L"";
+        outProcess = L"";
+        outRect = {0, 0, 0, 0};
+        return L"";
+    }
+
+    wchar_t titleBuf[256];
+    int titleLen = GetWindowTextW(hwnd, titleBuf, 256);
+    outTitle = titleLen > 0 ? std::wstring(titleBuf, min(titleLen, FOCUS_TITLE_MAX)) : L"";
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    outProcess = L"[unknown]";
+    if (pid) {
+        HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+        if (hProc) {
+            wchar_t exeBuf[MAX_PATH];
+            if (GetModuleFileNameExW(hProc, NULL, exeBuf, MAX_PATH)) {
+                const wchar_t* slash = wcsrchr(exeBuf, L'\\');
+                outProcess = slash ? std::wstring(slash + 1) : std::wstring(exeBuf);
+            }
+            CloseHandle(hProc);
+        }
+    }
+
+    GetWindowRect(hwnd, &outRect);
+
+    Log("Focus: hwnd=%p title=%S process=%S rect=%ld,%ld,%ld,%ld",
+        hwnd, outTitle.c_str(), outProcess.c_str(),
+        outRect.left, outRect.top, outRect.right, outRect.bottom);
+
+    return outTitle;
+}
+
+inline void InsertFocusEvent(const std::wstring& title, const std::wstring& processName, const RECT& rect, bool isDummy) {
+    if (!g_insertStmt || !g_db) return;
+
+    std::string ts = GetTimestamp();
+    std::string titleUtf8 = WideToUtf8(title);
+    std::string procUtf8 = WideToUtf8(processName);
+
+    char timeBuf[16];
+    time_t now = time(NULL);
+    struct tm ti;
+    localtime_s(&ti, &now);
+    strftime(timeBuf, 16, "%H:%M:%S", &ti);
+
+    char contentBuf[512];
+    snprintf(contentBuf, sizeof(contentBuf), "%s|%s",
+        titleUtf8.c_str(), procUtf8.c_str());
+
+    const char* eventType = "focus";
+    char focusType[64];
+    if (isDummy) {
+        snprintf(focusType, sizeof(focusType), "focus-dummy-%s", timeBuf);
+        eventType = focusType;
+    }
+
+    sqlite3_reset(g_insertStmt);
+    sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+    sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(g_insertStmt, 3, eventType, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(g_insertStmt, 4, contentBuf, -1, SQLITE_TRANSIENT);
+    sqlite3_step(g_insertStmt);
+}
+
+inline void CheckFocusChange() {
+    if (g_state != RECORDING) return;
+    HWND currentHwnd = GetForegroundWindow();
+    if (currentHwnd != g_lastFocusHwnd) {
+        std::wstring title, process;
+        RECT rect;
+        GetFocusInfo(title, process, rect);
+        InsertFocusEvent(title, process, rect);
+        g_lastFocusHwnd = currentHwnd;
+        g_focusNoChangeCount = 0;
+    }
+}
+
+inline void CheckFocusTimer() {
+    if (g_state != RECORDING) return;
+    HWND currentHwnd = GetForegroundWindow();
+    if (currentHwnd != g_lastFocusHwnd) {
+        std::wstring title, process;
+        RECT rect;
+        GetFocusInfo(title, process, rect);
+        InsertFocusEvent(title, process, rect);
+        g_lastFocusHwnd = currentHwnd;
+        g_focusNoChangeCount = 0;
+    } else {
+        g_focusNoChangeCount++;
+        if (g_focusNoChangeCount >= 150) {
+            std::wstring title, process;
+            RECT rect;
+            GetFocusInfo(title, process, rect);
+            InsertFocusEvent(title, process, rect, true);
+            g_focusNoChangeCount = 0;
+        }
+    }
+}
+
 inline const wchar_t* SpecialKeyName(UINT vk) {
     switch (vk) {
         case VK_BACK:     return L"[Backspace]";
@@ -247,36 +394,29 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
         KBDLLHOOKSTRUCT* p = (KBDLLHOOKSTRUCT*)lParam;
         UINT vk = p->vkCode;
 
-        if (vk == VK_OEM_4) {
-            static int pressCount = 0;
-            static DWORD lastPressTime = 0;
-            DWORD now = GetTickCount();
-            if (now - lastPressTime < TRIPLE_PRESS_WINDOW) {
-                pressCount++;
+        if (CheckTrigger(vk)) {
+            if (g_state == STOPPED) {
+                g_state = RECORDING;
+                g_recordId++;
+                g_lastOutputTime = GetTickCount();
+                std::wstring title, process;
+                RECT rect;
+                GetFocusInfo(title, process, rect);
+                InsertFocusEvent(title, process, rect);
+                g_focusNoChangeCount = 0;
+                Log("State: RECORDING (record #%d)", g_recordId);
             } else {
-                pressCount = 1;
+                g_state = STOPPED;
+                Log("State: STOPPED");
             }
-            lastPressTime = now;
-
-            if (pressCount >= 3) {
-                pressCount = 0;
-                if (g_state == STOPPED) {
-                    g_state = RECORDING;
-                    g_recordId++;
-                    g_lastOutputTime = GetTickCount();
-                    Log("State: RECORDING (record #%d)", g_recordId);
-                } else {
-                    g_state = STOPPED;
-                    Log("State: STOPPED");
-                }
-                extern void OnStateChanged();
-                OnStateChanged();
-            }
+            extern void OnStateChanged();
+            OnStateChanged();
         }
 
         if (g_state == RECORDING) {
             const wchar_t* name = SpecialKeyName(vk);
             if (name) {
+                CheckFocusChange();
                 std::string ts = GetTimestamp();
                 std::string utf8 = WideToUtf8(name);
                 sqlite3_reset(g_insertStmt);
@@ -287,6 +427,7 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
                 sqlite3_step(g_insertStmt);
                 CheckSessionSplit();
             } else if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && vk == 'V') {
+                CheckFocusChange();
                 std::string ts = GetTimestamp();
                 sqlite3_reset(g_insertStmt);
                 sqlite3_bind_int(g_insertStmt, 1, g_recordId);
@@ -348,6 +489,7 @@ inline void ProcessMessage(const std::wstring& msg) {
     std::string timestamp = GetTimestamp();
 
     if (msg.find(L"COMMIT:") == 0) {
+        CheckFocusChange();
         std::wstring text = msg.substr(7);
         std::string utf8 = WideToUtf8(text);
         sqlite3_reset(g_insertStmt);
@@ -360,6 +502,7 @@ inline void ProcessMessage(const std::wstring& msg) {
     } else if (msg.find(L"KEYSTROKE:") == 0) {
         std::wstring ch = msg.substr(10);
         if (!ch.empty()) {
+            CheckFocusChange();
             std::string utf8 = WideToUtf8(ch);
             sqlite3_reset(g_insertStmt);
             sqlite3_bind_int(g_insertStmt, 1, g_recordId);
@@ -433,6 +576,7 @@ inline std::string DbToText(sqlite3* db) {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         int recordId = sqlite3_column_int(stmt, 0);
         const char* ts = (const char*)sqlite3_column_text(stmt, 1);
+        const char* type = (const char*)sqlite3_column_text(stmt, 2);
         const char* content = (const char*)sqlite3_column_text(stmt, 3);
 
         if (recordId != curRecordId) {
@@ -446,15 +590,20 @@ inline std::string DbToText(sqlite3* db) {
         }
 
         if (content) {
-            std::string s = content;
-            for (auto& [from, to] : shortMap) {
-                size_t pos = 0;
-                while ((pos = s.find(from, pos)) != std::string::npos) {
-                    s.replace(pos, strlen(from), to);
-                    pos += strlen(to);
+            if (type && strncmp(type, "focus", 5) == 0) {
+                if (!body.empty() && body.back() != '\n') body += "\n";
+                body += std::string("[") + type + "] " + content + "\n";
+            } else {
+                std::string s = content;
+                for (auto& [from, to] : shortMap) {
+                    size_t pos = 0;
+                    while ((pos = s.find(from, pos)) != std::string::npos) {
+                        s.replace(pos, strlen(from), to);
+                        pos += strlen(to);
+                    }
                 }
+                body += s;
             }
-            body += s;
         }
     }
     flushRecord();

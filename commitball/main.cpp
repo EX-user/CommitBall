@@ -27,6 +27,8 @@ HWND g_hWnd = nullptr;
 DWORD g_lastOutputTime = 0;
 ULONG_PTR g_gdiplusToken = 0;
 bool g_running = true;
+HWND g_lastFocusHwnd = nullptr;
+int g_focusNoChangeCount = 0;
 
 const wchar_t MUTEX_NAME[] = L"CommitBallMutex";
 
@@ -93,7 +95,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     }, NULL, 0, NULL);
 
     g_lastOutputTime = GetTickCount();
-    SetTimer(g_hWnd, IDT_OUTPUT, 1000, NULL);
+    SetTimer(g_hWnd, IDT_OUTPUT, 400, NULL);
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {

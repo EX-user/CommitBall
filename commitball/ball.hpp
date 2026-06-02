@@ -6,6 +6,7 @@
 
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "gdiplus.lib")
+#pragma comment(lib, "shell32.lib")
 
 inline float GetDpiScale() {
     HDC hdc = GetDC(NULL);
@@ -25,6 +26,7 @@ const int SNAP_THRESHOLD = 20;
 #define IDM_STATUS    1000
 #define IDM_WRITE_TXT 1001
 #define IDM_EXIT      1002
+#define IDM_OPEN_DIR  1003
 
 enum Edge { EDGE_NONE, EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
 extern Edge g_snappedEdge;
@@ -273,6 +275,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_STATUS, GetStatusText());
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_WRITE_TXT, L"\x5199\x5165 txt");
+        AppendMenuW(hMenu, MF_STRING, IDM_OPEN_DIR, L"\x6253\x5F00\x6570\x636E\x8DEF\x5F84");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_EXIT, L"\x9000\x51FA CommitBall");
         POINT pt;
@@ -289,6 +292,14 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             }, NULL, 0, NULL);
         } else if (cmd == IDM_WRITE_TXT) {
             FlushLiveBuffer();
+        } else if (cmd == IDM_OPEN_DIR) {
+            char dataPath[MAX_PATH];
+            GetModuleFileNameA(NULL, dataPath, MAX_PATH);
+            char* lastSlash = strrchr(dataPath, '\\');
+            if (lastSlash) {
+                strcpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - dataPath), "data");
+                ShellExecuteA(NULL, "open", dataPath, NULL, NULL, SW_SHOWNORMAL);
+            }
         }
         return 0;
     }
@@ -341,6 +352,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 FlushLiveBuffer();
                 g_lastOutputTime = GetTickCount();
             }
+            CheckFocusTimer();
         } else if (wParam == IDT_COLOR_ANIM) {
             AnimateColor();
         }
