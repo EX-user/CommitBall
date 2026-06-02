@@ -65,9 +65,26 @@ Section "CB-Weasel 输入法" SecMain
   ; CommitBall
   File "..\commitball\CommitBall.exe"
 
+  ; Release old DLL if locked
+  DetailPrint "检查旧版本 DLL..."
+  nsExec::ExecToLog 'regsvr32 /u /s "$INSTDIR\cb-weasel\cb-weaselx64.dll"'
+  Sleep 500
+retry_delete_dll:
+  ClearErrors
+  Delete "$INSTDIR\cb-weasel\cb-weaselx64.dll"
+  IfErrors 0 dll_delete_ok
+    MessageBox MB_ABORTRETRYIGNORE|MB_ICONEXCLAMATION \
+      "cb-weaselx64.dll 无法删除，可能是卸载残留或正在使用中。这通常可以忽略……$\n$\n终止 = 取消安装$\n重试 = 关闭相关程序后重试$\n忽略 = 跳过此步骤继续安装" \
+      IDRETRY retry_delete_dll IDIGNORE dll_delete_skip
+    Abort
+  dll_delete_ok:
+  dll_delete_skip:
+
   ; Core executables (cb-weasel subdirectory)
   SetOutPath "$INSTDIR\cb-weasel"
+  SetOverwrite try
   File "..\weasel\output\cb-weaselx64.dll"
+  SetOverwrite on
   File "..\weasel\output\WeaselServer.exe"
   File "..\weasel\output\WeaselDeployer.exe"
   File "..\weasel\output\rime.dll"
@@ -87,6 +104,9 @@ Section "CB-Weasel 输入法" SecMain
 
   ; Copy DLL to System32
   DetailPrint "安装 DLL 到 System32..."
+  nsExec::ExecToLog 'regsvr32 /u /s "$SYSDIR\cb-weasel.dll"'
+  Sleep 500
+  Delete "$SYSDIR\cb-weasel.dll"
   CopyFiles "$INSTDIR\cb-weasel\cb-weaselx64.dll" "$SYSDIR\cb-weasel.dll"
 
   ; Register TSF

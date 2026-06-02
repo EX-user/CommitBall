@@ -76,11 +76,12 @@ inline bool BallInit(HINSTANCE hInstance) {
 
     LoadPosition();
     int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
     extern int g_savedX, g_savedY;
     if (g_savedX == 0 && g_savedY == 0) {
+        RECT workArea;
+        SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
         g_savedX = screenW - BALL_SIZE - 40;
-        g_savedY = screenH - BALL_SIZE - 80;
+        g_savedY = workArea.bottom - BALL_SIZE - 40;
     }
 
     g_hWnd = CreateWindowExW(
