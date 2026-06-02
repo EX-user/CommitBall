@@ -23,10 +23,11 @@ const int SNAP_THRESHOLD = 20;
 
 #define IDT_OUTPUT 1
 #define IDT_COLOR_ANIM 2
-#define IDM_STATUS    1000
-#define IDM_WRITE_TXT 1001
-#define IDM_EXIT      1002
-#define IDM_OPEN_DIR  1003
+#define IDM_STATUS      1000
+#define IDM_WRITE_TXT   1001
+#define IDM_EXIT        1002
+#define IDM_OPEN_DIR    1003
+#define IDM_COPY_PATH   1004
 
 enum Edge { EDGE_NONE, EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
 extern Edge g_snappedEdge;
@@ -75,11 +76,12 @@ inline bool BallInit(HINSTANCE hInstance) {
 
     LoadPosition();
     int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
     extern int g_savedX, g_savedY;
     if (g_savedX == 0 && g_savedY == 0) {
+        RECT workArea;
+        SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
         g_savedX = screenW - BALL_SIZE - 40;
-        g_savedY = screenH - BALL_SIZE - 80;
+        g_savedY = workArea.bottom - BALL_SIZE - 40;
     }
 
     g_hWnd = CreateWindowExW(
@@ -219,6 +221,8 @@ inline void ApplySnappedEdge() {
     if (g_snappedEdge == EDGE_NONE) return;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
+    RECT workArea;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
     RECT rc;
     GetWindowRect(g_hWnd, &rc);
     int x = rc.left, y = rc.top;
@@ -226,8 +230,11 @@ inline void ApplySnappedEdge() {
         case EDGE_LEFT:   x = -BALL_RADIUS; break;
         case EDGE_RIGHT:  x = screenW - BALL_RADIUS; break;
         case EDGE_TOP:    y = -BALL_RADIUS; break;
-        case EDGE_BOTTOM: y = screenH - BALL_RADIUS; break;
+        case EDGE_BOTTOM: y = workArea.bottom - BALL_SIZE; break;
         default: break;
+    }
+    if (g_snappedEdge == EDGE_LEFT || g_snappedEdge == EDGE_RIGHT) {
+        y = max(-BALL_RADIUS, min((int)y, (int)(workArea.bottom - BALL_SIZE)));
     }
     SetWindowPos(g_hWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
@@ -276,6 +283,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_WRITE_TXT, L"\x5199\x5165 txt");
         AppendMenuW(hMenu, MF_STRING, IDM_OPEN_DIR, L"\x6253\x5F00\x6570\x636E\x8DEF\x5F84");
+        AppendMenuW(hMenu, MF_STRING, IDM_COPY_PATH, L"\x590D\x5236\x6570\x636E\x8DEF\x5F84");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_EXIT, L"\x9000\x51FA CommitBall");
         POINT pt;
@@ -300,15 +308,34 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 strcpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - dataPath), "data");
                 ShellExecuteA(NULL, "open", dataPath, NULL, NULL, SW_SHOWNORMAL);
             }
+        } else if (cmd == IDM_COPY_PATH) {
+            wchar_t dataPath[MAX_PATH];
+            GetModuleFileNameW(NULL, dataPath, MAX_PATH);
+            wchar_t* lastSlash = wcsrchr(dataPath, L'\\');
+            if (lastSlash) {
+                wcscpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - dataPath), L"data");
+                size_t len = wcslen(dataPath);
+                if (OpenClipboard(hWnd)) {
+                    EmptyClipboard();
+                    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (len + 1) * sizeof(wchar_t));
+                    if (hMem) {
+                        memcpy(GlobalLock(hMem), dataPath, (len + 1) * sizeof(wchar_t));
+                        GlobalUnlock(hMem);
+                        SetClipboardData(CF_UNICODETEXT, hMem);
+                    }
+                    CloseClipboard();
+                }
+            }
         }
         return 0;
     }
 
     case WM_EXITSIZEMOVE: {
         RECT rc;
+        RECT workArea;
+        SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
         GetWindowRect(hWnd, &rc);
         int screenW = GetSystemMetrics(SM_CXSCREEN);
-        int screenH = GetSystemMetrics(SM_CYSCREEN);
         int x = rc.left, y = rc.top;
         g_snappedEdge = EDGE_NONE;
         if (x < SNAP_THRESHOLD) {
@@ -317,8 +344,11 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             g_snappedEdge = EDGE_RIGHT; x = screenW - BALL_RADIUS;
         } else if (y < SNAP_THRESHOLD) {
             g_snappedEdge = EDGE_TOP; y = -BALL_RADIUS;
-        } else if (y + BALL_SIZE > screenH - SNAP_THRESHOLD) {
-            g_snappedEdge = EDGE_BOTTOM; y = screenH - BALL_RADIUS;
+        } else if (y + BALL_SIZE > workArea.bottom - SNAP_THRESHOLD) {
+            g_snappedEdge = EDGE_BOTTOM; y = workArea.bottom - BALL_SIZE;
+        }
+        if (g_snappedEdge == EDGE_LEFT || g_snappedEdge == EDGE_RIGHT) {
+            y = min(y, (int)(workArea.bottom - BALL_SIZE));
         }
         SetWindowPos(hWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;

@@ -6,4 +6,4 @@
 - [x] 添加焦点位置探测
 - [x] 定期归档/清理数据库（已完成：512KB 阈值自动拆分 session，DbToText 导出）
 - [x] 不能编译出weasel，需要确保编译出"modified-weasel"避免冲突（已完成：cb-weasel 改名，新 GUID、注册表路径、DLL 名）
-- [ ] 确定打包方案
+- [x] 确定打包方案（已完成：NSIS 安装包，installer\commitball.nsi + build-installer.ps1）
