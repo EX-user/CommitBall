@@ -1,4 +1,5 @@
 #include "recorder.hpp"
+#include "click.hpp"
 #include "ball.hpp"
 #include <shellscalingapi.h>
 #pragma comment(lib, "shcore.lib")
@@ -29,6 +30,8 @@ ULONG_PTR g_gdiplusToken = 0;
 bool g_running = true;
 HWND g_lastFocusHwnd = nullptr;
 int g_focusNoChangeCount = 0;
+
+IUIAutomation* g_pUIAutomation = nullptr;
 
 const wchar_t MUTEX_NAME[] = L"CommitBallMutex";
 
@@ -88,6 +91,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     }
 
     HHOOK hook = SetWindowsHookEx(WH_KEYBOARD_LL, LLKeyboardProc, NULL, 0);
+    HHOOK mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LLMouseProc, NULL, 0);
 
     HANDLE hPipeThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
         CreatePipeServer();
@@ -109,6 +113,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     CloseHandle(hPipeThread);
 
     UnhookWindowsHookEx(hook);
+    UnhookWindowsHookEx(mouseHook);
     BallShutdown();
     RecorderCleanup();
 

@@ -5,6 +5,7 @@
 #include <ctime>
 #include <cstdarg>
 #include <cstdio>
+#include <UIAutomation.h>
 #include "sqlite3.h"
 #include "clipboard.hpp"
 #include "dbexport.hpp"
@@ -23,6 +24,7 @@ extern bool g_running;
 extern HWND g_hWnd;
 extern HWND g_lastFocusHwnd;
 extern int g_focusNoChangeCount;
+extern IUIAutomation* g_pUIAutomation;
 
 const int FLUSH_INTERVAL = 30000;
 const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
@@ -178,6 +180,9 @@ inline bool OpenDb(const char* path) {
 inline bool RecorderInit() {
     EnsureDirs();
     if (!OpenDb(CURRENT_DB)) return false;
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    CoCreateInstance(CLSID_CUIAutomation, NULL, CLSCTX_INPROC_SERVER,
+        IID_IUIAutomation, (void**)&g_pUIAutomation);
     Log("CommitBall started, record_id=%d", g_recordId);
     return true;
 }
@@ -186,6 +191,8 @@ inline void RecorderCleanup() {
     if (g_insertStmt) sqlite3_finalize(g_insertStmt);
     if (g_db) sqlite3_close(g_db);
     if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
+    if (g_pUIAutomation) g_pUIAutomation->Release();
+    CoUninitialize();
 }
 
 inline void FlushLiveBuffer() {

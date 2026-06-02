@@ -63,6 +63,9 @@ inline std::string DbToText(sqlite3* db) {
             if (type && strncmp(type, "focus", 5) == 0) {
                 if (!body.empty() && body.back() != '\n') body += "\n";
                 body += std::string("[") + type + "] " + content + "\n";
+            } else if (type && strcmp(type, "click") == 0) {
+                if (!body.empty() && body.back() != '\n') body += "\n";
+                body += std::string("[click]") + content + "\n";
             } else if (type && (strcmp(type, "paste") == 0 || strcmp(type, "paste-big") == 0 || strcmp(type, "paste-mega") == 0)) {
                 if (!body.empty() && body.back() != '\n') body += "\n";
                 std::string pc = content;
