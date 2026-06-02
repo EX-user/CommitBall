@@ -31,8 +31,9 @@ SetCompressor /SOLID lzma
 
 ; Pages
 !insertmacro MUI_PAGE_LICENSE "..\weasel\output\LICENSE.txt"
-!insertmacro MUI_PAGE_DIRECTORY
-!insertmacro MUI_PAGE_INSTFILES
+  !insertmacro MUI_PAGE_DIRECTORY
+  !insertmacro MUI_PAGE_COMPONENTS
+  !insertmacro MUI_PAGE_INSTFILES
 
 !define MUI_FINISHPAGE_RUN "$INSTDIR\CommitBall.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "启动 CommitBall"
@@ -129,6 +130,10 @@ Section "CB-Weasel 输入法" SecMain
   DetailPrint "安装完成！请在 Windows 设置中添加 CB-Weasel 键盘。"
 SectionEnd
 
+Section "创建桌面快捷方式" SecDesktop
+  CreateShortcut "$DESKTOP\CommitBall.lnk" "$INSTDIR\CommitBall.exe"
+SectionEnd
+
 Section "Uninstall"
   ; Stop processes
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
@@ -153,5 +158,6 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\cb-weasel"
   Delete "$INSTDIR\CommitBall.exe"
   Delete "$INSTDIR\uninstall.exe"
+  Delete "$DESKTOP\CommitBall.lnk"
   RMDir "$INSTDIR"
 SectionEnd
