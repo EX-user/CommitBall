@@ -57,6 +57,7 @@ Section "CB-Weasel 输入法" SecMain
   DetailPrint "停止旧进程..."
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
   Sleep 1000
 
   ; Set output path
@@ -64,6 +65,9 @@ Section "CB-Weasel 输入法" SecMain
 
   ; CommitBall
   File "..\commitball\CommitBall.exe"
+
+  ; CommitBall-Bar
+  File "..\commitball-bar\publish\CommitBall-Bar.exe"
 
   ; Release old DLL if locked
   DetailPrint "检查旧版本 DLL..."
@@ -158,6 +162,7 @@ Section "Uninstall"
   ; Stop processes
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
   Sleep 1000
 
   ; Unregister TSF
@@ -177,6 +182,7 @@ Section "Uninstall"
   ; Remove files
   RMDir /r "$INSTDIR\cb-weasel"
   Delete "$INSTDIR\CommitBall.exe"
+  Delete "$INSTDIR\CommitBall-Bar.exe"
   Delete "$INSTDIR\uninstall.exe"
   Delete "$DESKTOP\CommitBall.lnk"
   RMDir "$INSTDIR"

@@ -400,10 +400,17 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         PostQuitMessage(0);
         return 0;
 
+    // WM_PIPE_MSG: wParam=data ptr, lParam=0→keyboard msg(std::wstring*), lParam=1→direct-input(std::string*)
     case WM_PIPE_MSG: {
-        std::wstring* pMsg = (std::wstring*)wParam;
-        ProcessMessage(*pMsg);
-        delete pMsg;
+        if (lParam == 1) {
+            std::string* pText = (std::string*)wParam;
+            InsertDirectInput(*pText);
+            delete pText;
+        } else {
+            std::wstring* pMsg = (std::wstring*)wParam;
+            ProcessMessage(*pMsg);
+            delete pMsg;
+        }
         return 0;
     }
 

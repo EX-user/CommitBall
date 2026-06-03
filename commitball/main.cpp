@@ -5,6 +5,55 @@
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "advapi32.lib")
 
+HANDLE g_barProcess = nullptr;
+
+bool LaunchBar() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (!lastSlash) return false;
+    wcscpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - exePath), L"CommitBall-Bar.exe");
+
+    Log("Bar path: %ls", exePath);
+
+    DWORD attrs = GetFileAttributesW(exePath);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        Log("Bar exe NOT found (err=%d)", GetLastError());
+        return false;
+    }
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi = {};
+    if (!CreateProcessW(exePath, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        Log("CreateProcessW failed (err=%d)", GetLastError());
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    g_barProcess = pi.hProcess;
+    Log("Launched CommitBall-Bar.exe (pid=%d)", pi.dwProcessId);
+
+    WaitForInputIdle(pi.hProcess, 3000);
+
+    DWORD exitCode = 0;
+    if (GetExitCodeProcess(pi.hProcess, &exitCode) && exitCode != STILL_ACTIVE) {
+        Log("Bar exited immediately with code %d", exitCode);
+        CloseHandle(pi.hProcess);
+        g_barProcess = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void SendShowToBar() {
+    HANDLE hPipe = CreateFileW(
+        L"\\\\.\\pipe\\CommitBall-bar",
+        GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (hPipe == INVALID_HANDLE_VALUE) return;
+    DWORD written;
+    WriteFile(hPipe, "SHOW\r\n", 6, &written, NULL);
+    CloseHandle(hPipe);
+}
+
 bool IsRunAsAdmin() {
     BOOL isAdmin = FALSE;
     PSID adminGroup = NULL;
@@ -100,8 +149,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         return 0;
     }, NULL, 0, NULL);
 
+    HANDLE hBarPipeThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
+        CreateBarPipeServer();
+        return 0;
+    }, NULL, 0, NULL);
+
     g_lastOutputTime = GetTickCount();
     SetTimer(g_hWnd, IDT_OUTPUT, 400, NULL);
+
+    LaunchBar();
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
@@ -110,9 +166,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     }
 
     g_running = false;
-    if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
+    if (g_pipe != INVALID_HANDLE_VALUE) { CloseHandle(g_pipe); g_pipe = INVALID_HANDLE_VALUE; }
+    if (g_barProcess) {
+        HANDLE hPipe = CreateFileW(L"\\\\.\\pipe\\CommitBall-bar", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (hPipe != INVALID_HANDLE_VALUE) {
+            DWORD written;
+            WriteFile(hPipe, "QUIT\r\n", 6, &written, NULL);
+            CloseHandle(hPipe);
+            WaitForSingleObject(g_barProcess, 2000);
+        }
+        TerminateProcess(g_barProcess, 0);
+        CloseHandle(g_barProcess);
+    }
     WaitForSingleObject(hPipeThread, 2000);
     CloseHandle(hPipeThread);
+    WaitForSingleObject(hBarPipeThread, 2000);
+    CloseHandle(hBarPipeThread);
 
     UnhookWindowsHookEx(hook);
     UnhookWindowsHookEx(mouseHook);
