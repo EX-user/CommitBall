@@ -16,3 +16,9 @@ commitball.pos
 
 # Old weasel directory (locked by TSF, needs restart to delete)
 weasel_old/
+
+# CommitBall-Bar build/publish artifacts
+commitball-bar/publish/
+commitball-bar/commitball-bar/bin/
+commitball-bar/commitball-bar/obj/
+commitball-bar/data/

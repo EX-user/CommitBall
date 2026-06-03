@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <psapi.h>
 #include <string>
+#include <vector>
+#include <tuple>
 #include <ctime>
 #include <cstdarg>
 #include <cstdio>
@@ -20,6 +22,8 @@ extern HANDLE g_pipe;
 extern sqlite3* g_db;
 extern sqlite3_stmt* g_insertStmt;
 extern DWORD g_lastOutputTime;
+extern DWORD g_lastTimerEvent;
+extern DWORD g_recordingStartTime;
 extern bool g_running;
 extern HWND g_hWnd;
 extern HWND g_lastFocusHwnd;
@@ -31,6 +35,12 @@ const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
 const int FOCUS_TITLE_MAX = 128;
 #define WM_PIPE_MSG (WM_USER + 1)
 
+const char CURRENT_DB[]   = "data/db/current.db";
+const char SESSIONS_DIR[] = "data/sessions";
+const char EXPORTS_DIR[]  = "data/exports";
+const char LOG_DIR[]      = "data/log";
+const char LIVE_TXT[]     = "data/live/live.txt";
+
 struct TriggerKey {
     UINT vk;
     DWORD maxDelay;
@@ -39,6 +49,51 @@ struct TriggerKey {
 const int TRIGGER_PATTERNS_COUNT = 1;
 const int TRIGGER_PATTERNS_MAX_LEN = 4;
 const int TRIGGER_HISTORY_SIZE = 8;
+
+const char BAR_TRIGGER_DEFAULT[] = "\\ccb";
+const int BAR_TRIGGER_MAX_LEN = 10;
+char g_barTrigger[BAR_TRIGGER_MAX_LEN + 1] = "\\ccb";
+int g_barTriggerLen = 4;
+char g_barSeq[16] = {};
+int g_barSeqLen = 0;
+
+inline bool CheckBarTrigger(UINT vk) {
+    char c = 0;
+    if (vk >= 'A' && vk <= 'Z') c = (char)(vk + 32);
+    else if (vk >= '0' && vk <= '9') c = (char)vk;
+    else if (vk == VK_OEM_5) c = '\\';
+    else if (vk == VK_OEM_1) c = ';';
+    else if (vk == VK_OEM_2) c = '/';
+    else if (vk == VK_OEM_3) c = '`';
+    else if (vk == VK_OEM_4) c = '[';
+    else if (vk == VK_OEM_6) c = ']';
+    else if (vk == VK_OEM_MINUS) c = '-';
+    else if (vk == VK_OEM_PLUS) c = '=';
+    else if (vk == VK_OEM_COMMA) c = ',';
+    else if (vk == VK_OEM_PERIOD) c = '.';
+
+    if (c) {
+        if (g_barSeqLen < 15) {
+            g_barSeq[g_barSeqLen++] = c;
+            g_barSeq[g_barSeqLen] = '\0';
+        } else {
+            memmove(g_barSeq, g_barSeq + 1, 14);
+            g_barSeq[15] = '\0';
+            g_barSeqLen = 15;
+            g_barSeq[14] = c;
+        }
+        if (g_barSeqLen >= g_barTriggerLen &&
+            strcmp(g_barSeq + g_barSeqLen - g_barTriggerLen, g_barTrigger) == 0) {
+            g_barSeqLen = 0;
+            g_barSeq[0] = '\0';
+            return true;
+        }
+    } else {
+        g_barSeqLen = 0;
+        g_barSeq[0] = '\0';
+    }
+    return false;
+}
 
 inline bool CheckTrigger(UINT vk) {
     static UINT histVk[TRIGGER_HISTORY_SIZE] = {};
@@ -62,81 +117,112 @@ inline bool CheckTrigger(UINT vk) {
             if (histTime[idx] - histTime[prevIdx] > 500) return false;
         }
     }
-
     histCount = 0;
     return true;
 }
 
-const char DATA_DIR[]     = "data";
-const char DB_DIR[]       = "data/db";
-const char SESSIONS_DIR[] = "data/sessions";
-const char EXPORTS_DIR[]  = "data/exports";
-const char LIVE_DIR[]     = "data/live";
-const char LOG_DIR[]      = "data/log";
-const char CURRENT_DB[]   = "data/db/current.db";
-const char LIVE_TXT[]     = "data/live/commitball.txt";
+inline void LoadBarTriggerConfig() {
+    sqlite3* cfgDb = nullptr;
+    if (sqlite3_open(CURRENT_DB, &cfgDb) != SQLITE_OK) return;
+    sqlite3_exec(cfgDb, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(cfgDb, "SELECT value FROM config WHERE key='bar_trigger'", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* val = (const char*)sqlite3_column_text(stmt, 0);
+            int len = (int)strlen(val);
+            if (len > 0 && len <= BAR_TRIGGER_MAX_LEN) {
+                memcpy(g_barTrigger, val, len + 1);
+                g_barTriggerLen = len;
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(cfgDb);
+}
 
-bool RecorderInit();
-void RecorderCleanup();
-LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
-void CreatePipeServer();
-void ProcessMessage(const std::wstring& msg);
-const wchar_t* SpecialKeyName(UINT vk);
-std::string WideToUtf8(const std::wstring& wide);
-std::string GetTimestamp();
-void FlushLiveBuffer();
-void CheckSessionSplit();
-void ExportSessionDb(const std::string& dbPath, const std::string& txtPath);
-void CheckFocusChange();
-void InsertFocusEvent(const std::wstring& title, const std::wstring& processName, const RECT& rect, bool isDummy = false);
-std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProcess, RECT& outRect);
-void Log(const char* fmt, ...);
+inline std::string WideToUtf8(const std::wstring& wide) {
+    if (wide.empty()) return "";
+    int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), NULL, 0, NULL, NULL);
+    std::string result(size, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), &result[0], size, NULL, NULL);
+    return result;
+}
+
+inline std::string GetTimestamp() {
+    time_t now = time(NULL);
+    struct tm timeinfo;
+    localtime_s(&timeinfo, &now);
+    char buffer[64];
+    strftime(buffer, 64, "%Y-%m-%d %H:%M:%S", &timeinfo);
+    return buffer;
+}
+
+inline void Log(const char* fmt, ...) {
+    static int logLineCount = 0;
+    const int MAX_LOG_LINES = 1000;
+    if (logLineCount >= MAX_LOG_LINES) {
+        char logPath[MAX_PATH];
+        snprintf(logPath, MAX_PATH, "%s\\commitball.log", LOG_DIR);
+        FILE* f = fopen(logPath, "w");
+        if (f) fclose(f);
+        logLineCount = 0;
+    }
+    char logPath[MAX_PATH];
+    snprintf(logPath, MAX_PATH, "%s\\commitball.log", LOG_DIR);
+    FILE* f = fopen(logPath, "a");
+    if (!f) return;
+    char ts[64];
+    time_t now = time(NULL);
+    struct tm ti;
+    localtime_s(&ti, &now);
+    strftime(ts, 64, "%H:%M:%S", &ti);
+    fprintf(f, "[%s] ", ts);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fclose(f);
+    logLineCount++;
+}
 
 inline void EnsureDir(const char* path) {
     CreateDirectoryA(path, NULL);
 }
 
 inline void EnsureDirs() {
-    EnsureDir(DATA_DIR);
-    EnsureDir(DB_DIR);
-    EnsureDir(SESSIONS_DIR);
-    EnsureDir(EXPORTS_DIR);
-    EnsureDir(LIVE_DIR);
-    EnsureDir(LOG_DIR);
+    EnsureDir("data");
+    EnsureDir("data/db");
+    EnsureDir("data/sessions");
+    EnsureDir("data/exports");
+    EnsureDir("data/live");
+    EnsureDir("data/log");
+    EnsureDir("data/notes");
 }
 
 inline std::string GetSessionTs() {
     time_t now = time(NULL);
-    struct tm ti;
-    localtime_s(&ti, &now);
-    char buf[32];
-    strftime(buf, 32, "%Y-%m-%d_%H%M%S", &ti);
-    return buf;
+    struct tm timeinfo;
+    localtime_s(&timeinfo, &now);
+    char buffer[64];
+    strftime(buffer, 64, "%Y-%m-%d_%H%M%S", &timeinfo);
+    return buffer;
 }
 
 inline std::string GetMonthDir() {
     time_t now = time(NULL);
-    struct tm ti;
-    localtime_s(&ti, &now);
-    char buf[16];
-    strftime(buf, 16, "%Y-%m", &ti);
-    return buf;
+    struct tm timeinfo;
+    localtime_s(&timeinfo, &now);
+    char buffer[32];
+    strftime(buffer, 32, "%Y-%m", &timeinfo);
+    return buffer;
 }
 
 inline int64_t GetDbSize() {
-    sqlite3_stmt* stmt;
-    int64_t pages = 0, pageSize = 0;
-    if (sqlite3_prepare_v2(g_db, "PRAGMA page_count", -1, &stmt, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(stmt) == SQLITE_ROW)
-            pages = sqlite3_column_int64(stmt, 0);
-        sqlite3_finalize(stmt);
-    }
-    if (sqlite3_prepare_v2(g_db, "PRAGMA page_size", -1, &stmt, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(stmt) == SQLITE_ROW)
-            pageSize = sqlite3_column_int64(stmt, 0);
-        sqlite3_finalize(stmt);
-    }
-    return pages * pageSize;
+    WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+    if (!GetFileAttributesExA(CURRENT_DB, GetFileExInfoStandard, &fileInfo))
+        return 0;
+    return ((int64_t)fileInfo.nFileSizeHigh << 32) | fileInfo.nFileSizeLow;
 }
 
 inline bool OpenDb(const char* path) {
@@ -180,6 +266,7 @@ inline bool OpenDb(const char* path) {
 inline bool RecorderInit() {
     EnsureDirs();
     if (!OpenDb(CURRENT_DB)) return false;
+    LoadBarTriggerConfig();
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     CoCreateInstance(CLSID_CUIAutomation, NULL, CLSCTX_INPROC_SERVER,
         IID_IUIAutomation, (void**)&g_pUIAutomation);
@@ -237,41 +324,64 @@ inline void CheckSessionSplit() {
     sqlite3_close(g_db);
     g_db = nullptr;
 
+    sqlite3* tmpDb = nullptr;
+    if (sqlite3_open(CURRENT_DB, &tmpDb) == SQLITE_OK) {
+        sqlite3_exec(tmpDb, "PRAGMA wal_checkpoint(TRUNCATE)", nullptr, nullptr, nullptr);
+        sqlite3_close(tmpDb);
+    }
+
     rename(CURRENT_DB, sessionPath.c_str());
 
     ExportSessionDb(sessionPath, exportPath);
 
     OpenDb(CURRENT_DB);
-    Log("Session split done: new current.db, record_id=%d", g_recordId);
-}
 
-inline void Log(const char* fmt, ...) {
-    static int logLineCount = 0;
-    const int MAX_LOG_LINES = 1000;
-    if (logLineCount >= MAX_LOG_LINES) {
-        char logPath[MAX_PATH];
-        snprintf(logPath, MAX_PATH, "%s\\commitball.log", LOG_DIR);
-        FILE* f = fopen(logPath, "w");
-        if (f) fclose(f);
-        logLineCount = 0;
+    sqlite3* oldDb = nullptr;
+    if (sqlite3_open(sessionPath.c_str(), &oldDb) == SQLITE_OK) {
+        sqlite3_stmt* sel = nullptr;
+        if (sqlite3_prepare_v2(oldDb,
+                "SELECT record_id, ts, type, content FROM log ORDER BY id DESC LIMIT 50",
+                -1, &sel, nullptr) == SQLITE_OK) {
+            std::vector<std::tuple<int, std::string, std::string, std::string>> rows;
+            while (sqlite3_step(sel) == SQLITE_ROW) {
+                rows.emplace_back(
+                    sqlite3_column_int(sel, 0),
+                    (const char*)sqlite3_column_text(sel, 1),
+                    (const char*)sqlite3_column_text(sel, 2),
+                    (const char*)sqlite3_column_text(sel, 3)
+                );
+            }
+            sqlite3_finalize(sel);
+            for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
+                sqlite3_stmt* ins = nullptr;
+                if (sqlite3_prepare_v2(g_db,
+                        "INSERT INTO log (record_id, ts, type, content) VALUES (?, ?, ?, ?)",
+                        -1, &ins, nullptr) == SQLITE_OK) {
+                    sqlite3_bind_int(ins, 1, std::get<0>(*it));
+                    sqlite3_bind_text(ins, 2, std::get<1>(*it).c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(ins, 3, std::get<2>(*it).c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(ins, 4, std::get<3>(*it).c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_step(ins);
+                    sqlite3_finalize(ins);
+                }
+            }
+        }
+        sqlite3_close(oldDb);
     }
-    char logPath[MAX_PATH];
-    snprintf(logPath, MAX_PATH, "%s\\commitball.log", LOG_DIR);
-    FILE* f = fopen(logPath, "a");
-    if (!f) return;
-    char ts[64];
-    time_t now = time(NULL);
-    struct tm ti;
-    localtime_s(&ti, &now);
-    strftime(ts, 64, "%H:%M:%S", &ti);
-    fprintf(f, "[%s] ", ts);
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(f, fmt, args);
-    va_end(args);
-    fprintf(f, "\n");
-    fclose(f);
-    logLineCount++;
+
+    sqlite3_finalize(g_insertStmt);
+    g_insertStmt = nullptr;
+    const char* insertSQL = "INSERT INTO log (record_id, ts, type, content) VALUES (?, ?, ?, ?)";
+    sqlite3_prepare_v2(g_db, insertSQL, -1, &g_insertStmt, nullptr);
+
+    sqlite3_stmt* maxStmt;
+    if (sqlite3_prepare_v2(g_db, "SELECT COALESCE(MAX(record_id), 0) FROM log", -1, &maxStmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(maxStmt) == SQLITE_ROW)
+            g_recordId = sqlite3_column_int(maxStmt, 0);
+        sqlite3_finalize(maxStmt);
+    }
+
+    Log("Session split done: new current.db with tail rows, record_id=%d", g_recordId);
 }
 
 inline std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProcess, RECT& outRect) {
@@ -311,7 +421,7 @@ inline std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProces
     return outTitle;
 }
 
-inline void InsertFocusEvent(const std::wstring& title, const std::wstring& processName, const RECT& rect, bool isDummy) {
+inline void InsertFocusEvent(const std::wstring& title, const std::wstring& processName, const RECT& rect, bool isDummy = false) {
     if (!g_insertStmt || !g_db) return;
 
     std::string ts = GetTimestamp();
@@ -378,6 +488,47 @@ inline void CheckFocusTimer() {
     }
 }
 
+inline void CheckTimerEvent() {
+    if (g_state != RECORDING) return;
+    if (GetTickCount() - g_lastTimerEvent >= 600000) {
+        std::string ts = GetTimestamp();
+        sqlite3_reset(g_insertStmt);
+        sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+        sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(g_insertStmt, 3, "timer", -1, SQLITE_STATIC);
+        sqlite3_bind_text(g_insertStmt, 4, "", -1, SQLITE_STATIC);
+        sqlite3_step(g_insertStmt);
+        g_lastTimerEvent = GetTickCount();
+        CheckSessionSplit();
+    }
+}
+
+inline void CheckSessionTimeout() {
+    if (g_state != RECORDING) return;
+    if (GetTickCount() - g_recordingStartTime < 3600000) return;
+
+    Log("Session timeout: 1h reached, splitting session");
+
+    g_state = STOPPED;
+
+    g_state = RECORDING;
+    g_recordId++;
+    g_recordingStartTime = GetTickCount();
+    g_lastTimerEvent = GetTickCount();
+    g_lastOutputTime = GetTickCount();
+    g_focusNoChangeCount = 0;
+
+    std::wstring title, process;
+    RECT rect;
+    GetFocusInfo(title, process, rect);
+    InsertFocusEvent(title, process, rect);
+
+    extern void OnStateChanged();
+    OnStateChanged();
+
+    Log("Session timeout: new record #%d", g_recordId);
+}
+
 inline const wchar_t* SpecialKeyName(UINT vk) {
     switch (vk) {
         case VK_BACK:     return L"[Backspace]";
@@ -402,11 +553,18 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
         KBDLLHOOKSTRUCT* p = (KBDLLHOOKSTRUCT*)lParam;
         UINT vk = p->vkCode;
 
+        if (CheckBarTrigger(vk)) {
+            extern void SendShowToBar();
+            SendShowToBar();
+        }
+
         if (CheckTrigger(vk)) {
             if (g_state == STOPPED) {
                 g_state = RECORDING;
                 g_recordId++;
                 g_lastOutputTime = GetTickCount();
+                g_lastTimerEvent = GetTickCount();
+                g_recordingStartTime = GetTickCount();
                 std::wstring title, process;
                 RECT rect;
                 GetFocusInfo(title, process, rect);
@@ -490,7 +648,7 @@ inline void CreatePipeServer() {
                     std::wstring wmsg((const wchar_t*)(acc.data() + 4), msgLen / sizeof(wchar_t));
                     acc.erase(0, 4 + msgLen);
                     std::wstring* pMsg = new std::wstring(std::move(wmsg));
-                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pMsg, 0);
+                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pMsg, 0); // lParam=0: keyboard msg
                 }
             }
         }
@@ -498,6 +656,56 @@ inline void CreatePipeServer() {
         DisconnectNamedPipe(g_pipe);
         CloseHandle(g_pipe);
         g_pipe = INVALID_HANDLE_VALUE;
+    }
+}
+
+inline void InsertDirectInput(const std::string& text) {
+    std::string ts = GetTimestamp();
+    sqlite3_reset(g_insertStmt);
+    sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+    sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(g_insertStmt, 3, "direct-input", -1, SQLITE_STATIC);
+    sqlite3_bind_text(g_insertStmt, 4, text.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(g_insertStmt);
+    CheckSessionSplit();
+    Log("Direct input: %s", text.substr(0, 60).c_str());
+}
+
+inline void CreateBarPipeServer() {
+    const int BUF_SIZE = 4096;
+    char readBuf[BUF_SIZE];
+
+    while (g_running) {
+        HANDLE hPipe = CreateNamedPipeW(
+            L"\\\\.\\pipe\\CommitBall-direct",
+            PIPE_ACCESS_INBOUND,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            1, BUF_SIZE, 0, 0, NULL);
+
+        if (hPipe == INVALID_HANDLE_VALUE) {
+            Sleep(1000);
+            continue;
+        }
+
+        if (ConnectNamedPipe(hPipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+            std::string acc;
+            DWORD bytesRead;
+            while (g_running && ReadFile(hPipe, readBuf, BUF_SIZE, &bytesRead, NULL)) {
+                acc.append(readBuf, bytesRead);
+            }
+            if (!acc.empty()) {
+                std::string text = acc;
+                while (!text.empty() && (text.back() == '\r' || text.back() == '\n'))
+                    text.pop_back();
+                if (!text.empty()) {
+                    std::string* pText = new std::string(std::move(text));
+                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, 1); // lParam=1: direct-input
+                }
+            }
+        }
+
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
     }
 }
 
@@ -531,23 +739,6 @@ inline void ProcessMessage(const std::wstring& msg) {
             CheckSessionSplit();
         }
     }
-}
-
-inline std::string WideToUtf8(const std::wstring& wide) {
-    if (wide.empty()) return "";
-    int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), NULL, 0, NULL, NULL);
-    std::string result(size, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), &result[0], size, NULL, NULL);
-    return result;
-}
-
-inline std::string GetTimestamp() {
-    time_t now = time(NULL);
-    struct tm timeinfo;
-    localtime_s(&timeinfo, &now);
-    char buffer[64];
-    strftime(buffer, 64, "%Y-%m-%d %H:%M:%S", &timeinfo);
-    return buffer;
 }
 
 

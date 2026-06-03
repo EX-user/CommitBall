@@ -73,12 +73,12 @@ if (!(Test-Path "$root\commitball\CommitBall.exe")) {
 # === Build installer ===
 Write-Host "Building installer..."
 New-Item -ItemType Directory -Path archives -Force | Out-Null
-& $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.1.0 commitball.nsi
+& $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.1.1 commitball.nsi
 
 if ($LASTEXITCODE -eq 0) {
-    $exe = Get-Item "archives\CommitBall-0.1.0.0-installer.exe"
+    $exe = Get-Item "archives\CommitBall-0.1.1.0-installer.exe"
     $sizeMB = [math]::Round($exe.Length / 1MB, 1)
-    Write-Host "`nDone! archives\CommitBall-0.1.0.0-installer.exe ($sizeMB MB)" -ForegroundColor Green
+    Write-Host "`nDone! archives\CommitBall-0.1.1.0-installer.exe ($sizeMB MB)" -ForegroundColor Green
 } else {
     Write-Error "NSIS build failed. Check errors above."
 }

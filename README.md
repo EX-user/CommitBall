@@ -4,9 +4,9 @@
 
 ## 产品形态
 
-- 始终置顶的小圆球，三击 `[` 激活/退出，不影响焦点
+- 始终置顶的小圆球，四击 `CapsLock` 激活/退出，不影响焦点
 - 激活期间记录中文（CB-Weasel commit）、英文（CB-Weasel 转发）和特殊键（LL 钩子）
-- 每 10 秒持久化到 `commitball.txt`，按 session 分段，含起迄时间戳
+- 每 30 秒持久化到 `live.txt`，按 session 分段，含起迄时间戳
 
 ## 技术路线
 
@@ -57,7 +57,7 @@ cd commit-ball
 2. 三击 `[` 激活录音
 3. 打字（中文/英文/特殊键）
 4. 三击 `[` 停止录音
-5. 每 10 秒自动输出到 `commitball.txt`（编译开关 `ENABLE_TXT_OUTPUT` 控制）
+5. 每 30 秒自动输出到 `live.txt`
 
 ## 架构
 
@@ -70,7 +70,7 @@ WeaselServer.exe
                       ├─ Named Pipe Server (接收 commit + 英文字符)
                       ├─ WH_KEYBOARD_LL (特殊键 + 三击检测)
                       ├─ SQLite (数据存储, record_id 分 session)
-                      └─ commitball.txt (定时输出, DbToText)
+                       └─ live.txt (定时输出, DbToText)
 ```
 
 ## 文件说明
