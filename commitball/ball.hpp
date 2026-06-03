@@ -30,6 +30,7 @@ const int SNAP_THRESHOLD = 20;
 #define IDM_DB_INFO     1005
 #define IDM_HELP        1006
 #define IDM_OPEN_LIVE   1007
+#define IDM_AGENT       1008
 
 enum Edge { EDGE_NONE, EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
 extern Edge g_snappedEdge;
@@ -295,8 +296,8 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_DB_INFO, GetDbInfoText().c_str());
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_OPEN_DIR, L"\x6253\x5F00\x6570\x636E\x8DEF\x5F84");
-        AppendMenuW(hMenu, MF_STRING, IDM_COPY_PATH, L"\x590D\x5236\x6570\x636E\x8DEF\x5F84");
         AppendMenuW(hMenu, MF_STRING, IDM_OPEN_LIVE, L"\x67E5\x770B\x5F53\x524D\x8BB0\x5F55\x6587\x672C");
+        AppendMenuW(hMenu, MF_STRING, IDM_AGENT, L"\x6253\x5F00 Agent \x7EC8\x7AEF");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_HELP, L"\x5E2E\x52A9");
         AppendMenuW(hMenu, MF_STRING, IDM_EXIT, L"\x9000\x51FA CommitBall");
@@ -332,24 +333,9 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                     ShellExecuteA(NULL, NULL, livePath, NULL, NULL, SW_SHOWNORMAL);
                 }
             }
-        } else if (cmd == IDM_COPY_PATH) {
-            wchar_t dataPath[MAX_PATH];
-            GetModuleFileNameW(NULL, dataPath, MAX_PATH);
-            wchar_t* lastSlash = wcsrchr(dataPath, L'\\');
-            if (lastSlash) {
-                wcscpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - dataPath), L"data");
-                size_t len = wcslen(dataPath);
-                if (OpenClipboard(hWnd)) {
-                    EmptyClipboard();
-                    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (len + 1) * sizeof(wchar_t));
-                    if (hMem) {
-                        memcpy(GlobalLock(hMem), dataPath, (len + 1) * sizeof(wchar_t));
-                        GlobalUnlock(hMem);
-                        SetClipboardData(CF_UNICODETEXT, hMem);
-                    }
-                    CloseClipboard();
-                }
-            }
+        } else if (cmd == IDM_AGENT) {
+            extern void SendShowToAgent();
+            SendShowToAgent();
         } else if (cmd == IDM_HELP) {
             MessageBoxW(hWnd,
                 L"CommitBall \x8BB0\x5F55\x60A8\x7684\x952E\x76D8\x6D3B\x52A8\x3001\x7C98\x8D34\x5185\x5BB9\x3001\x9F20\x6807\x70B9\x51FB\x548C\x7126\x70B9\x53D8\x5316\x3002\n\n"

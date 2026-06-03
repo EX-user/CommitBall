@@ -9,7 +9,7 @@
 - [x] 确定打包方案（已完成：NSIS 安装包，installer\commitball.nsi + build-installer.ps1）
 - [x] 添加鼠标点击事件的监听，只监听按钮点击事件
 - [x] 悬浮球状态添加当前db大小和分裂进度百分比
-- [ ] 键入激活序列弹出输入栏(bar)
+- [x] 键入激活序列弹出输入栏(bar)
 - [x] 悬浮球右键菜单添加「帮助」按钮，点击弹出对话框解释功能
 - [x] db-split时保留最新的一小部分
 - [x] 添加timer事件，每10分钟发生一次，无额外消息
@@ -20,8 +20,8 @@
 - [ ] bar 加锁定按钮，锁定时 Enter 不关闭窗口，便于反复使用
 
 # 大型需求
-- [ ] 设计commitbal的mini-agent架构，明确最小支持的tool calling集合
-- [ ] 用不超过600行代码完成核心的agent loop
+- [x] 设计commitbal的mini-agent架构，明确最小支持的tool calling集合
+- [x] 用不超过600行代码完成核心的agent loop
 - [ ] 为其设计解耦的前端，只需要能由悬浮球拉起即可
 
 # 待评阅需求

@@ -21,6 +21,7 @@
 - 「写入 txt」→ FlushLiveBuffer()
 - 「打开数据路径」→ ShellExecuteA 打开 data/ 目录
 - 「退出 CommitBall」→ PostMessage(WM_CLOSE) → WM_DESTROY → PostQuitMessage(0)
+- 「打开 Agent 终端」→ SendShowToAgent()（通过命名管道唤醒 CommitBall-Agent）
 - 录制切换只能四击 CapsLock，右键菜单不提供此功能
 
 ## 边缘吸附

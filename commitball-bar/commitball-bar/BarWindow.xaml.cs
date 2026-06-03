@@ -21,11 +21,9 @@ namespace CommitBallBar
 
         private void PositionWindow()
         {
-            var screenWidth = SystemParameters.PrimaryScreenWidth;
-            var screenHeight = SystemParameters.PrimaryScreenHeight;
             var workArea = SystemParameters.WorkArea;
-
-            Left = (screenWidth - Width) / 2;
+            Width = Math.Max(480, Math.Min(680, workArea.Width * 0.3));
+            Left = (workArea.Width - Width) / 2 + workArea.Left;
             Top = workArea.Height * 3 / 4 - ActualHeight / 2;
         }
 

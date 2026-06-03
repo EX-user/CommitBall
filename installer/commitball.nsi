@@ -11,7 +11,7 @@
   !define WEASEL_VERSION "0.17.4"
 !endif
 !ifndef COMMITBALL_VERSION
-  !define COMMITBALL_VERSION "0.1.1"
+  !define COMMITBALL_VERSION "0.1.2"
 !endif
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
@@ -58,9 +58,9 @@ Section "CB-Weasel 输入法" SecMain
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-Agent.exe'
   Sleep 1000
 
-  ; Set output path
   SetOutPath "$INSTDIR"
 
   ; CommitBall
@@ -68,6 +68,10 @@ Section "CB-Weasel 输入法" SecMain
 
   ; CommitBall-Bar
   File "..\commitball-bar\publish\CommitBall-Bar.exe"
+
+  ; CommitBall-Agent
+  File "..\publish\agent\CommitBall-Agent.exe"
+  File "..\commitball-agent\commitball-agent\analyse-prompt.md"
 
   ; Release old DLL if locked
   DetailPrint "检查旧版本 DLL..."
@@ -163,6 +167,7 @@ Section "Uninstall"
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-Agent.exe'
   Sleep 1000
 
   ; Unregister TSF
@@ -183,6 +188,8 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\cb-weasel"
   Delete "$INSTDIR\CommitBall.exe"
   Delete "$INSTDIR\CommitBall-Bar.exe"
+  Delete "$INSTDIR\CommitBall-Agent.exe"
+  Delete "$INSTDIR\analyse-prompt.md"
   Delete "$INSTDIR\uninstall.exe"
   Delete "$DESKTOP\CommitBall.lnk"
   RMDir "$INSTDIR"

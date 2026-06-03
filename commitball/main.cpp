@@ -6,6 +6,7 @@
 #pragma comment(lib, "advapi32.lib")
 
 HANDLE g_barProcess = nullptr;
+HANDLE g_agentProcess = nullptr;
 
 bool LaunchBar() {
     wchar_t exePath[MAX_PATH];
@@ -47,6 +48,44 @@ bool LaunchBar() {
 void SendShowToBar() {
     HANDLE hPipe = CreateFileW(
         L"\\\\.\\pipe\\CommitBall-bar",
+        GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (hPipe == INVALID_HANDLE_VALUE) return;
+    DWORD written;
+    WriteFile(hPipe, "SHOW\r\n", 6, &written, NULL);
+    CloseHandle(hPipe);
+}
+
+bool LaunchAgent() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (!lastSlash) return false;
+    wcscpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - exePath), L"CommitBall-Agent.exe");
+
+    DWORD attrs = GetFileAttributesW(exePath);
+    if (attrs == INVALID_FILE_ATTRIBUTES) return false;
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi = {};
+    if (!CreateProcessW(exePath, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+        return false;
+    CloseHandle(pi.hThread);
+    g_agentProcess = pi.hProcess;
+
+    WaitForInputIdle(pi.hProcess, 3000);
+
+    DWORD exitCode = 0;
+    if (GetExitCodeProcess(pi.hProcess, &exitCode) && exitCode != STILL_ACTIVE) {
+        CloseHandle(pi.hProcess);
+        g_agentProcess = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void SendShowToAgent() {
+    HANDLE hPipe = CreateFileW(
+        L"\\\\.\\pipe\\CommitBall-Agent",
         GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if (hPipe == INVALID_HANDLE_VALUE) return;
     DWORD written;
@@ -158,6 +197,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     SetTimer(g_hWnd, IDT_OUTPUT, 400, NULL);
 
     LaunchBar();
+    LaunchAgent();
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
@@ -177,6 +217,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         }
         TerminateProcess(g_barProcess, 0);
         CloseHandle(g_barProcess);
+    }
+    if (g_agentProcess) {
+        HANDLE hPipe = CreateFileW(L"\\\\.\\pipe\\CommitBall-Agent", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (hPipe != INVALID_HANDLE_VALUE) {
+            DWORD written;
+            WriteFile(hPipe, "QUIT\r\n", 6, &written, NULL);
+            CloseHandle(hPipe);
+            WaitForSingleObject(g_agentProcess, 2000);
+        }
+        TerminateProcess(g_agentProcess, 0);
+        CloseHandle(g_agentProcess);
     }
     WaitForSingleObject(hPipeThread, 2000);
     CloseHandle(hPipeThread);
