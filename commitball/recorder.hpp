@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <psapi.h>
 #include <string>
+#include <vector>
+#include <tuple>
 #include <ctime>
 #include <cstdarg>
 #include <cstdio>
@@ -20,6 +22,8 @@ extern HANDLE g_pipe;
 extern sqlite3* g_db;
 extern sqlite3_stmt* g_insertStmt;
 extern DWORD g_lastOutputTime;
+extern DWORD g_lastTimerEvent;
+extern DWORD g_recordingStartTime;
 extern bool g_running;
 extern HWND g_hWnd;
 extern HWND g_lastFocusHwnd;
@@ -74,7 +78,7 @@ const char EXPORTS_DIR[]  = "data/exports";
 const char LIVE_DIR[]     = "data/live";
 const char LOG_DIR[]      = "data/log";
 const char CURRENT_DB[]   = "data/db/current.db";
-const char LIVE_TXT[]     = "data/live/commitball.txt";
+const char LIVE_TXT[]     = "data/live/live.txt";
 
 bool RecorderInit();
 void RecorderCleanup();
@@ -242,7 +246,53 @@ inline void CheckSessionSplit() {
     ExportSessionDb(sessionPath, exportPath);
 
     OpenDb(CURRENT_DB);
-    Log("Session split done: new current.db, record_id=%d", g_recordId);
+
+    sqlite3* oldDb = nullptr;
+    if (sqlite3_open(sessionPath.c_str(), &oldDb) == SQLITE_OK) {
+        sqlite3_stmt* sel = nullptr;
+        if (sqlite3_prepare_v2(oldDb,
+                "SELECT record_id, ts, type, content FROM log ORDER BY id DESC LIMIT 50",
+                -1, &sel, nullptr) == SQLITE_OK) {
+            std::vector<std::tuple<int, std::string, std::string, std::string>> rows;
+            while (sqlite3_step(sel) == SQLITE_ROW) {
+                rows.emplace_back(
+                    sqlite3_column_int(sel, 0),
+                    (const char*)sqlite3_column_text(sel, 1),
+                    (const char*)sqlite3_column_text(sel, 2),
+                    (const char*)sqlite3_column_text(sel, 3)
+                );
+            }
+            sqlite3_finalize(sel);
+            for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
+                sqlite3_stmt* ins = nullptr;
+                if (sqlite3_prepare_v2(g_db,
+                        "INSERT INTO log (record_id, ts, type, content) VALUES (?, ?, ?, ?)",
+                        -1, &ins, nullptr) == SQLITE_OK) {
+                    sqlite3_bind_int(ins, 1, std::get<0>(*it));
+                    sqlite3_bind_text(ins, 2, std::get<1>(*it).c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(ins, 3, std::get<2>(*it).c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(ins, 4, std::get<3>(*it).c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_step(ins);
+                    sqlite3_finalize(ins);
+                }
+            }
+        }
+        sqlite3_close(oldDb);
+    }
+
+    sqlite3_finalize(g_insertStmt);
+    g_insertStmt = nullptr;
+    const char* insertSQL = "INSERT INTO log (record_id, ts, type, content) VALUES (?, ?, ?, ?)";
+    sqlite3_prepare_v2(g_db, insertSQL, -1, &g_insertStmt, nullptr);
+
+    sqlite3_stmt* maxStmt;
+    if (sqlite3_prepare_v2(g_db, "SELECT COALESCE(MAX(record_id), 0) FROM log", -1, &maxStmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(maxStmt) == SQLITE_ROW)
+            g_recordId = sqlite3_column_int(maxStmt, 0);
+        sqlite3_finalize(maxStmt);
+    }
+
+    Log("Session split done: new current.db with tail rows, record_id=%d", g_recordId);
 }
 
 inline void Log(const char* fmt, ...) {
@@ -378,6 +428,47 @@ inline void CheckFocusTimer() {
     }
 }
 
+inline void CheckTimerEvent() {
+    if (g_state != RECORDING) return;
+    if (GetTickCount() - g_lastTimerEvent >= 600000) {
+        std::string ts = GetTimestamp();
+        sqlite3_reset(g_insertStmt);
+        sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+        sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(g_insertStmt, 3, "timer", -1, SQLITE_STATIC);
+        sqlite3_bind_text(g_insertStmt, 4, "", -1, SQLITE_STATIC);
+        sqlite3_step(g_insertStmt);
+        g_lastTimerEvent = GetTickCount();
+        CheckSessionSplit();
+    }
+}
+
+inline void CheckSessionTimeout() {
+    if (g_state != RECORDING) return;
+    if (GetTickCount() - g_recordingStartTime < 3600000) return;
+
+    Log("Session timeout: 1h reached, splitting session");
+
+    g_state = STOPPED;
+
+    g_state = RECORDING;
+    g_recordId++;
+    g_recordingStartTime = GetTickCount();
+    g_lastTimerEvent = GetTickCount();
+    g_lastOutputTime = GetTickCount();
+    g_focusNoChangeCount = 0;
+
+    std::wstring title, process;
+    RECT rect;
+    GetFocusInfo(title, process, rect);
+    InsertFocusEvent(title, process, rect);
+
+    extern void OnStateChanged();
+    OnStateChanged();
+
+    Log("Session timeout: new record #%d", g_recordId);
+}
+
 inline const wchar_t* SpecialKeyName(UINT vk) {
     switch (vk) {
         case VK_BACK:     return L"[Backspace]";
@@ -407,6 +498,8 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
                 g_state = RECORDING;
                 g_recordId++;
                 g_lastOutputTime = GetTickCount();
+                g_lastTimerEvent = GetTickCount();
+                g_recordingStartTime = GetTickCount();
                 std::wstring title, process;
                 RECT rect;
                 GetFocusInfo(title, process, rect);

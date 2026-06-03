@@ -24,12 +24,12 @@ const int SNAP_THRESHOLD = 20;
 #define IDT_OUTPUT 1
 #define IDT_COLOR_ANIM 2
 #define IDM_STATUS      1000
-#define IDM_WRITE_TXT   1001
 #define IDM_EXIT        1002
 #define IDM_OPEN_DIR    1003
 #define IDM_COPY_PATH   1004
 #define IDM_DB_INFO     1005
 #define IDM_HELP        1006
+#define IDM_OPEN_LIVE   1007
 
 enum Edge { EDGE_NONE, EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
 extern Edge g_snappedEdge;
@@ -294,9 +294,9 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_STATUS, GetStatusText());
         AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_DB_INFO, GetDbInfoText().c_str());
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(hMenu, MF_STRING, IDM_WRITE_TXT, L"\x7ACB\x523B\x66F4\x65B0 txt \x8F93\x51FA");
         AppendMenuW(hMenu, MF_STRING, IDM_OPEN_DIR, L"\x6253\x5F00\x6570\x636E\x8DEF\x5F84");
         AppendMenuW(hMenu, MF_STRING, IDM_COPY_PATH, L"\x590D\x5236\x6570\x636E\x8DEF\x5F84");
+        AppendMenuW(hMenu, MF_STRING, IDM_OPEN_LIVE, L"\x67E5\x770B\x5F53\x524D\x8BB0\x5F55\x6587\x672C");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_HELP, L"\x5E2E\x52A9");
         AppendMenuW(hMenu, MF_STRING, IDM_EXIT, L"\x9000\x51FA CommitBall");
@@ -312,8 +312,6 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 ExitProcess(0);
                 return 0;
             }, NULL, 0, NULL);
-        } else if (cmd == IDM_WRITE_TXT) {
-            FlushLiveBuffer();
         } else if (cmd == IDM_OPEN_DIR) {
             char dataPath[MAX_PATH];
             GetModuleFileNameA(NULL, dataPath, MAX_PATH);
@@ -321,6 +319,18 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             if (lastSlash) {
                 strcpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - dataPath), "data");
                 ShellExecuteA(NULL, "open", dataPath, NULL, NULL, SW_SHOWNORMAL);
+            }
+        } else if (cmd == IDM_OPEN_LIVE) {
+            FlushLiveBuffer();
+            char livePath[MAX_PATH];
+            GetModuleFileNameA(NULL, livePath, MAX_PATH);
+            char* lastSlash = strrchr(livePath, '\\');
+            if (lastSlash) {
+                strcpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - livePath), LIVE_TXT);
+                HINSTANCE hr = ShellExecuteA(NULL, "open", "notepad", livePath, NULL, SW_SHOWNORMAL);
+                if ((uintptr_t)hr <= 32) {
+                    ShellExecuteA(NULL, NULL, livePath, NULL, NULL, SW_SHOWNORMAL);
+                }
             }
         } else if (cmd == IDM_COPY_PATH) {
             wchar_t dataPath[MAX_PATH];
@@ -345,9 +355,9 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 L"CommitBall \x8BB0\x5F55\x60A8\x7684\x952E\x76D8\x6D3B\x52A8\x3001\x7C98\x8D34\x5185\x5BB9\x3001\x9F20\x6807\x70B9\x51FB\x548C\x7126\x70B9\x53D8\x5316\x3002\n\n"
                 L"\x2022 \x6309 4 \x6B21 CapsLock \x5F00\x59CB/\x505C\x6B62\x8BB0\x5F55\n"
                 L"\x2022 \x53F3\x952E\x60AC\x6D6E\x7403\x6253\x5F00\x83DC\x5355\x548C\x4E86\x89E3\x72B6\x6001\n"
-                L"\x2022 \x6570\x636E\x4FDD\x5B58\x4F4D\x7F6E\x53EF\x7531\x60AC\x6D6E\x7403\x83DC\x5355\x6253\x5F00\n"
+                L"\x2022 \x83DC\x5355\x4E2D\x53EF\x67E5\x770B\x5F53\x524D\x8BB0\x5F55\x6587\x672C\x3001\x6253\x5F00\x6570\x636E\x76EE\x5F55\n"
                 L"\x2022 \x952E\x76D8\x6D3B\x52A8\x4EC5\x5F53\x4F7F\x7528 CB-Weasel \x8F93\x5165\x6CD5\x65F6\x751F\x6548\n"
-                L"\x2022 \x8BB0\x5F55\x8F93\x51FA\x4E3A\x6570\x636E\x8DEF\x5F84\x4E0B\x7684 txt \x548C db \x6587\x4EF6",
+                L"\x2022 \x8BB0\x5F55\x8F93\x51FA\x4E3A\x6570\x636E\x76EE\x5F55\x4E0B\x7684 live.txt \x548C db \x6587\x4EF6",
                 L"CommitBall \x5E2E\x52A9",
                 MB_OK | MB_ICONINFORMATION);
         }
@@ -380,9 +390,6 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
-        case IDM_WRITE_TXT:
-            FlushLiveBuffer();
-            break;
         case IDM_EXIT:
             DestroyWindow(g_hWnd);
             break;
@@ -407,6 +414,8 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 g_lastOutputTime = GetTickCount();
             }
             CheckFocusTimer();
+            CheckTimerEvent();
+            CheckSessionTimeout();
         } else if (wParam == IDT_COLOR_ANIM) {
             AnimateColor();
         }
