@@ -14,12 +14,12 @@
         Loaded="Window_Loaded">
     <Border x:Name="RootBorder" 
             CornerRadius="14" 
-            Background="White" 
-            BorderBrush="#D2D2DC" 
+            Background="#2D2253" 
+            BorderBrush="#5B4A8A"
             BorderThickness="1"
             Margin="6,6,6,2">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="12" Opacity="0.12" ShadowDepth="3" Direction="270" Color="#000000"/>
+            <DropShadowEffect BlurRadius="12" Opacity="0.2" ShadowDepth="3" Direction="270" Color="#1A1030"/>
         </Border.Effect>
         <Grid>
             <TextBox x:Name="InputBox" 
@@ -29,15 +29,15 @@
                      BorderThickness="0"
                      VerticalContentAlignment="Center" 
                      Margin="16,12"
-                     Foreground="#1E1E1E" 
-                     CaretBrush="#3C3C3C"
+                     Foreground="#E0D8F0" 
+                     CaretBrush="#89B4FA"
                      KeyDown="InputBox_KeyDown"
                      TextChanged="InputBox_TextChanged"/>
             <TextBlock x:Name="HintText"
                        Text="Esc 关闭 | 键入后 Enter 提交"
                        FontSize="14"
                        FontFamily="Segoe UI"
-                       Foreground="#AAAAAE"
+                       Foreground="#7B6FA0"
                        IsHitTestVisible="False"
                        VerticalAlignment="Center"
                        Margin="18,0,18,0"
