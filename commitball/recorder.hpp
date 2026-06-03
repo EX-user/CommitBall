@@ -5,7 +5,10 @@
 #include <ctime>
 #include <cstdarg>
 #include <cstdio>
+#include <UIAutomation.h>
 #include "sqlite3.h"
+#include "clipboard.hpp"
+#include "dbexport.hpp"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "psapi.lib")
@@ -21,6 +24,7 @@ extern bool g_running;
 extern HWND g_hWnd;
 extern HWND g_lastFocusHwnd;
 extern int g_focusNoChangeCount;
+extern IUIAutomation* g_pUIAutomation;
 
 const int FLUSH_INTERVAL = 30000;
 const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
@@ -80,7 +84,6 @@ void ProcessMessage(const std::wstring& msg);
 const wchar_t* SpecialKeyName(UINT vk);
 std::string WideToUtf8(const std::wstring& wide);
 std::string GetTimestamp();
-std::string DbToText(sqlite3* db);
 void FlushLiveBuffer();
 void CheckSessionSplit();
 void ExportSessionDb(const std::string& dbPath, const std::string& txtPath);
@@ -177,6 +180,9 @@ inline bool OpenDb(const char* path) {
 inline bool RecorderInit() {
     EnsureDirs();
     if (!OpenDb(CURRENT_DB)) return false;
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    CoCreateInstance(CLSID_CUIAutomation, NULL, CLSCTX_INPROC_SERVER,
+        IID_IUIAutomation, (void**)&g_pUIAutomation);
     Log("CommitBall started, record_id=%d", g_recordId);
     return true;
 }
@@ -185,6 +191,8 @@ inline void RecorderCleanup() {
     if (g_insertStmt) sqlite3_finalize(g_insertStmt);
     if (g_db) sqlite3_close(g_db);
     if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
+    if (g_pUIAutomation) g_pUIAutomation->Release();
+    CoUninitialize();
 }
 
 inline void FlushLiveBuffer() {
@@ -429,11 +437,21 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
             } else if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && vk == 'V') {
                 CheckFocusChange();
                 std::string ts = GetTimestamp();
+                PasteResult pr = ReadClipboardText();
                 sqlite3_reset(g_insertStmt);
                 sqlite3_bind_int(g_insertStmt, 1, g_recordId);
                 sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(g_insertStmt, 3, "keystroke", -1, SQLITE_STATIC);
-                sqlite3_bind_text(g_insertStmt, 4, "[Paste]", -1, SQLITE_STATIC);
+                switch (pr.type) {
+                    case PASTE_NORMAL: sqlite3_bind_text(g_insertStmt, 3, "paste", -1, SQLITE_STATIC); break;
+                    case PASTE_BIG:    sqlite3_bind_text(g_insertStmt, 3, "paste-big", -1, SQLITE_STATIC); break;
+                    case PASTE_MEGA:   sqlite3_bind_text(g_insertStmt, 3, "paste-mega", -1, SQLITE_STATIC); break;
+                    default:           sqlite3_bind_text(g_insertStmt, 3, "keystroke", -1, SQLITE_STATIC); break;
+                }
+                if (pr.type == PASTE_NONE) {
+                    sqlite3_bind_text(g_insertStmt, 4, "[Paste]", -1, SQLITE_STATIC);
+                } else {
+                    sqlite3_bind_text(g_insertStmt, 4, pr.content.c_str(), -1, SQLITE_TRANSIENT);
+                }
                 sqlite3_step(g_insertStmt);
                 CheckSessionSplit();
             }
@@ -532,81 +550,4 @@ inline std::string GetTimestamp() {
     return buffer;
 }
 
-inline std::string DbToText(sqlite3* db) {
-    static const std::pair<const char*, const char*> shortMap[] = {
-        {"[Backspace]", "[<bs]"},
-        {"[Tab]",       "[<tab]"},
-        {"[Enter]",     "[<cr]"},
-        {"[Delete]",    "[<del]"},
-        {"[Left]",      "[<-]"},
-        {"[Right]",     "[->]"},
-        {"[Up]",        "[<up]"},
-        {"[Down]",      "[<dn]"},
-        {"[Home]",      "[<hm]"},
-        {"[End]",       "[<end]"},
-        {"[PageUp]",    "[<pu]"},
-        {"[PageDown]",  "[<pd]"},
-        {"[Esc]",       "[<esc]"},
-        {"[Paste]",     "[<paste]"},
-        {"[Copy]",      "[<copy]"},
-        {"[Cut]",       "[<cut]"},
-        {"[Undo]",      "[<undo]"},
-    };
 
-    if (!db) return "";
-
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(db,
-        "SELECT record_id, ts, type, content FROM log ORDER BY record_id, id",
-        -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return "";
-
-    std::string output;
-    int curRecordId = -1;
-    std::string firstTs, lastTs, body;
-
-    auto flushRecord = [&]() {
-        if (curRecordId < 0) return;
-        output += "--- #" + std::to_string(curRecordId) + " [" + firstTs + " ~ " + lastTs + "] ---\n";
-        output += body;
-        if (!body.empty() && body.back() != '\n') output += "\n";
-        output += "\n";
-    };
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        int recordId = sqlite3_column_int(stmt, 0);
-        const char* ts = (const char*)sqlite3_column_text(stmt, 1);
-        const char* type = (const char*)sqlite3_column_text(stmt, 2);
-        const char* content = (const char*)sqlite3_column_text(stmt, 3);
-
-        if (recordId != curRecordId) {
-            flushRecord();
-            curRecordId = recordId;
-            firstTs = ts ? ts : "";
-            lastTs = firstTs;
-            body.clear();
-        } else if (ts) {
-            lastTs = ts;
-        }
-
-        if (content) {
-            if (type && strncmp(type, "focus", 5) == 0) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                body += std::string("[") + type + "] " + content + "\n";
-            } else {
-                std::string s = content;
-                for (auto& [from, to] : shortMap) {
-                    size_t pos = 0;
-                    while ((pos = s.find(from, pos)) != std::string::npos) {
-                        s.replace(pos, strlen(from), to);
-                        pos += strlen(to);
-                    }
-                }
-                body += s;
-            }
-        }
-    }
-    flushRecord();
-    sqlite3_finalize(stmt);
-    return output;
-}
