@@ -56,6 +56,7 @@ char g_barTrigger[BAR_TRIGGER_MAX_LEN + 1] = "\\ccb";
 int g_barTriggerLen = 4;
 char g_barSeq[16] = {};
 int g_barSeqLen = 0;
+DWORD g_barSeqTime = 0;
 
 inline bool CheckBarTrigger(UINT vk) {
     char c = 0;
@@ -72,7 +73,15 @@ inline bool CheckBarTrigger(UINT vk) {
     else if (vk == VK_OEM_COMMA) c = ',';
     else if (vk == VK_OEM_PERIOD) c = '.';
 
+    DWORD now = GetTickCount();
+
     if (c) {
+        if (g_barSeqLen == 0 || now - g_barSeqTime > 2000) {
+            g_barSeqLen = 0;
+            g_barSeq[0] = '\0';
+            g_barSeqTime = now;
+        }
+
         if (g_barSeqLen < 15) {
             g_barSeq[g_barSeqLen++] = c;
             g_barSeq[g_barSeqLen] = '\0';
