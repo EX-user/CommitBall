@@ -50,8 +50,14 @@ namespace CommitBallAgent
         }
 
         private static readonly string LogPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "log", "agent.log");
+        private static readonly string StatusPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "agent-status");
 
-        private static void Log(string msg)
+        private static void WriteStatus(string status)
+        {
+            try { File.WriteAllText(StatusPath, status); } catch { }
+        }
+
+        public static void Log(string msg)
         {
             try
             {
@@ -69,10 +75,12 @@ namespace CommitBallAgent
         private long _lastOutputTick;
         private int _escCount;
         private long _firstEscTick;
+        private readonly Queue<string> _invokeQueue = new();
 
         public AgentWindow()
         {
             InitializeComponent();
+            WriteStatus("idle");
             PositionWindow();
             OutputBox.CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy, OnOutputCopy));
 
@@ -147,8 +155,9 @@ namespace CommitBallAgent
                     }
                     if (now - _firstEscTick < 1000)
                     {
-                        Log("Esc×2: cancelling");
+                        Log("Esc×2: cancelling + clearing queue");
                         _cts?.Cancel();
+                        lock (_invokeQueue) _invokeQueue.Clear();
                     }
                     _escCount = 0;
                     return;
@@ -167,6 +176,12 @@ namespace CommitBallAgent
         private void BgBtn_Click(object sender, RoutedEventArgs e)
         {
             Hide();
+        }
+
+        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton == MouseButton.Left)
+                DragMove();
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -210,33 +225,45 @@ namespace CommitBallAgent
                 var text = InputBox.Text.Trim();
                 InputBox.Clear();
                 if (string.IsNullOrEmpty(text)) return;
+                ProcessInput(text);
+            }
+        }
 
-                if (text == "/help" || text == "/vendor" || text.StartsWith("/vendor "))
+        private void ProcessInput(string text)
+        {
+            if (text == "/help" || text == "/vendor" || text.StartsWith("/vendor "))
+            {
+                if (text == "/help")
                 {
-                    if (text == "/help")
-                    {
-                        AppendOutput("\nCommands:\n", "#FFFFFF");
-                        AppendOutput("  /help      Show this help\n");
-                        AppendOutput("  /new       Create a new session\n");
-                        AppendOutput("  /session   List and switch sessions\n");
-                        AppendOutput("  /analyse   Analyse live.txt work log (append text after command for custom input)\n");
-                        AppendOutput("  /vendor    Show or update API config\n");
-                        AppendOutput("\n");
-                        return;
-                    }
+                    AppendOutput("\nCommands:\n", "#FFFFFF");
+                    AppendOutput("  /help      Show this help\n");
+                    AppendOutput("  /new       Create a new session\n");
+                    AppendOutput("  /session   List and switch sessions\n");
+                    AppendOutput("  /analyse          Analyse live.txt work log (subtask mode)\n");
+                    AppendOutput("  /summary_to_panel Analyse + panel in one pass (single task)\n");
+                    AppendOutput("  /vendor           Show or update API config\n");
+                    AppendOutput("\n");
+                    return;
+                }
 
-                    if (text == "/vendor")
-                    {
-                        AppendOutput("\nCurrent config:\n", "#FFFFFF");
-                        AppendOutput($"  base_url: {Config.BaseUrl}\n");
-                        AppendOutput($"  model:    {Config.Model}\n");
-                        var keyPreview = Config.ApiKey.Length > 0 ? Config.ApiKey.Substring(0, Math.Min(8, Config.ApiKey.Length)) + "..." : "(empty)";
-                        AppendOutput($"  api_key:  {keyPreview}\n\n");
-                        AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
-                        return;
-                    }
+                if (text == "/vendor")
+                {
+                    Log("ProcessInput: /vendor show current");
+                    AppendOutput("\nCurrent config:\n", "#FFFFFF");
+                    AppendOutput($"  base_url: {Config.BaseUrl}\n");
+                    AppendOutput($"  model:    {Config.Model}\n");
+                    var keyPreview = Config.ApiKey.Length > 0 ? Config.ApiKey.Substring(0, Math.Min(8, Config.ApiKey.Length)) + "..." : "(empty)";
+                    AppendOutput($"  api_key:  {keyPreview}\n\n");
+                    AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
+                    return;
+                }
 
+                Log("ProcessInput: /vendor set - starting async validation");
+                _ = Task.Run(async () =>
+                {
+                    Log("/vendor: parsing JSON");
                     var json = text.Substring("/vendor ".Length).Trim();
+                    string baseUrl, model, apiKey;
                     try
                     {
                         var doc = System.Text.Json.JsonDocument.Parse(json);
@@ -245,19 +272,31 @@ namespace CommitBallAgent
                             || !root.TryGetProperty("model", out var mEl) || string.IsNullOrEmpty(mEl.GetString())
                             || !root.TryGetProperty("api_key", out var akEl) || string.IsNullOrEmpty(akEl.GetString()))
                         {
-                            AppendOutput("\n缺少必要字段，需要 base_url、model、api_key 三个非空字段\n\n", "#E8915A");
+                            Dispatcher.BeginInvoke(() => AppendOutput("\n缺少必要字段，需要 base_url、model、api_key 三个非空字段\n\n", "#E8915A"));
                             return;
                         }
-                        var baseUrl = buEl.GetString()!;
-                        var model = mEl.GetString()!;
-                        var apiKey = akEl.GetString()!;
-                        AppendOutput($"\nValidating {baseUrl} ... ", "#AAAAAE");
-                        var (ok, msg) = await LLMClient.ValidateAsync(baseUrl, model, apiKey);
-                        if (!ok)
-                        {
-                            AppendOutput($"failed\n  {msg}\n\n", "#E8915A");
-                            return;
-                        }
+                        baseUrl = buEl.GetString()!;
+                        model = mEl.GetString()!;
+                        apiKey = akEl.GetString()!;
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                        Dispatcher.BeginInvoke(() => AppendOutput("\nJSON parse failed. Check format.\n\n", "#E8915A"));
+                        return;
+                    }
+
+                    Log($"/vendor: validating {baseUrl} model={model}");
+                    Dispatcher.BeginInvoke(() => AppendOutput($"\nValidating {baseUrl} ... ", "#AAAAAE"));
+                    var (ok, msg) = await LLMClient.ValidateAsync(baseUrl, model, apiKey);
+                    Log($"/vendor: validation result ok={ok} msg={msg}");
+
+                    if (!ok)
+                    {
+                        Dispatcher.BeginInvoke(() => AppendOutput($"failed\n  {msg}\n\n", "#E8915A"));
+                        return;
+                    }
+                    Dispatcher.BeginInvoke(() =>
+                    {
                         AppendOutput("OK\n", "#6ECF6E");
                         Config.Save(baseUrl, model, apiKey);
                         if (_session == null)
@@ -271,60 +310,87 @@ namespace CommitBallAgent
                         {
                             AppendOutput($"\nConfig updated → {baseUrl} / {model}\n\n", "#6ECF6E");
                         }
-                    }
-                    catch (System.Text.Json.JsonException)
-                    {
-                        AppendOutput("\nJSON parse failed. Check format.\n\n", "#E8915A");
-                    }
-                    return;
-                }
-
-                if (_inSessionMenu)
-                {
-                    HandleSessionMenuInput(text);
-                    return;
-                }
-
-                if (!Config.IsConfigured)
-                {
-                    AppendOutput("\n请先使用 /vendor 配置 API\n\n", "#E8915A");
-                    return;
-                }
-
-                if (text == "/session")
-                {
-                    EnterSessionMenu();
-                    return;
-                }
-
-                if (text == "/new")
-                {
-                    _session = Memory.LoadOrCreate();
-                    OutputBox.Document.Blocks.Clear();
-                    AppendOutput($"Session: {_session.Id}\n\n");
-                    return;
-                }
-
-                if (text == "/analyse")
-                {
-                    var promptFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "analyse-prompt.md");
-                    string prompt;
-                    if (File.Exists(promptFile))
-                        prompt = File.ReadAllText(promptFile);
-                    else
-                        prompt = "Error: analyse-prompt.md not found";
-
-                    if (text.Length > "/analyse".Length)
-                        prompt += "\n\n" + text.Substring("/analyse".Length).Trim();
-
-                    AppendOutput($"> /analyse\n", "#FFFFFF");
-                    _ = RunChatAsync(prompt);
-                    return;
-                }
-
-                AppendOutput($"> {text}\n", "#FFFFFF");
-                _ = RunChatAsync(text);
+                    });
+                });
+                return;
             }
+
+            if (_inSessionMenu)
+            {
+                HandleSessionMenuInput(text);
+                return;
+            }
+
+            if (!Config.IsConfigured)
+            {
+                AppendOutput("\n请先使用 /vendor 配置 API\n\n", "#E8915A");
+                return;
+            }
+
+            if (text == "/session")
+            {
+                EnterSessionMenu();
+                return;
+            }
+
+            if (text == "/new")
+            {
+                _session = Memory.LoadOrCreate();
+                OutputBox.Document.Blocks.Clear();
+                AppendOutput($"Session: {_session.Id}\n\n");
+                return;
+            }
+
+            if (text == "/analyse" || text.StartsWith("/analyse "))
+            {
+                var promptFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "analyse-prompt.md");
+                string prompt;
+                if (File.Exists(promptFile))
+                    prompt = File.ReadAllText(promptFile);
+                else
+                    prompt = "Error: analyse-prompt.md not found";
+
+                if (text.Length > "/analyse".Length)
+                    prompt += "\n\n" + text.Substring("/analyse".Length).Trim();
+
+                AppendOutput($"> /analyse\n", "#FFFFFF");
+                _ = RunChatAsync(prompt);
+                return;
+            }
+
+            if (text == "/analyse_st" || text.StartsWith("/analyse_st "))
+            {
+                var promptFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "analyse-prompt-st.md");
+                string prompt;
+                if (File.Exists(promptFile))
+                    prompt = File.ReadAllText(promptFile);
+                else
+                    prompt = "Error: analyse-prompt-st.md not found";
+
+                if (text.Length > "/analyse_st".Length)
+                    prompt += "\n\n" + text.Substring("/analyse_st".Length).Trim();
+
+                AppendOutput($"> /analyse_st\n", "#FFFFFF");
+                _ = RunChatAsync(prompt);
+                return;
+            }
+
+            if (text == "/summary_to_panel")
+            {
+                var promptFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "summary_to_panel-prompt.md");
+                string prompt;
+                if (File.Exists(promptFile))
+                    prompt = File.ReadAllText(promptFile);
+                else
+                    prompt = "Error: summary_to_panel-prompt.md not found";
+
+                AppendOutput($"> /summary_to_panel\n", "#FFFFFF");
+                _ = RunChatAsync(prompt);
+                return;
+            }
+
+            AppendOutput($"> {text}\n", "#FFFFFF");
+            _ = RunChatAsync(text);
         }
 
         private void EnterSessionMenu()
@@ -440,6 +506,7 @@ namespace CommitBallAgent
         private async Task RunChatAsync(string input)
         {
             _isBusy = true;
+            WriteStatus("busy");
             _cts = new CancellationTokenSource();
             InputBox.Visibility = Visibility.Hidden;
             InputHint.Visibility = Visibility.Visible;
@@ -479,11 +546,13 @@ namespace CommitBallAgent
             {
                 AppendOutput("\n\n");
                 _isBusy = false;
+                WriteStatus("idle");
                 _escCount = 0;
                 InputHint.Visibility = Visibility.Collapsed;
                 InputBox.Visibility = Visibility.Visible;
                 InputBox.IsEnabled = true;
                 InputBox.Focus();
+                TryDequeueInvoke();
             });
         }
 
@@ -559,6 +628,31 @@ namespace CommitBallAgent
                     msgs.Add(new Message { Role = "tool", ToolCallId = tc.Id, Content = "[cancelled]" });
                 }
             }
+        }
+
+        public void EnqueueInvoke(string[] inputs)
+        {
+            lock (_invokeQueue)
+            {
+                foreach (var input in inputs)
+                    _invokeQueue.Enqueue(input);
+            }
+            Dispatcher.BeginInvoke((Action)TryDequeueInvoke);
+        }
+
+        private void TryDequeueInvoke()
+        {
+            if (_isBusy) return;
+            string? input;
+            lock (_invokeQueue)
+            {
+                if (_invokeQueue.Count == 0) return;
+                input = _invokeQueue.Dequeue();
+            }
+            Log($"Invoke dequeue: {input?.Substring(0, Math.Min(input.Length, 40))}");
+            ProcessInput(input!);
+            if (!_isBusy)
+                Dispatcher.BeginInvoke((Action)TryDequeueInvoke);
         }
 
         public new void Show()

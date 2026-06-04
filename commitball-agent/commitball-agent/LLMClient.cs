@@ -20,6 +20,11 @@ namespace CommitBallAgent
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
         private static readonly HttpClient HttpDirect = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromMinutes(5) };
 
+        private static string NormalizeBaseUrl(string url)
+        {
+            return url.TrimEnd('/');
+        }
+
         private static bool IsProxyError(Exception ex)
         {
             var msg = ex.InnerException?.Message ?? ex.Message;
@@ -64,13 +69,16 @@ namespace CommitBallAgent
         {
             try
             {
-                var url = $"{baseUrl.TrimEnd('/')}/v1/models";
+                var url = $"{NormalizeBaseUrl(baseUrl)}/models";
+                AgentWindow.Log($"ValidateAsync: requesting {url}");
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 req.Headers.Add("Authorization", $"Bearer {apiKey}");
                 using var resp = await SendNoStreamAsync(req);
+                AgentWindow.Log($"ValidateAsync: status={resp.StatusCode}");
                 if (!resp.IsSuccessStatusCode)
                     return (false, $"API 返回 {(int)resp.StatusCode}: {await resp.Content.ReadAsStringAsync()}");
                 var body = await resp.Content.ReadAsStringAsync();
+                AgentWindow.Log($"ValidateAsync: body len={body.Length}");
                 using var doc = JsonDocument.Parse(body);
                 if (!doc.RootElement.TryGetProperty("data", out var data))
                     return (false, "响应中无 data 字段");
@@ -96,7 +104,7 @@ namespace CommitBallAgent
             Action<string>? onToken = null,
             CancellationToken ct = default)
         {
-            var url = $"{Config.BaseUrl}/v1/chat/completions";
+            var url = $"{NormalizeBaseUrl(Config.BaseUrl)}/chat/completions";
 
             var msgList = new List<object>();
             foreach (var m in messages)
@@ -124,7 +132,12 @@ namespace CommitBallAgent
             req.Content = new StringContent(reqJson, Encoding.UTF8, "application/json");
 
             using var resp = await SendAsync(req, ct).ConfigureAwait(false);
-            resp.EnsureSuccessStatusCode();
+            if (!resp.IsSuccessStatusCode)
+            {
+                var errBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                AgentWindow.Log($"ChatAsync: HTTP {(int)resp.StatusCode} - {errBody}");
+                return new LLMResponse { Content = $"[API Error {(int)resp.StatusCode}] {Truncate(errBody, 500)}" };
+            }
 
             using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             using var reader = new StreamReader(stream, Encoding.UTF8);
@@ -159,7 +172,7 @@ namespace CommitBallAgent
                         if (onToken != null) onToken(chunk);
                     }
 
-                    if (delta.TryGetProperty("tool_calls", out var tcs))
+                    if (delta.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == System.Text.Json.JsonValueKind.Array)
                     {
                         foreach (var tc in tcs.EnumerateArray())
                         {
@@ -181,7 +194,7 @@ namespace CommitBallAgent
                         }
                     }
                 }
-                catch (JsonException) { }
+                catch (Exception) { }
             }
 
             var result = new LLMResponse
@@ -190,6 +203,12 @@ namespace CommitBallAgent
                 ToolCalls = new List<ToolCall>(toolCallsMap.Values)
             };
             return result;
+        }
+
+        private static string Truncate(string s, int maxLen)
+        {
+            if (s == null) return "";
+            return s.Length <= maxLen ? s : s[..maxLen] + "...";
         }
     }
 }

@@ -26,7 +26,7 @@ namespace CommitBallAgent
             var systemPrompt = Tools.GetSystemPrompt(isSubtask);
             var systemAdded = false;
 
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; ; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 if (!systemAdded)
@@ -167,6 +167,13 @@ namespace CommitBallAgent
                         session.Messages.Add(new Message { Role = "assistant", Content = resp.Content });
                     }
                     break;
+                }
+
+                if (i > 0 && i % 10 == 9 && i >= 20)
+                {
+                    var msg = "提示：已连续调用较多次tool，请注意控制调用次数。";
+                    session.Messages.Add(new Message { Role = "user", Content = msg });
+                    onOutput(msg + "\n");
                 }
             }
 

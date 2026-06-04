@@ -93,6 +93,95 @@ void SendShowToAgent() {
     CloseHandle(hPipe);
 }
 
+bool IsAgentRunning() {
+    if (!g_agentProcess) return false;
+    DWORD exitCode = 0;
+    if (!GetExitCodeProcess(g_agentProcess, &exitCode)) return false;
+    return exitCode == STILL_ACTIVE;
+}
+
+bool IsAgentBusy() {
+    if (!IsAgentRunning()) return false;
+    char buf[64] = {};
+    FILE* f = fopen("data/agent-status", "r");
+    if (f) { fgets(buf, sizeof(buf), f); fclose(f); }
+    return std::string(buf).find("busy") != std::string::npos;
+}
+
+std::wstring GetAgentStatusText() {
+    if (!IsAgentRunning()) return L"Agent: \x672a\x8fd0\x884c";
+    char buf[64] = {};
+    FILE* f = fopen("data/agent-status", "r");
+    if (f) { fgets(buf, sizeof(buf), f); fclose(f); }
+    std::string status = buf;
+    if (status.find("busy") != std::string::npos)
+        return L"Agent: \x7e41\x5fd9";
+    return L"Agent: \x7a7a\x95f2";
+}
+
+void SendInvokeToAgent(const char* json) {
+    if (!IsAgentRunning()) {
+        Log("SendInvokeToAgent: agent not running");
+        return;
+    }
+    char buf[64] = {};
+    FILE* f = fopen("data/agent-status", "r");
+    if (f) { fgets(buf, sizeof(buf), f); fclose(f); }
+    if (std::string(buf).find("busy") != std::string::npos) {
+        Log("SendInvokeToAgent: agent busy, skipping");
+        return;
+    }
+    HANDLE hPipe = CreateFileW(
+        L"\\\\.\\pipe\\CommitBall-Agent",
+        GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (hPipe == INVALID_HANDLE_VALUE) {
+        Log("SendInvokeToAgent: pipe connect failed (err=%d)", GetLastError());
+        return;
+    }
+    std::string msg = "INVOKE ";
+    msg += json;
+    msg += "\r\n";
+    DWORD written;
+    WriteFile(hPipe, msg.c_str(), (DWORD)msg.size(), &written, NULL);
+    CloseHandle(hPipe);
+    Log("SendInvokeToAgent: sent %d bytes", (int)msg.size());
+}
+
+void InvokeAgentAnalyse() {
+    const char* json = "\x5B\x22\x2F\x6E\x65\x77\x22\x2C\x22\x2F\x73\x75\x6D\x6D\x61\x72\x79\x5F\x74\x6F\x5F\x70\x61\x6E\x65\x6C\x22\x5D";
+    Log("InvokeAgentAnalyse: %s", json);
+    SendInvokeToAgent(json);
+}
+
+DWORD g_lastAutoCheckTime = 0;
+
+void CheckAutoAnalyse() {
+    if (GetTickCount() - g_lastAutoCheckTime < 60000) return;
+    g_lastAutoCheckTime = GetTickCount();
+
+    if (!IsAgentRunning() || IsAgentBusy()) return;
+
+    WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+    if (GetFileAttributesExA("data/agent-out/panel.html", GetFileExInfoStandard, &fileInfo)) {
+        SYSTEMTIME stUtc, stLocal;
+        FileTimeToSystemTime(&fileInfo.ftLastWriteTime, &stUtc);
+        SystemTimeToTzSpecificLocalTime(NULL, &stUtc, &stLocal);
+        struct tm tmFile = {};
+        tmFile.tm_year = stLocal.wYear - 1900;
+        tmFile.tm_mon = stLocal.wMonth - 1;
+        tmFile.tm_mday = stLocal.wDay;
+        tmFile.tm_hour = stLocal.wHour;
+        tmFile.tm_min = stLocal.wMinute;
+        tmFile.tm_sec = stLocal.wSecond;
+        tmFile.tm_isdst = -1;
+        time_t fileTime = mktime(&tmFile);
+        time_t now = time(NULL);
+        if (now - fileTime >= 12 * 3600) {
+            InvokeAgentAnalyse();
+        }
+    }
+}
+
 bool IsRunAsAdmin() {
     BOOL isAdmin = FALSE;
     PSID adminGroup = NULL;

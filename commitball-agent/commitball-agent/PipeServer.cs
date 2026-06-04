@@ -1,5 +1,6 @@
 using System;
 using System.IO.Pipes;
+using System.Text.Json;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -38,6 +39,17 @@ namespace CommitBallAgent
                                 {
                                     _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => Application.Current.Shutdown()));
                                     break;
+                                }
+                                else if (msg.StartsWith("INVOKE "))
+                                {
+                                    try
+                                    {
+                                        var json = msg.Substring(7);
+                                        var inputs = JsonSerializer.Deserialize<string[]>(json);
+                                        if (inputs != null && inputs.Length > 0)
+                                            _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _window.EnqueueInvoke(inputs)));
+                                    }
+                                    catch { }
                                 }
                             }
                         }

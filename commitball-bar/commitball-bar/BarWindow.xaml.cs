@@ -22,11 +22,13 @@ namespace CommitBallBar
         [DllImport("user32.dll")]
         private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 
-        [DllImport("user32.dll")]
+        [DllImport("kernel32.dll")]
         private static extern uint GetCurrentThreadId();
 
         private bool _locked = false;
+        private bool _panelEnabled = true;
         private IntPtr _hwnd;
+        private PanelWindow? _panelWindow;
 
         public BarWindow()
         {
@@ -43,8 +45,13 @@ namespace CommitBallBar
                 delay.Tick += (s, _) =>
                 {
                     delay.Stop();
-                    if (!_locked && Visibility == Visibility.Visible && !IsKeyboardFocusWithin)
-                        HideBar();
+                    if (!_locked && Visibility == Visibility.Visible)
+                    {
+                        bool barFocus = IsKeyboardFocusWithin;
+                        bool panelFocus = _panelWindow?.IsKeyboardFocusWithin == true;
+                        if (!barFocus && !panelFocus)
+                            HideBar();
+                    }
                 };
                 delay.Start();
             }
@@ -79,11 +86,28 @@ namespace CommitBallBar
             _hwnd = new WindowInteropHelper(this).Handle;
             Activate();
             InputBox.Focus();
+            if (_panelEnabled)
+                ShowPanel();
             BringToFront();
+        }
+
+        private void ShowPanel()
+        {
+            App.WriteLog($"ShowPanel: PanelExists={PanelWindow.PanelExists()}");
+            if (!PanelWindow.PanelExists()) return;
+            if (_panelWindow == null)
+            {
+                _panelWindow = new PanelWindow();
+                _panelWindow.Show();
+                _panelWindow.Hide();
+            }
+            _panelWindow.PositionAbove(Left, Width, Top);
+            _panelWindow.ShowPanel();
         }
 
         private void HideBar()
         {
+            _panelWindow?.HidePanel();
             InputBox.Clear();
             Visibility = Visibility.Hidden;
             Hide();
@@ -140,6 +164,19 @@ namespace CommitBallBar
                 ? (Brush)new BrushConverter().ConvertFromString("#3B82F6")
                 : (Brush)new BrushConverter().ConvertFromString("#AAAAAE");
             HintText.Text = _locked ? "Esc 关闭 | Enter 提交并继续" : "Esc 关闭 | 键入后 Enter 提交";
+        }
+
+        private void PanelBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _panelEnabled = !_panelEnabled;
+            PanelBtn.Foreground = _panelEnabled
+                ? (Brush)new BrushConverter().ConvertFromString("#3B82F6")
+                : (Brush)new BrushConverter().ConvertFromString("#AAAAAE");
+            if (_panelEnabled)
+                ShowPanel();
+            else
+                _panelWindow?.HidePanel();
+            Dispatcher.BeginInvoke(new Action(() => InputBox.Focus()));
         }
 
         private void SaveNote(string text)

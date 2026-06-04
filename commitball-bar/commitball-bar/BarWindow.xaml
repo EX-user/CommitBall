@@ -24,6 +24,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBox x:Name="InputBox" 
                      Grid.Column="0"
@@ -47,8 +48,22 @@
                        VerticalAlignment="Center"
                        Margin="18,0,18,0"
                        Visibility="Visible"/>
-            <Button x:Name="LockBtn"
+            <Button x:Name="PanelBtn"
                     Grid.Column="1"
+                    Click="PanelBtn_Click"
+                    Cursor="Hand"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Margin="0,8,4,8"
+                    Padding="6,4"
+                    FontSize="14"
+                    FontFamily="Segoe UI"
+                    Foreground="#3B82F6"
+                    ToolTip="切换面板显示">
+                📊
+            </Button>
+            <Button x:Name="LockBtn"
+                    Grid.Column="2"
                     Click="LockBtn_Click"
                     Cursor="Hand"
                     Background="Transparent"
