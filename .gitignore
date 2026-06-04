@@ -21,4 +21,14 @@ weasel_old/
 commitball-bar/publish/
 commitball-bar/commitball-bar/bin/
 commitball-bar/commitball-bar/obj/
+commit-bar/commitball-bar/obj/
 commitball-bar/data/
+
+# CommitBall-Agent build/publish artifacts
+commitball-agent/commitball-agent/bin/
+commitball-agent/commitball-agent/obj/
+publish/
+
+# Installer artifacts
+installer/archives/
+installer/staging/

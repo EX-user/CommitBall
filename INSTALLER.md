@@ -45,13 +45,16 @@ powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
 3. 编译 CommitBall.exe
 4. 调用 NSIS 构建安装包
 
-产物：`installer/archives/cb-weasel-0.17.4.0-installer.exe`（约 11MB）
+产物：`installer/archives/CommitBall-0.1.2.0-installer.exe`
 
 ## 安装包内容
 
 ```
 $INSTDIR/                              (默认 C:\Program Files\CommitBall)
   CommitBall.exe                       # 悬浮球应用（顶层）
+  CommitBall-Bar.exe                   # 快捷输入条（.NET 8 self-contained）
+  CommitBall-Agent.exe                 # AI 终端（.NET 8 self-contained）
+  analyse-prompt.md                    # Agent 分析提示词
   uninstall.exe                        # 卸载程序
   cb-weasel/                           # 输入法子目录
     cb-weaselx64.dll                   # TSF DLL
@@ -71,8 +74,8 @@ C:\Windows\System32\
 
 ## 安装行为
 
-1. 停止旧版 WeaselServer / CommitBall
-2. 复制 CommitBall.exe 到 `$INSTDIR`
+1. 停止旧版 WeaselServer / CommitBall / CommitBall-Bar / CommitBall-Agent
+2. 复制 CommitBall.exe、CommitBall-Bar.exe、CommitBall-Agent.exe、analyse-prompt.md 到 `$INSTDIR`
 3. 复制 cb-weasel 文件到 `$INSTDIR\cb-weasel\`
 4. 复制 DLL 到 System32
 5. 注册 TSF（regsvr32）
@@ -82,13 +85,18 @@ C:\Windows\System32\
 
 ## 卸载行为
 
-1. 停止 WeaselServer / CommitBall
+1. 停止 WeaselServer / CommitBall / CommitBall-Bar / CommitBall-Agent
 2. 取消注册 TSF
 3. 删除 System32 DLL
 4. 清理注册表（Rime\CBWeasel、Autorun、Uninstall、TIP CLSID）
-5. 删除 `$INSTDIR\cb-weasel\` 和 CommitBall.exe
+5. 删除 `$INSTDIR\cb-weasel\`、CommitBall.exe、CommitBall-Bar.exe、CommitBall-Agent.exe、analyse-prompt.md
 
 用户数据 `%APPDATA%\Rime` 不删除（需手动清理）。
+
+## 注意事项
+
+- `dotnet publish` 不会将 `Content` 标记的文件（如 `analyse-prompt.md`）复制到 publish 输出目录，只复制到 `bin/`。NSIS 中需要从源码目录取这些文件，而非 publish 目录。
+- CommitBall-Agent.exe 约 154MB（self-contained），LZMA 压缩后安装包约 96MB。
 
 ## 目录结构
 

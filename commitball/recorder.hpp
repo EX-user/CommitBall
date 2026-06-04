@@ -130,6 +130,38 @@ inline bool CheckTrigger(UINT vk) {
     return true;
 }
 
+inline bool GetConfigBool(const char* key) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open(CURRENT_DB, &db) != SQLITE_OK) return false;
+    sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    bool result = false;
+    if (sqlite3_prepare_v2(db, "SELECT value FROM config WHERE key=?", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* val = (const char*)sqlite3_column_text(stmt, 0);
+            result = (val && val[0] == '1');
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(db);
+    return result;
+}
+
+inline void SetConfigBool(const char* key, bool value) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open(CURRENT_DB, &db) != SQLITE_OK) return;
+    sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, value ? "1" : "0", 1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(db);
+}
+
 inline void LoadBarTriggerConfig() {
     sqlite3* cfgDb = nullptr;
     if (sqlite3_open(CURRENT_DB, &cfgDb) != SQLITE_OK) return;
@@ -313,6 +345,18 @@ inline void ExportSessionDb(const std::string& dbPath, const std::string& txtPat
 }
 
 inline void CheckSessionSplit() {
+    if (GetDbSize() >= SESSION_SPLIT_SIZE * 9 / 10) {
+        if (!GetConfigBool("auto_analysed")) {
+            extern bool IsAgentRunning();
+            extern bool IsAgentBusy();
+            extern void InvokeAgentAnalyse();
+            if (IsAgentRunning() && !IsAgentBusy()) {
+                SetConfigBool("auto_analysed", true);
+                InvokeAgentAnalyse();
+            }
+        }
+    }
+
     if (GetDbSize() < SESSION_SPLIT_SIZE) return;
 
     std::string sessionTs = GetSessionTs();

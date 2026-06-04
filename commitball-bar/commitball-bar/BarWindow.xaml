@@ -9,7 +9,6 @@
         Topmost="True"
         ResizeMode="NoResize"
         SizeToContent="Height"
-        Width="460"
         Visibility="Hidden"
         Loaded="Window_Loaded">
     <Border x:Name="RootBorder" 
@@ -22,18 +21,25 @@
             <DropShadowEffect BlurRadius="12" Opacity="0.12" ShadowDepth="3" Direction="270" Color="#000000"/>
         </Border.Effect>
         <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
             <TextBox x:Name="InputBox" 
+                     Grid.Column="0"
                      FontSize="14" 
                      FontFamily="Segoe UI"
                      Background="Transparent" 
                      BorderThickness="0"
                      VerticalContentAlignment="Center" 
-                     Margin="16,12"
+                     Margin="16,12,0,12"
                      Foreground="#1E1E1E" 
                      CaretBrush="#3C3C3C"
                      KeyDown="InputBox_KeyDown"
                      TextChanged="InputBox_TextChanged"/>
             <TextBlock x:Name="HintText"
+                       Grid.Column="0"
                        Text="Esc 关闭 | 键入后 Enter 提交"
                        FontSize="14"
                        FontFamily="Segoe UI"
@@ -42,6 +48,34 @@
                        VerticalAlignment="Center"
                        Margin="18,0,18,0"
                        Visibility="Visible"/>
+            <Button x:Name="PanelBtn"
+                    Grid.Column="1"
+                    Click="PanelBtn_Click"
+                    Cursor="Hand"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Margin="0,8,4,8"
+                    Padding="6,4"
+                    FontSize="14"
+                    FontFamily="Segoe UI"
+                    Foreground="#3B82F6"
+                    ToolTip="切换面板显示">
+                📊
+            </Button>
+            <Button x:Name="LockBtn"
+                    Grid.Column="2"
+                    Click="LockBtn_Click"
+                    Cursor="Hand"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Margin="0,8,10,8"
+                    Padding="6,4"
+                    FontSize="14"
+                    FontFamily="Segoe UI"
+                    Foreground="#AAAAAE"
+                    ToolTip="锁定后 Enter 不关闭窗口">
+                🔓
+            </Button>
         </Grid>
     </Border>
 </Window>

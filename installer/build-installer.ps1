@@ -70,15 +70,31 @@ if (!(Test-Path "$root\commitball\CommitBall.exe")) {
     exit 1
 }
 
+# === Publish CommitBall-Bar ===
+Write-Host "Publishing CommitBall-Bar..."
+dotnet publish "$root\commitball-bar\commitball-bar\commitball-bar.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\commitball-bar\publish"
+if (!(Test-Path "$root\commitball-bar\publish\CommitBall-Bar.exe")) {
+    Write-Error "CommitBall-Bar publish failed."
+    exit 1
+}
+
+# === Publish CommitBall-Agent ===
+Write-Host "Publishing CommitBall-Agent..."
+dotnet publish "$root\commitball-agent\commitball-agent\commitball-agent.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\publish\agent"
+if (!(Test-Path "$root\publish\agent\CommitBall-Agent.exe")) {
+    Write-Error "CommitBall-Agent publish failed."
+    exit 1
+}
+
 # === Build installer ===
 Write-Host "Building installer..."
 New-Item -ItemType Directory -Path archives -Force | Out-Null
-& $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.1.1 commitball.nsi
+& $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.1.2 commitball.nsi
 
 if ($LASTEXITCODE -eq 0) {
-    $exe = Get-Item "archives\CommitBall-0.1.1.0-installer.exe"
+    $exe = Get-Item "archives\CommitBall-0.1.2.0-installer.exe"
     $sizeMB = [math]::Round($exe.Length / 1MB, 1)
-    Write-Host "`nDone! archives\CommitBall-0.1.1.0-installer.exe ($sizeMB MB)" -ForegroundColor Green
+    Write-Host "`nDone! archives\CommitBall-0.1.2.0-installer.exe ($sizeMB MB)" -ForegroundColor Green
 } else {
     Write-Error "NSIS build failed. Check errors above."
 }
