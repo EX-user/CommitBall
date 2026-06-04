@@ -82,7 +82,8 @@
                          Foreground="#E0D8F0" Background="Transparent"
                          BorderThickness="0" VerticalContentAlignment="Center"
                          CaretBrush="#FFFFFF"
-                         KeyDown="InputBox_KeyDown"/>
+                         KeyDown="InputBox_KeyDown"
+                         PreviewKeyDown="InputBox_PreviewKeyDown"/>
                  <TextBlock x:Name="InputHint" Text="连按 Esc×2 中断模型输出"
                            FontSize="13" FontFamily="Cascadia Code, Consolas, Courier New"
                            Foreground="#6A6A8A" VerticalAlignment="Center"

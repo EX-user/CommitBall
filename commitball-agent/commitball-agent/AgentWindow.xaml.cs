@@ -75,6 +75,19 @@ namespace CommitBallAgent
             InitializeComponent();
             PositionWindow();
             OutputBox.CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy, OnOutputCopy));
+
+            if (!Config.IsConfigured)
+            {
+                AppendOutput("CommitBall Agent Terminal v0.1.2\n\n", "#FFFFFF");
+                AppendOutput("未检测到 API 配置。请使用 /vendor 命令配置：\n\n", "#E8915A");
+                AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
+                AppendOutput("常用提供商：\n");
+                AppendOutput("  DeepSeek:    base_url=https://api.deepseek.com   model=deepseek-chat\n");
+                AppendOutput("  OpenAI:      base_url=https://api.openai.com      model=gpt-4o-mini\n");
+                AppendOutput("  SiliconFlow: base_url=https://api.siliconflow.cn   model=Qwen/Qwen3-8B\n\n");
+                return;
+            }
+
             var sessions = Memory.ListSessions();
             if (sessions.Count > 0)
                 _session = Memory.LoadOrCreate(sessions[0].Id);
@@ -114,7 +127,7 @@ namespace CommitBallAgent
             Width = Math.Max(480, Math.Min(680, workArea.Width * 0.3));
             Height = Math.Max(360, Math.Min(480, workArea.Height * 0.4));
             Left = (workArea.Width - Width) / 2 + workArea.Left;
-            Top = workArea.Top + 40;
+            Top = workArea.Top + workArea.Height * 0.1;
         }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
@@ -176,7 +189,19 @@ namespace CommitBallAgent
             }
         }
 
-        private void InputBox_KeyDown(object sender, KeyEventArgs e)
+        private void InputBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                if (InputBox.SelectionLength > 0)
+                {
+                    e.Handled = true;
+                    try { SetClipboardText(InputBox.SelectedText); } catch { }
+                }
+            }
+        }
+
+        private async void InputBox_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
             {
@@ -186,20 +211,83 @@ namespace CommitBallAgent
                 InputBox.Clear();
                 if (string.IsNullOrEmpty(text)) return;
 
+                if (text == "/help" || text == "/vendor" || text.StartsWith("/vendor "))
+                {
+                    if (text == "/help")
+                    {
+                        AppendOutput("\nCommands:\n", "#FFFFFF");
+                        AppendOutput("  /help      Show this help\n");
+                        AppendOutput("  /new       Create a new session\n");
+                        AppendOutput("  /session   List and switch sessions\n");
+                        AppendOutput("  /analyse   Analyse live.txt work log (append text after command for custom input)\n");
+                        AppendOutput("  /vendor    Show or update API config\n");
+                        AppendOutput("\n");
+                        return;
+                    }
+
+                    if (text == "/vendor")
+                    {
+                        AppendOutput("\nCurrent config:\n", "#FFFFFF");
+                        AppendOutput($"  base_url: {Config.BaseUrl}\n");
+                        AppendOutput($"  model:    {Config.Model}\n");
+                        var keyPreview = Config.ApiKey.Length > 0 ? Config.ApiKey.Substring(0, Math.Min(8, Config.ApiKey.Length)) + "..." : "(empty)";
+                        AppendOutput($"  api_key:  {keyPreview}\n\n");
+                        AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
+                        return;
+                    }
+
+                    var json = text.Substring("/vendor ".Length).Trim();
+                    try
+                    {
+                        var doc = System.Text.Json.JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+                        if (!root.TryGetProperty("base_url", out var buEl) || string.IsNullOrEmpty(buEl.GetString())
+                            || !root.TryGetProperty("model", out var mEl) || string.IsNullOrEmpty(mEl.GetString())
+                            || !root.TryGetProperty("api_key", out var akEl) || string.IsNullOrEmpty(akEl.GetString()))
+                        {
+                            AppendOutput("\n缺少必要字段，需要 base_url、model、api_key 三个非空字段\n\n", "#E8915A");
+                            return;
+                        }
+                        var baseUrl = buEl.GetString()!;
+                        var model = mEl.GetString()!;
+                        var apiKey = akEl.GetString()!;
+                        AppendOutput($"\nValidating {baseUrl} ... ", "#AAAAAE");
+                        var (ok, msg) = await LLMClient.ValidateAsync(baseUrl, model, apiKey);
+                        if (!ok)
+                        {
+                            AppendOutput($"failed\n  {msg}\n\n", "#E8915A");
+                            return;
+                        }
+                        AppendOutput("OK\n", "#6ECF6E");
+                        Config.Save(baseUrl, model, apiKey);
+                        if (_session == null)
+                        {
+                            var sessions = Memory.ListSessions();
+                            _session = sessions.Count > 0 ? Memory.LoadOrCreate(sessions[0].Id) : Memory.LoadOrCreate();
+                            AppendOutput($"\nConfig saved → {baseUrl} / {model}\n", "#6ECF6E");
+                            AppendOutput($"Session: {_session.Id}\n\n");
+                        }
+                        else
+                        {
+                            AppendOutput($"\nConfig updated → {baseUrl} / {model}\n\n", "#6ECF6E");
+                        }
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                        AppendOutput("\nJSON parse failed. Check format.\n\n", "#E8915A");
+                    }
+                    return;
+                }
+
                 if (_inSessionMenu)
                 {
                     HandleSessionMenuInput(text);
                     return;
                 }
 
-                if (text == "/help")
+                if (!Config.IsConfigured)
                 {
-                    AppendOutput("\nCommands:\n", "#FFFFFF");
-                    AppendOutput("  /help      Show this help\n");
-                    AppendOutput("  /new       Create a new session\n");
-                    AppendOutput("  /session   List and switch sessions\n");
-                    AppendOutput("  /analyse   Analyse live.txt work log (append text after command for custom input)\n");
-                    AppendOutput("\n");
+                    AppendOutput("\n请先使用 /vendor 配置 API\n\n", "#E8915A");
                     return;
                 }
 
@@ -252,7 +340,9 @@ namespace CommitBallAgent
             foreach (var (id, updatedAt, msgCount) in sessions)
             {
                 var marker = id == _session.Id ? " *" : "";
-                AppendOutput($"  {id}  {updatedAt:MM-dd HH:mm}  {msgCount}msgs{marker}\n");
+                var fi = new FileInfo(Path.Combine(Config.MemoryDir, $"{id}.json"));
+                var created = fi.Exists ? fi.CreationTime : updatedAt;
+                AppendOutput($"  {id}  {created:MM-dd HH:mm} ~ {updatedAt:MM-dd HH:mm}  {msgCount}msgs{marker}\n");
             }
             AppendOutput("\nEnter session id to switch, /new for new. Esc to cancel.\n");
         }
@@ -265,6 +355,12 @@ namespace CommitBallAgent
                 _session = Memory.LoadOrCreate();
                 OutputBox.Document.Blocks.Clear();
                 AppendOutput($"Session: {_session.Id}\n\n");
+                return;
+            }
+
+            if (input == "/session")
+            {
+                EnterSessionMenu();
                 return;
             }
 

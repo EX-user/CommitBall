@@ -18,6 +18,77 @@ namespace CommitBallAgent
     static class LLMClient
     {
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
+        private static readonly HttpClient HttpDirect = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromMinutes(5) };
+
+        private static bool IsProxyError(Exception ex)
+        {
+            var msg = ex.InnerException?.Message ?? ex.Message;
+            return msg.Contains("拒绝") || msg.Contains("refused") || msg.Contains("proxy") || msg.Contains("隧道");
+        }
+
+        private static async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
+        {
+            try
+            {
+                return await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            }
+            catch (HttpRequestException ex) when (IsProxyError(ex))
+            {
+                var clone = await CloneRequest(req);
+                return await HttpDirect.SendAsync(clone, HttpCompletionOption.ResponseHeadersRead, ct);
+            }
+        }
+
+        private static async Task<HttpResponseMessage> SendNoStreamAsync(HttpRequestMessage req)
+        {
+            try
+            {
+                return await Http.SendAsync(req);
+            }
+            catch (HttpRequestException ex) when (IsProxyError(ex))
+            {
+                var clone = await CloneRequest(req);
+                return await HttpDirect.SendAsync(clone);
+            }
+        }
+
+        private static async Task<HttpRequestMessage> CloneRequest(HttpRequestMessage req)
+        {
+            var clone = new HttpRequestMessage(req.Method, req.RequestUri);
+            foreach (var h in req.Headers) clone.Headers.TryAddWithoutValidation(h.Key, h.Value);
+            if (req.Content != null) clone.Content = new ByteArrayContent(await req.Content.ReadAsByteArrayAsync());
+            return clone;
+        }
+
+        public static async Task<(bool ok, string msg)> ValidateAsync(string baseUrl, string model, string apiKey)
+        {
+            try
+            {
+                var url = $"{baseUrl.TrimEnd('/')}/v1/models";
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.Add("Authorization", $"Bearer {apiKey}");
+                using var resp = await SendNoStreamAsync(req);
+                if (!resp.IsSuccessStatusCode)
+                    return (false, $"API 返回 {(int)resp.StatusCode}: {await resp.Content.ReadAsStringAsync()}");
+                var body = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(body);
+                if (!doc.RootElement.TryGetProperty("data", out var data))
+                    return (false, "响应中无 data 字段");
+                var found = false;
+                foreach (var item in data.EnumerateArray())
+                {
+                    if (item.TryGetProperty("id", out var id) && id.GetString() == model)
+                    { found = true; break; }
+                }
+                if (!found)
+                    return (false, $"模型 '{model}' 不在可用列表中");
+                return (true, "OK");
+            }
+            catch (Exception ex)
+            {
+                return (false, $"连接失败: {ex.Message}");
+            }
+        }
 
         public static async Task<LLMResponse> ChatAsync(
             List<Message> messages,
@@ -52,7 +123,7 @@ namespace CommitBallAgent
             req.Headers.Add("Authorization", $"Bearer {Config.ApiKey}");
             req.Content = new StringContent(reqJson, Encoding.UTF8, "application/json");
 
-            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            using var resp = await SendAsync(req, ct).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
 
             using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);

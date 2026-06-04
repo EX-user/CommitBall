@@ -41,6 +41,8 @@ namespace CommitBallAgent
                 return;
             }
 
+            Config.Load();
+
             _window = new AgentWindow();
             _pipe = new PipeServer(_window);
             _pipe.Start();
