@@ -45,7 +45,8 @@ namespace CommitBallAgent
                        "Available tools: list, read, write. All file operations are scoped to data/.";
             return "You are CommitBall Agent, an AI assistant that can read and manage files in the data/ directory. " +
                    "Use the list tool to explore available files before reading them. " +
-                   "All file operations are scoped to data/.";
+                   "All file operations are scoped to data/. " +
+                   "Read data/agent-out/summary_task_exp_decay_memory.md for background context on the user's recent activities.";
         }
 
         public static bool IsSubtask(string toolName) => toolName == "subtask";

@@ -18,7 +18,8 @@
 
 4. 直达输入: 
    - `[direct] text`
-   - 用户通过 CommitBall-Bar 快捷输入的文本, 属于用户主动记录的内容, 优先级最高。该事件前常见记录了输入历史, 可忽视, 以direct记录内容为准
+   - 用户通过 CommitBall-Bar 快捷输入的文本, 属于用户主动记录的内容, 优先级最高。该事件前常见记录了输入历史, 可忽视, 以direct记录内容为准。
+> 用户可能尝试通过直达输入对长期记忆或当前归纳任务做直接评论和约束，或补充使用场景信息，你必须高度重视
 
 5. 时间标记: 
    - `[timer] HH:MM`
@@ -72,9 +73,10 @@ D. **行为模式提取**
 
 **情况 B：文件已存在（增量归纳）**
 - **禁止**读取 `agent-out/` 中的 `YYMMDD_HHMM-report.md` 和 `YYMMDD_HHMM-extract.md` 文件（已归纳过，不需要再次读取）
+- 如果exp_decay_memory文件的大小不超过40KB，可跳过下一步
 - 计算exp_decay_memory文件大小的0.7倍大小具体是多大。将现有的 `summary_task_exp_decay_memory.md` 内容压缩至不超过原本字符数的 0.7 倍。保留最重要的信息，对于过时信息，丢弃细节精简为整体描述。确保压缩后不超过40KB
-- **确保`summary_task_exp_decay_memory.md`压缩后不超过40KB**
-- 将刚刚在第一步中生成的 report/extract 追加到压缩后的内容中
+- **确保`summary_task_exp_decay_memory.md`现在不超过40KB**
+- 将刚刚在第一步中生成的 report/extract 追加到压缩后的内容中。注意，由于系统自动调用，当前的总结内容可能与长期记忆中有重叠。不要反复记录相同事项
 - 保持 `## 轨迹` 和 `## 持久化` 两个章节结构
 
 ## 第三步：生成面板

@@ -176,7 +176,7 @@ void CheckAutoAnalyse() {
         tmFile.tm_isdst = -1;
         time_t fileTime = mktime(&tmFile);
         time_t now = time(NULL);
-        if (now - fileTime >= 12 * 3600) {
+        if (now - fileTime >= 4 * 3600) {
             InvokeAgentAnalyse();
         }
     }

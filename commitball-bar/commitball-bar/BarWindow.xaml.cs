@@ -156,6 +156,12 @@ namespace CommitBallBar
             HintText.Visibility = string.IsNullOrEmpty(InputBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        private void DragBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton == MouseButton.Left)
+                DragMove();
+        }
+
         private void LockBtn_Click(object sender, RoutedEventArgs e)
         {
             _locked = !_locked;
