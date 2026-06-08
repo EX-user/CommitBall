@@ -132,6 +132,57 @@ namespace CommitBallBar
                 AttachThreadInput(myThread, fgThread, false);
         }
 
+        private void InputBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Up)
+            {
+                if (InputBox.Text.Length == 0 && _historyIndex == -1 && _history.Count > 0)
+                {
+                    _historyIndex = _history.Count - 1;
+                    _suppressTextChange = true;
+                    InputBox.Text = _history[_historyIndex];
+                    _suppressTextChange = false;
+                    InputBox.CaretIndex = InputBox.Text.Length;
+                    e.Handled = true;
+                    App.WriteLog($"History Up: index={_historyIndex}, count={_history.Count}");
+                }
+                else if (_historyIndex > 0)
+                {
+                    _historyIndex--;
+                    _suppressTextChange = true;
+                    InputBox.Text = _history[_historyIndex];
+                    _suppressTextChange = false;
+                    InputBox.CaretIndex = InputBox.Text.Length;
+                    e.Handled = true;
+                    App.WriteLog($"History Up: index={_historyIndex}");
+                }
+            }
+            else if (e.Key == Key.Down)
+            {
+                if (_historyIndex >= 0)
+                {
+                    _historyIndex++;
+                    if (_historyIndex >= _history.Count)
+                    {
+                        _historyIndex = -1;
+                        _suppressTextChange = true;
+                        InputBox.Clear();
+                        _suppressTextChange = false;
+                        App.WriteLog("History Down: exit browsing");
+                    }
+                    else
+                    {
+                        _suppressTextChange = true;
+                        InputBox.Text = _history[_historyIndex];
+                        _suppressTextChange = false;
+                        InputBox.CaretIndex = InputBox.Text.Length;
+                        App.WriteLog($"History Down: index={_historyIndex}");
+                    }
+                    e.Handled = true;
+                }
+            }
+        }
+
         private void InputBox_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
@@ -143,6 +194,7 @@ namespace CommitBallBar
                     if (_history.Count == 0 || _history[_history.Count - 1] != text)
                         _history.Add(text);
                     _historyIndex = -1;
+                    App.WriteLog($"History add: count={_history.Count}, text={text.Substring(0, Math.Min(text.Length, 40))}");
                     SaveNote(text);
                 }
                 if (_locked)
@@ -160,57 +212,14 @@ namespace CommitBallBar
                 e.Handled = true;
                 HideBar();
             }
-            else if (e.Key == Key.Up)
-            {
-                if (InputBox.Text.Length == 0 && _historyIndex == -1 && _history.Count > 0)
-                {
-                    _historyIndex = _history.Count - 1;
-                    _suppressTextChange = true;
-                    InputBox.Text = _history[_historyIndex];
-                    _suppressTextChange = false;
-                    InputBox.CaretIndex = InputBox.Text.Length;
-                    e.Handled = true;
-                }
-                else if (_historyIndex > 0)
-                {
-                    _historyIndex--;
-                    _suppressTextChange = true;
-                    InputBox.Text = _history[_historyIndex];
-                    _suppressTextChange = false;
-                    InputBox.CaretIndex = InputBox.Text.Length;
-                    e.Handled = true;
-                }
-            }
-            else if (e.Key == Key.Down)
-            {
-                if (_historyIndex >= 0)
-                {
-                    _historyIndex++;
-                    if (_historyIndex >= _history.Count)
-                    {
-                        _historyIndex = -1;
-                        _suppressTextChange = true;
-                        InputBox.Clear();
-                        _suppressTextChange = false;
-                    }
-                    else
-                    {
-                        _suppressTextChange = true;
-                        InputBox.Text = _history[_historyIndex];
-                        _suppressTextChange = false;
-                        InputBox.CaretIndex = InputBox.Text.Length;
-                    }
-                    e.Handled = true;
-                }
-            }
         }
 
         private void InputBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
+            HintText.Visibility = string.IsNullOrEmpty(InputBox.Text) ? Visibility.Visible : Visibility.Collapsed;
             if (_suppressTextChange) return;
             if (_historyIndex >= 0)
                 _historyIndex = -1;
-            HintText.Visibility = string.IsNullOrEmpty(InputBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void DragBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

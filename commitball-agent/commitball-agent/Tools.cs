@@ -46,7 +46,8 @@ namespace CommitBallAgent
             return "You are CommitBall Agent, an AI assistant that can read and manage files in the data/ directory. " +
                    "Use the list tool to explore available files before reading them. " +
                    "All file operations are scoped to data/. " +
-                   "Read data/agent-out/summary_task_exp_decay_memory.md for background context on the user's recent activities.";
+                   "If data/agent-out/summary_task_exp_decay_memory.md exists, read it for background context on the user's recent activities." + 
+                   "If it doesn't exist, you should wait for further instructions.";
         }
 
         public static bool IsSubtask(string toolName) => toolName == "subtask";

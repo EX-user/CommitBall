@@ -41,6 +41,7 @@
                          Margin="16,12,0,12"
                          Foreground="#1E1E1E" 
                          CaretBrush="#3C3C3C"
+                         PreviewKeyDown="InputBox_PreviewKeyDown"
                          KeyDown="InputBox_KeyDown"
                          TextChanged="InputBox_TextChanged"/>
                 <TextBlock x:Name="HintText"

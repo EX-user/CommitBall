@@ -31,7 +31,10 @@ namespace CommitBallAgent
                 ct.ThrowIfCancellationRequested();
                 if (!systemAdded)
                 {
-                    session.Messages.Insert(0, new Message { Role = "system", Content = systemPrompt });
+                    if (session.Messages.Count > 0 && session.Messages[0].Role == "system")
+                        session.Messages[0].Content = systemPrompt;
+                    else
+                        session.Messages.Insert(0, new Message { Role = "system", Content = systemPrompt });
                     systemAdded = true;
                 }
 
@@ -44,6 +47,9 @@ namespace CommitBallAgent
                         else onOutput(chunk);
                     },
                     ct: ct);
+
+                var toolNames = resp.ToolCalls.Count > 0 ? $" [{string.Join(", ", resp.ToolCalls.ConvertAll(tc => tc.Name))}]" : "";
+                AgentWindow.Log($"[{session.Id}] LLM #{i}: {resp.ElapsedMs}ms, tokens={resp.PromptTokens}+{resp.CompletionTokens}, toolCalls={resp.ToolCalls.Count}{toolNames}, msgs={session.Messages.Count}");
 
                 if (resp.ToolCalls.Count > 0)
                 {
@@ -68,7 +74,7 @@ namespace CommitBallAgent
                                     var args = JsonNode.Parse(argsStr)?.AsObject();
                                     prompt = args?["prompt"]?.GetValue<string>() ?? "";
                                 }
-                                catch (Exception ex) { System.IO.File.AppendAllText(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "log", "agent.log"), $"[{System.DateTime.Now:HH:mm:ss.fff}] Subtask parse error: {ex.Message}, raw args: {Truncate(argsStr, 200)}\n"); }
+                                catch (Exception ex) { AgentWindow.Log($"Subtask parse error: {ex.Message}, raw args: {Truncate(argsStr, 200)}"); }
 
                                 if (string.IsNullOrWhiteSpace(prompt))
                                 {
@@ -131,6 +137,7 @@ namespace CommitBallAgent
                             continue;
                         }
 
+                        AgentWindow.Log($"[{session.Id}] Tool exec: {tc.Name}({Truncate(argsStr, 120)})");
                         string result;
                         bool isError = false;
                         try
@@ -146,6 +153,7 @@ namespace CommitBallAgent
                         {
                             result = $"Tool error: {ex.Message}";
                             isError = true;
+                            AgentWindow.Log($"[{session.Id}] Tool error: {tc.Name} → {ex.Message}");
                         }
 
                         session.Messages.Add(new Message
@@ -185,8 +193,9 @@ namespace CommitBallAgent
             Memory.Save(session);
         }
 
-        private static string Truncate(string s, int maxLen)
+        private static string Truncate(string? s, int maxLen)
         {
+            if (string.IsNullOrEmpty(s)) return "";
             if (s.Length <= maxLen) return s;
             return s[..maxLen];
         }

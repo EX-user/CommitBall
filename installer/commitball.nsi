@@ -77,6 +77,7 @@ Section "CB-Weasel 输入法" SecMain
 
   SetOutPath "$INSTDIR\data\agent-out"
   File "..\commitball-agent\commitball-agent\panel-template.html"
+  File "..\commitball-agent\commitball-agent\summary_task_exp_decay_memory_template.md"
 
   ; Release old DLL if locked
   DetailPrint "检查旧版本 DLL..."

@@ -148,9 +148,20 @@ void SendInvokeToAgent(const char* json) {
 }
 
 void InvokeAgentAnalyse() {
-    const char* json = "\x5B\x22\x2F\x6E\x65\x77\x22\x2C\x22\x2F\x73\x75\x6D\x6D\x61\x72\x79\x5F\x74\x6F\x5F\x70\x61\x6E\x65\x6C\x22\x5D";
-    Log("InvokeAgentAnalyse: %s", json);
-    SendInvokeToAgent(json);
+    time_t now = time(NULL);
+    struct tm ti;
+    localtime_s(&ti, &now);
+    const char* weekdays[] = {"\xe6\x98\x9f\xe6\x9c\x9f\xe6\x97\xa5","\xe6\x98\x9f\xe6\x9c\x9f\xe4\xb8\x80","\xe6\x98\x9f\xe6\x9c\x9f\xe4\xba\x8c","\xe6\x98\x9f\xe6\x9c\x9f\xe4\xb8\x89","\xe6\x98\x9f\xe6\x9c\x9f\xe5\x9b\x9b","\xe6\x98\x9f\xe6\x9c\x9f\xe4\xba\x94","\xe6\x98\x9f\xe6\x9c\x9f\xe5\x85\xad"};
+    char timeBuf[128];
+    snprintf(timeBuf, sizeof(timeBuf),
+        "\xe5\xbd\x93\xe5\x89\x8d\xe6\x97\xb6\xe9\x97\xb4\xe6\x98\xaf %04d-%02d-%02d %s %02d:%02d",
+        1900 + ti.tm_year, 1 + ti.tm_mon, ti.tm_mday,
+        weekdays[ti.tm_wday], ti.tm_hour, ti.tm_min);
+    std::string json = "[\"/new\",\"";
+    json += timeBuf;
+    json += "\",\"/summary_to_panel\"]";
+    Log("InvokeAgentAnalyse: %s", json.c_str());
+    SendInvokeToAgent(json.c_str());
 }
 
 DWORD g_lastAutoCheckTime = 0;
@@ -177,7 +188,6 @@ void CheckAutoAnalyse() {
         time_t fileTime = mktime(&tmFile);
         time_t now = time(NULL);
         if (now - fileTime >= 4 * 3600) {
-            InsertAutoAnalyseMarker();
             InvokeAgentAnalyse();
         }
     }

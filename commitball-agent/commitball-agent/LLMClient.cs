@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -13,6 +14,9 @@ namespace CommitBallAgent
     {
         public string Content { get; set; } = "";
         public List<ToolCall> ToolCalls { get; set; } = new();
+        public int PromptTokens { get; set; }
+        public int CompletionTokens { get; set; }
+        public long ElapsedMs { get; set; }
     }
 
     static class LLMClient
@@ -127,6 +131,7 @@ namespace CommitBallAgent
             }
 
             var reqJson = JsonSerializer.Serialize(bodyDict);
+            AgentWindow.Log($"ChatAsync: sending {msgList.Count} msgs, {reqJson.Length} chars");
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             req.Headers.Add("Authorization", $"Bearer {Config.ApiKey}");
             req.Content = new StringContent(reqJson, Encoding.UTF8, "application/json");
@@ -139,11 +144,13 @@ namespace CommitBallAgent
                 return new LLMResponse { Content = $"[API Error {(int)resp.StatusCode}] {Truncate(errBody, 500)}" };
             }
 
+            var sw = Stopwatch.StartNew();
             using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             using var reader = new StreamReader(stream, Encoding.UTF8);
 
             var content = new StringBuilder();
             var toolCallsMap = new Dictionary<int, ToolCall>();
+            int promptTokens = 0, completionTokens = 0;
 
             while (true)
             {
@@ -196,20 +203,35 @@ namespace CommitBallAgent
                         }
                     }
                 }
-                catch (Exception ex) { AgentWindow.Log($"ChatAsync: stream parse error: {ex.Message}"); }
+                catch (Exception ex) { AgentWindow.Log($"ChatAsync: stream parse error: {ex.Message}"); continue; }
+
+                try
+                {
+                    var uDoc = JsonDocument.Parse(data);
+                    if (uDoc.RootElement.TryGetProperty("usage", out var usage))
+                    {
+                        if (usage.TryGetProperty("prompt_tokens", out var pt)) promptTokens = pt.GetInt32();
+                        if (usage.TryGetProperty("completion_tokens", out var ct2)) completionTokens = ct2.GetInt32();
+                    }
+                }
+                catch { }
             }
 
+            sw.Stop();
             var result = new LLMResponse
             {
                 Content = content.ToString(),
-                ToolCalls = new List<ToolCall>(toolCallsMap.Values)
+                ToolCalls = new List<ToolCall>(toolCallsMap.Values),
+                PromptTokens = promptTokens,
+                CompletionTokens = completionTokens,
+                ElapsedMs = sw.ElapsedMilliseconds
             };
             return result;
         }
 
-        private static string Truncate(string s, int maxLen)
+        private static string Truncate(string? s, int maxLen)
         {
-            if (s == null) return "";
+            if (string.IsNullOrEmpty(s)) return "";
             return s.Length <= maxLen ? s : s[..maxLen] + "...";
         }
     }
