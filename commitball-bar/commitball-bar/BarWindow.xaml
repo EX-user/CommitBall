@@ -24,26 +24,45 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Grid Grid.Row="0">
+            <Grid x:Name="DragBarTop" Grid.Row="0" Height="6" Background="Transparent" Cursor="SizeNS" MouseLeftButtonDown="DragBar_MouseLeftButtonDown">
+            </Grid>
+            <Grid Grid.Row="1" Height="40">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBox x:Name="InputBox" 
-                         Grid.Column="0"
-                         FontSize="14" 
-                         FontFamily="Segoe UI"
-                         Background="Transparent" 
-                         BorderThickness="0"
-                         VerticalContentAlignment="Center" 
-                         Margin="16,12,0,12"
-                         Foreground="#1E1E1E" 
-                         CaretBrush="#3C3C3C"
-                         PreviewKeyDown="InputBox_PreviewKeyDown"
-                         KeyDown="InputBox_KeyDown"
-                         TextChanged="InputBox_TextChanged"/>
+                <Grid Grid.Column="0">
+                    <TextBox x:Name="InputBox" 
+                             FontSize="14" 
+                             FontFamily="Segoe UI"
+                             Background="Transparent" 
+                             BorderThickness="0"
+                             VerticalAlignment="Center"
+                             VerticalContentAlignment="Center" 
+                             Margin="16,0,0,0"
+                             Foreground="#1E1E1E" 
+                             CaretBrush="#3C3C3C"
+                             PreviewKeyDown="InputBox_PreviewKeyDown"
+                             KeyDown="InputBox_KeyDown"
+                             TextChanged="InputBox_TextChanged"/>
+                    <Border x:Name="PrefixTag"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Background="#EDEDF5"
+                            CornerRadius="4"
+                            Padding="6,2"
+                            Margin="16,0,0,0">
+                        <TextBlock x:Name="PrefixTagText"
+                                   FontSize="14"
+                                   FontFamily="Segoe UI"
+                                   Foreground="#6B6B8A"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                </Grid>
                 <TextBlock x:Name="HintText"
                            Grid.Column="0"
                            Text="Esc 关闭 | 键入后 Enter 提交"
@@ -60,7 +79,8 @@
                         Cursor="Hand"
                         Background="Transparent"
                         BorderThickness="0"
-                        Margin="0,8,4,8"
+                        VerticalAlignment="Center"
+                        Margin="0,0,4,0"
                         Padding="6,4"
                         FontSize="14"
                         FontFamily="Segoe UI"
@@ -74,7 +94,8 @@
                         Cursor="Hand"
                         Background="Transparent"
                         BorderThickness="0"
-                        Margin="0,8,10,8"
+                        VerticalAlignment="Center"
+                        Margin="0,0,10,0"
                         Padding="6,4"
                         FontSize="14"
                         FontFamily="Segoe UI"
@@ -83,7 +104,7 @@
                     🔒
                 </Button>
             </Grid>
-            <Grid x:Name="DragBar" Grid.Row="1" Height="6" Background="Transparent" Cursor="SizeNS" MouseLeftButtonDown="DragBar_MouseLeftButtonDown">
+            <Grid x:Name="DragBar" Grid.Row="2" Height="6" Background="Transparent" Cursor="SizeNS" MouseLeftButtonDown="DragBar_MouseLeftButtonDown">
                 <Rectangle HorizontalAlignment="Center" VerticalAlignment="Center" Width="40" Height="2" RadiusX="1" RadiusY="1" Fill="#C0C0CC"/>
             </Grid>
         </Grid>

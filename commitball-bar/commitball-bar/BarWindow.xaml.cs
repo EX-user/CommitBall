@@ -33,6 +33,14 @@ namespace CommitBallBar
         private List<string> _history = new List<string>();
         private int _historyIndex = -1;
         private bool _suppressTextChange = false;
+        private int _prefixIndex = -1;
+
+        private static readonly (string label, string prefix)[] Prefixes = new[]
+        {
+            ("代办", "[直达代办]用户明确希望注册代办事项，内容为："),
+            ("配置", "[直达配置]用户正在补充事实性信息，场景信息或长期偏好，内容为："),
+            ("指令", "[直达指令]用户正在输入直接指令，请确保被处理，内容为："),
+        };
 
         public BarWindow()
         {
@@ -86,6 +94,7 @@ namespace CommitBallBar
 
             InputBox.Clear();
             _historyIndex = -1;
+            ResetPrefix();
             Visibility = Visibility.Visible;
             Show();
             _hwnd = new WindowInteropHelper(this).Handle;
@@ -115,6 +124,7 @@ namespace CommitBallBar
             _panelWindow?.HidePanel();
             InputBox.Clear();
             _historyIndex = -1;
+            ResetPrefix();
             Visibility = Visibility.Hidden;
             Hide();
         }
@@ -132,8 +142,36 @@ namespace CommitBallBar
                 AttachThreadInput(myThread, fgThread, false);
         }
 
+        private void ResetPrefix()
+        {
+            _prefixIndex = -1;
+            PrefixTag.Visibility = Visibility.Collapsed;
+            InputBox.Margin = new Thickness(16, 0, 0, 0);
+            HintText.Margin = new Thickness(18, 0, 18, 0);
+        }
+
         private void InputBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Tab)
+            {
+                e.Handled = true;
+                _prefixIndex++;
+                if (_prefixIndex >= Prefixes.Length)
+                    ResetPrefix();
+                else
+                {
+                    var p = Prefixes[_prefixIndex];
+                    PrefixTagText.Text = p.label;
+                    PrefixTag.Visibility = Visibility.Visible;
+                    PrefixTag.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    var tagWidth = PrefixTag.DesiredSize.Width;
+                    InputBox.Margin = new Thickness(16 + tagWidth + 6, 0, 0, 0);
+                    HintText.Margin = new Thickness(18 + tagWidth + 6, 0, 18, 0);
+                }
+                InputBox.Focus();
+                return;
+            }
+
             if (e.Key == Key.Up)
             {
                 if (InputBox.Text.Length == 0 && _historyIndex == -1 && _history.Count > 0)
@@ -188,13 +226,14 @@ namespace CommitBallBar
             if (e.Key == Key.Enter)
             {
                 e.Handled = true;
-                var text = InputBox.Text.Trim();
-                if (!string.IsNullOrEmpty(text))
+                var rawText = InputBox.Text.Trim();
+                if (!string.IsNullOrEmpty(rawText))
                 {
-                    if (_history.Count == 0 || _history[_history.Count - 1] != text)
-                        _history.Add(text);
+                    var text = _prefixIndex >= 0 ? Prefixes[_prefixIndex].prefix + rawText : rawText;
+                    if (_history.Count == 0 || _history[_history.Count - 1] != rawText)
+                        _history.Add(rawText);
                     _historyIndex = -1;
-                    App.WriteLog($"History add: count={_history.Count}, text={text.Substring(0, Math.Min(text.Length, 40))}");
+                    App.WriteLog($"History add: count={_history.Count}, text={rawText.Substring(0, Math.Min(rawText.Length, 40))}");
                     SaveNote(text);
                 }
                 if (_locked)
