@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -29,6 +30,9 @@ namespace CommitBallBar
         private bool _panelEnabled = true;
         private IntPtr _hwnd;
         private PanelWindow? _panelWindow;
+        private List<string> _history = new List<string>();
+        private int _historyIndex = -1;
+        private bool _suppressTextChange = false;
 
         public BarWindow()
         {
@@ -81,6 +85,7 @@ namespace CommitBallBar
             if (Visibility == Visibility.Visible) return;
 
             InputBox.Clear();
+            _historyIndex = -1;
             Visibility = Visibility.Visible;
             Show();
             _hwnd = new WindowInteropHelper(this).Handle;
@@ -109,6 +114,7 @@ namespace CommitBallBar
         {
             _panelWindow?.HidePanel();
             InputBox.Clear();
+            _historyIndex = -1;
             Visibility = Visibility.Hidden;
             Hide();
         }
@@ -133,7 +139,12 @@ namespace CommitBallBar
                 e.Handled = true;
                 var text = InputBox.Text.Trim();
                 if (!string.IsNullOrEmpty(text))
+                {
+                    if (_history.Count == 0 || _history[_history.Count - 1] != text)
+                        _history.Add(text);
+                    _historyIndex = -1;
                     SaveNote(text);
+                }
                 if (_locked)
                 {
                     InputBox.Clear();
@@ -149,10 +160,56 @@ namespace CommitBallBar
                 e.Handled = true;
                 HideBar();
             }
+            else if (e.Key == Key.Up)
+            {
+                if (InputBox.Text.Length == 0 && _historyIndex == -1 && _history.Count > 0)
+                {
+                    _historyIndex = _history.Count - 1;
+                    _suppressTextChange = true;
+                    InputBox.Text = _history[_historyIndex];
+                    _suppressTextChange = false;
+                    InputBox.CaretIndex = InputBox.Text.Length;
+                    e.Handled = true;
+                }
+                else if (_historyIndex > 0)
+                {
+                    _historyIndex--;
+                    _suppressTextChange = true;
+                    InputBox.Text = _history[_historyIndex];
+                    _suppressTextChange = false;
+                    InputBox.CaretIndex = InputBox.Text.Length;
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.Down)
+            {
+                if (_historyIndex >= 0)
+                {
+                    _historyIndex++;
+                    if (_historyIndex >= _history.Count)
+                    {
+                        _historyIndex = -1;
+                        _suppressTextChange = true;
+                        InputBox.Clear();
+                        _suppressTextChange = false;
+                    }
+                    else
+                    {
+                        _suppressTextChange = true;
+                        InputBox.Text = _history[_historyIndex];
+                        _suppressTextChange = false;
+                        InputBox.CaretIndex = InputBox.Text.Length;
+                    }
+                    e.Handled = true;
+                }
+            }
         }
 
         private void InputBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
+            if (_suppressTextChange) return;
+            if (_historyIndex >= 0)
+                _historyIndex = -1;
             HintText.Visibility = string.IsNullOrEmpty(InputBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -189,8 +246,9 @@ namespace CommitBallBar
         {
             var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "notes");
             Directory.CreateDirectory(dir);
-            var path = Path.Combine(dir, DateTime.Now.ToString("yyyy-MM-dd_HHmmss") + ".txt");
-            File.WriteAllText(path, text, System.Text.Encoding.UTF8);
+            var path = Path.Combine(dir, DateTime.Now.ToString("yyyy-MM-dd") + ".txt");
+            var line = DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine;
+            File.AppendAllText(path, line, System.Text.Encoding.UTF8);
             SendToCommitBall(text);
         }
 

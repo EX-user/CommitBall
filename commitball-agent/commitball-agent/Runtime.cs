@@ -166,6 +166,11 @@ namespace CommitBallAgent
                     {
                         session.Messages.Add(new Message { Role = "assistant", Content = resp.Content });
                     }
+                    else if (resp.ToolCalls.Count == 0)
+                    {
+                        AgentWindow.Log($"Runtime: empty response from LLM (content=null, toolCalls=0)");
+                        onOutput("[模型返回空响应]\n");
+                    }
                     break;
                 }
 

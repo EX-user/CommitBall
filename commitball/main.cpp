@@ -177,6 +177,7 @@ void CheckAutoAnalyse() {
         time_t fileTime = mktime(&tmFile);
         time_t now = time(NULL);
         if (now - fileTime >= 4 * 3600) {
+            InsertAutoAnalyseMarker();
             InvokeAgentAnalyse();
         }
     }

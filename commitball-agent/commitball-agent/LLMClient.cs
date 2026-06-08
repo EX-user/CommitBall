@@ -163,7 +163,9 @@ namespace CommitBallAgent
                     if (!root.TryGetProperty("choices", out var choices)) continue;
                     if (choices.GetArrayLength() == 0) continue;
 
-                    var delta = choices[0].GetProperty("delta");
+                    var delta = choices[0];
+                    if (delta.TryGetProperty("delta", out var deltaEl))
+                        delta = deltaEl;
 
                     if (delta.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
                     {
@@ -194,7 +196,7 @@ namespace CommitBallAgent
                         }
                     }
                 }
-                catch (Exception) { }
+                catch (Exception ex) { AgentWindow.Log($"ChatAsync: stream parse error: {ex.Message}"); }
             }
 
             var result = new LLMResponse

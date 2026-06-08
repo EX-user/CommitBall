@@ -59,6 +59,8 @@ inline std::string DbToText(sqlite3* db) {
             lastTs = ts;
         }
 
+        if (type && strcmp(type, "auto-analyse") == 0) continue;
+
         if (content) {
             if (type && strncmp(type, "focus", 5) == 0) {
                 if (!body.empty() && body.back() != '\n') body += "\n";

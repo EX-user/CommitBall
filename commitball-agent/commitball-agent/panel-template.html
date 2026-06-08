@@ -166,6 +166,12 @@ html,body{
     font-size:9px;
     color:#94a3b8;
 }
+
+.section-divider{
+    height:1px;
+    background:#e5e7eb;
+    margin:8px 0;
+}
 </style>
 </head>
 
@@ -215,27 +221,29 @@ html,body{
 
     <!-- Todo -->
     <div class="card" style="grid-column:4 / 7">
-        <div class="highlight">也许你要做</div>
+        <div class="highlight">代办</div>
         <div class="todo">
-            从总结性文本中获取的疑似代办或疑问事项，每条不超过25字
+            用户通过直达输入记录的代办事项（来自[direct]），每条不超过25字
         </div>
         <div class="todo">
-            从总结性文本中获取的疑似代办或疑问事项，每条不超过25字
+            用户通过直达输入记录的代办事项（来自[direct]），每条不超过25字
+        </div>
+        <div class="section-divider"></div>
+        <div class="highlight">猜你想做</div>
+        <div class="todo">
+            从记录数据中推测的代办或疑问事项，每条不超过25字
         </div>
         <div class="todo">
-            从总结性文本中获取的疑似代办或疑问事项，每条不超过25字
+            从记录数据中推测的代办或疑问事项，每条不超过25字
         </div>
         <div class="todo">
-            从总结性文本中获取的疑似代办或疑问事项，每条不超过25字
-        </div>
-        <div class="todo">
-            从总结性文本中获取的疑似代办或疑问事项，每条不超过25字
+            从记录数据中推测的代办或疑问事项，每条不超过25字
         </div>
     </div>
 
     <!-- 数据统计 -->
     <div class="card" style="grid-column:7 / 9">
-        <div class="highlight">数据统计</div>
+        <div class="label">数据统计</div>
         <div class="stats">
             <div class="stat">
                 连续工作：<strong>XX分钟</strong>

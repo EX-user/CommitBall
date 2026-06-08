@@ -344,6 +344,18 @@ inline void ExportSessionDb(const std::string& dbPath, const std::string& txtPat
     }
 }
 
+inline void InsertAutoAnalyseMarker() {
+    if (!g_insertStmt || !g_db) return;
+    std::string ts = GetTimestamp();
+    sqlite3_reset(g_insertStmt);
+    sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+    sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(g_insertStmt, 3, "auto-analyse", -1, SQLITE_STATIC);
+    sqlite3_bind_text(g_insertStmt, 4, "", -1, SQLITE_STATIC);
+    sqlite3_step(g_insertStmt);
+    Log("Inserted auto-analyse marker at record_id=%d", g_recordId);
+}
+
 inline void CheckSessionSplit() {
     if (GetDbSize() >= SESSION_SPLIT_SIZE * 9 / 10) {
         if (!GetConfigBool("auto_analysed")) {
@@ -352,6 +364,7 @@ inline void CheckSessionSplit() {
             extern void InvokeAgentAnalyse();
             if (IsAgentRunning() && !IsAgentBusy()) {
                 SetConfigBool("auto_analysed", true);
+                InsertAutoAnalyseMarker();
                 InvokeAgentAnalyse();
             }
         }
@@ -391,10 +404,29 @@ inline void CheckSessionSplit() {
 
     sqlite3* oldDb = nullptr;
     if (sqlite3_open(sessionPath.c_str(), &oldDb) == SQLITE_OK) {
-        sqlite3_stmt* sel = nullptr;
+        int64_t markerRowId = 0;
+        sqlite3_stmt* markerStmt = nullptr;
         if (sqlite3_prepare_v2(oldDb,
-                "SELECT record_id, ts, type, content FROM log ORDER BY id DESC LIMIT 50",
-                -1, &sel, nullptr) == SQLITE_OK) {
+                "SELECT id FROM log WHERE type='auto-analyse' ORDER BY id DESC LIMIT 1",
+                -1, &markerStmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(markerStmt) == SQLITE_ROW)
+                markerRowId = sqlite3_column_int64(markerStmt, 0);
+            sqlite3_finalize(markerStmt);
+        }
+
+        sqlite3_stmt* sel = nullptr;
+        std::string selectSQL;
+        if (markerRowId > 0) {
+            char buf[256];
+            snprintf(buf, sizeof(buf),
+                "SELECT record_id, ts, type, content FROM log WHERE id >= %lld OR id IN (SELECT id FROM log ORDER BY id DESC LIMIT 50) ORDER BY id ASC",
+                (long long)(markerRowId > 50 ? markerRowId - 50 : 1));
+            selectSQL = buf;
+        } else {
+            selectSQL = "SELECT record_id, ts, type, content FROM log ORDER BY id DESC LIMIT 50";
+        }
+
+        if (sqlite3_prepare_v2(oldDb, selectSQL.c_str(), -1, &sel, nullptr) == SQLITE_OK) {
             std::vector<std::tuple<int, std::string, std::string, std::string>> rows;
             while (sqlite3_step(sel) == SQLITE_ROW) {
                 rows.emplace_back(
@@ -405,7 +437,14 @@ inline void CheckSessionSplit() {
                 );
             }
             sqlite3_finalize(sel);
-            for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
+
+            if (markerRowId > 0 && !rows.empty()) {
+                std::reverse(rows.begin(), rows.end());
+            }
+
+            for (auto it = rows.begin(); it != rows.end(); ++it) {
+                const std::string& rowType = std::get<2>(*it);
+                if (rowType == "auto-analyse") continue;
                 sqlite3_stmt* ins = nullptr;
                 if (sqlite3_prepare_v2(g_db,
                         "INSERT INTO log (record_id, ts, type, content) VALUES (?, ?, ?, ?)",
@@ -434,7 +473,7 @@ inline void CheckSessionSplit() {
         sqlite3_finalize(maxStmt);
     }
 
-    Log("Session split done: new current.db with tail rows, record_id=%d", g_recordId);
+    Log("Session split done: new current.db, record_id=%d", g_recordId);
 }
 
 inline std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProcess, RECT& outRect) {
