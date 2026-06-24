@@ -1,10 +1,13 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Navigation;
 
 namespace CommitBallAgent
 {
@@ -86,7 +89,7 @@ namespace CommitBallAgent
 
             if (!Config.IsConfigured)
             {
-                AppendOutput("CommitBall Agent Terminal v0.1.2\n\n", "#FFFFFF");
+                AppendOutput("CommitBall Agent Terminal v0.1.3\n\n", "#FFFFFF");
                 AppendOutput("未检测到 API 配置。请使用 /vendor 命令配置：\n\n", "#E8915A");
                 AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
                 AppendOutput("常用提供商：\n");
@@ -101,7 +104,7 @@ namespace CommitBallAgent
                 _session = Memory.LoadOrCreate(sessions[0].Id);
             else
                 _session = Memory.LoadOrCreate();
-            AppendOutput($"CommitBall Agent Terminal v0.1.2\n");
+            AppendOutput($"CommitBall Agent Terminal v0.1.3\n");
             AppendOutput($"Session: {_session.Id} ({_session.Messages.Count} msgs)\n\n");
             foreach (var msg in _session.Messages)
             {
@@ -559,10 +562,6 @@ namespace CommitBallAgent
         public void AppendOutput(string text, string? color = null)
         {
             var doc = OutputBox.Document;
-            var run = new System.Windows.Documents.Run(text);
-            if (color != null)
-                run.Foreground = new System.Windows.Media.SolidColorBrush(
-                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
             var para = doc.Blocks.LastBlock as System.Windows.Documents.Paragraph;
             if (para != null && para.Tag as string == "tool")
             {
@@ -574,8 +573,69 @@ namespace CommitBallAgent
                 para = new System.Windows.Documents.Paragraph();
                 doc.Blocks.Add(para);
             }
-            para.Inlines.Add(run);
+            AppendTextWithLinks(para, text, color);
             OutputBox.ScrollToEnd();
+        }
+
+        private static readonly Regex LinkRegex = new(
+            @"https?://[^\s<>()]+|[A-Za-z]:\\[^\r\n\t<>|""]+",
+            RegexOptions.Compiled);
+
+        private void AppendTextWithLinks(System.Windows.Documents.Paragraph para, string text, string? color)
+        {
+            var brush = color == null
+                ? null
+                : new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
+            int pos = 0;
+            foreach (Match match in LinkRegex.Matches(text))
+            {
+                if (match.Index > pos)
+                    para.Inlines.Add(MakeRun(text.Substring(pos, match.Index - pos), brush));
+
+                var target = match.Value.TrimEnd('.', ',', ';', ')', ']');
+                var trailing = match.Value.Substring(target.Length);
+                var link = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run(target))
+                {
+                    NavigateUri = MakeNavigateUri(target),
+                    Foreground = brush ?? (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#7AB7FF")
+                };
+                link.RequestNavigate += Link_RequestNavigate;
+                para.Inlines.Add(link);
+                if (trailing.Length > 0)
+                    para.Inlines.Add(MakeRun(trailing, brush));
+                pos = match.Index + match.Length;
+            }
+            if (pos < text.Length)
+                para.Inlines.Add(MakeRun(text.Substring(pos), brush));
+        }
+
+        private static System.Windows.Documents.Run MakeRun(string text, System.Windows.Media.Brush? brush)
+        {
+            var run = new System.Windows.Documents.Run(text);
+            if (brush != null) run.Foreground = brush;
+            return run;
+        }
+
+        private static Uri MakeNavigateUri(string target)
+        {
+            if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return new Uri(target);
+            return new Uri(target);
+        }
+
+        private void Link_RequestNavigate(object sender, RequestNavigateEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo(e.Uri.ToString()) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                AppendOutput($"\n[open link failed] {ex.Message}\n", "#E8915A");
+            }
+            e.Handled = true;
         }
 
         private void AppendToolStart(string info)

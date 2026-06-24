@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
@@ -43,9 +44,39 @@ namespace CommitBallAgent
 
             Config.Load();
 
+            StartParentWatcher(e.Args);
             _window = new AgentWindow();
             _pipe = new PipeServer(_window);
             _pipe.Start();
+        }
+
+        private void StartParentWatcher(string[] args)
+        {
+            var parentPid = ParseParentPid(args);
+            if (parentPid <= 0) return;
+
+            var watcher = new Thread(() =>
+            {
+                try
+                {
+                    using var parent = Process.GetProcessById(parentPid);
+                    parent.WaitForExit();
+                    Dispatcher.BeginInvoke(new Action(() => Shutdown()));
+                }
+                catch { }
+            });
+            watcher.IsBackground = true;
+            watcher.Start();
+        }
+
+        private static int ParseParentPid(string[] args)
+        {
+            for (int i = 0; i + 1 < args.Length; i++)
+            {
+                if (args[i] == "--parent-pid" && int.TryParse(args[i + 1], out var pid))
+                    return pid;
+            }
+            return 0;
         }
 
         protected override void OnExit(ExitEventArgs e)
