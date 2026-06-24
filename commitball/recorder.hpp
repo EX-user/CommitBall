@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <tuple>
+#include <map>
+#include <algorithm>
 #include <ctime>
 #include <cstdarg>
 #include <cstdio>
@@ -19,6 +21,7 @@ enum State { STOPPED, RECORDING };
 extern State g_state;
 extern int g_recordId;
 extern HANDLE g_pipe;
+extern HANDLE g_directPipe;
 extern sqlite3* g_db;
 extern sqlite3_stmt* g_insertStmt;
 extern DWORD g_lastOutputTime;
@@ -57,6 +60,9 @@ int g_barTriggerLen = 4;
 char g_barSeq[16] = {};
 int g_barSeqLen = 0;
 DWORD g_barSeqTime = 0;
+inline bool g_eyeModeEnabled = true;
+
+inline void Log(const char* fmt, ...);
 
 inline bool CheckBarTrigger(UINT vk) {
     char c = 0;
@@ -179,6 +185,81 @@ inline void LoadBarTriggerConfig() {
         sqlite3_finalize(stmt);
     }
     sqlite3_close(cfgDb);
+}
+
+inline bool IsAllowedBarTriggerChar(char c) {
+    if (c >= 'a' && c <= 'z') return true;
+    if (c >= 'A' && c <= 'Z') return true;
+    if (c >= '0' && c <= '9') return true;
+    switch (c) {
+        case '\\': case ';': case '/': case '`': case '[': case ']':
+        case '-': case '=': case ',': case '.':
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline bool IsValidBarTrigger(const std::string& trigger) {
+    if (trigger.empty() || trigger.size() > BAR_TRIGGER_MAX_LEN) return false;
+    for (char c : trigger) {
+        if (!IsAllowedBarTriggerChar(c)) return false;
+    }
+    return true;
+}
+
+inline bool SetBarTriggerConfig(const std::string& trigger) {
+    if (!IsValidBarTrigger(trigger)) return false;
+    sqlite3* cfgDb = nullptr;
+    if (sqlite3_open(CURRENT_DB, &cfgDb) != SQLITE_OK) return false;
+    sqlite3_exec(cfgDb, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    bool ok = false;
+    if (sqlite3_prepare_v2(cfgDb, "INSERT OR REPLACE INTO config (key, value) VALUES ('bar_trigger', ?)", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, trigger.c_str(), -1, SQLITE_TRANSIENT);
+        ok = sqlite3_step(stmt) == SQLITE_DONE;
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(cfgDb);
+    if (ok) {
+        memcpy(g_barTrigger, trigger.c_str(), trigger.size() + 1);
+        g_barTriggerLen = (int)trigger.size();
+        g_barSeqLen = 0;
+        g_barSeq[0] = '\0';
+        Log("Bar trigger updated: %s", g_barTrigger);
+    }
+    return ok;
+}
+
+inline void LoadEyeModeConfig() {
+    sqlite3* cfgDb = nullptr;
+    g_eyeModeEnabled = true;
+    if (sqlite3_open(CURRENT_DB, &cfgDb) != SQLITE_OK) return;
+    sqlite3_exec(cfgDb, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(cfgDb, "SELECT value FROM config WHERE key='eye_mode'", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* val = (const char*)sqlite3_column_text(stmt, 0);
+            g_eyeModeEnabled = !(val && val[0] == '0');
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(cfgDb);
+}
+
+inline void SetEyeModeConfig(bool enabled) {
+    SetConfigBool("eye_mode", enabled);
+    g_eyeModeEnabled = enabled;
+    Log("Eye mode %s", enabled ? "enabled" : "disabled");
+}
+
+inline void ReloadBarTriggerConfig() {
+    strcpy_s(g_barTrigger, BAR_TRIGGER_DEFAULT);
+    g_barTriggerLen = (int)strlen(BAR_TRIGGER_DEFAULT);
+    g_barSeqLen = 0;
+    g_barSeq[0] = '\0';
+    LoadBarTriggerConfig();
+    Log("Bar trigger reloaded: %s", g_barTrigger);
 }
 
 inline std::string WideToUtf8(const std::wstring& wide) {
@@ -308,6 +389,7 @@ inline bool RecorderInit() {
     EnsureDirs();
     if (!OpenDb(CURRENT_DB)) return false;
     LoadBarTriggerConfig();
+    LoadEyeModeConfig();
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     CoCreateInstance(CLSID_CUIAutomation, NULL, CLSCTX_INPROC_SERVER,
         IID_IUIAutomation, (void**)&g_pUIAutomation);
@@ -319,6 +401,7 @@ inline void RecorderCleanup() {
     if (g_insertStmt) sqlite3_finalize(g_insertStmt);
     if (g_db) sqlite3_close(g_db);
     if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
+    if (g_directPipe != INVALID_HANDLE_VALUE) CloseHandle(g_directPipe);
     if (g_pUIAutomation) g_pUIAutomation->Release();
     CoUninitialize();
 }
@@ -342,6 +425,99 @@ inline void ExportSessionDb(const std::string& dbPath, const std::string& txtPat
         FILE* f = fopen(txtPath.c_str(), "w");
         if (f) { fprintf(f, "%s", text.c_str()); fclose(f); }
     }
+}
+
+inline std::string JsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if ((unsigned char)c < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    return out;
+}
+
+inline void GenerateSessionMetadata(const std::string& sessionId, const std::string& dbPath, const std::string& txtPath, const std::string& metaPath) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) return;
+
+    std::string startedAt, endedAt, firstDirect;
+    std::map<std::string, int> focusCounts;
+    int timerCount = 0;
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT ts, type, content FROM log ORDER BY id", -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* ts = (const char*)sqlite3_column_text(stmt, 0);
+            const char* type = (const char*)sqlite3_column_text(stmt, 1);
+            const char* content = (const char*)sqlite3_column_text(stmt, 2);
+            if (ts && startedAt.empty()) startedAt = ts;
+            if (ts) endedAt = ts;
+            if (type && strncmp(type, "focus", 5) == 0 && content && content[0]) {
+                focusCounts[content]++;
+            } else if (type && strcmp(type, "direct-input") == 0 && content && firstDirect.empty()) {
+                firstDirect = content;
+            } else if (type && strcmp(type, "timer") == 0) {
+                timerCount++;
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(db);
+
+    std::vector<std::pair<std::string, int>> ranked(focusCounts.begin(), focusCounts.end());
+    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+
+    std::string title = "CommitBall session";
+    if (!firstDirect.empty()) {
+        title = firstDirect.substr(0, 80);
+    } else if (!ranked.empty()) {
+        title = ranked[0].first.substr(0, 80);
+    }
+
+    std::vector<std::string> tags;
+    for (size_t i = 0; i < ranked.size() && tags.size() < 5; ++i) {
+        std::string tag = ranked[i].first;
+        size_t bar = tag.rfind('|');
+        if (bar != std::string::npos && bar + 1 < tag.size()) tag = tag.substr(bar + 1);
+        if (!tag.empty() && std::find(tags.begin(), tags.end(), tag) == tags.end())
+            tags.push_back(tag);
+    }
+
+    FILE* f = fopen(metaPath.c_str(), "w");
+    if (!f) return;
+    fprintf(f, "{\n");
+    fprintf(f, "  \"session_id\": \"%s\",\n", JsonEscape(sessionId).c_str());
+    fprintf(f, "  \"started_at\": \"%s\",\n", JsonEscape(startedAt).c_str());
+    fprintf(f, "  \"ended_at\": \"%s\",\n", JsonEscape(endedAt).c_str());
+    fprintf(f, "  \"txt_path\": \"%s\",\n", JsonEscape(txtPath).c_str());
+    fprintf(f, "  \"db_path\": \"%s\",\n", JsonEscape(dbPath).c_str());
+    fprintf(f, "  \"title\": \"%s\",\n", JsonEscape(title).c_str());
+    fprintf(f, "  \"work_tags\": [");
+    for (size_t i = 0; i < tags.size(); ++i) {
+        if (i) fprintf(f, ", ");
+        fprintf(f, "\"%s\"", JsonEscape(tags[i]).c_str());
+    }
+    fprintf(f, "],\n");
+    fprintf(f, "  \"summary\": \"%s\",\n", JsonEscape("Rule-based metadata from focus, direct input, and timer events.").c_str());
+    fprintf(f, "  \"source\": \"rule\",\n");
+    fprintf(f, "  \"timer_count\": %d\n", timerCount);
+    fprintf(f, "}\n");
+    fclose(f);
+    Log("Session metadata written: %s", metaPath.c_str());
 }
 
 inline void CheckSessionSplit() {
@@ -369,6 +545,7 @@ inline void CheckSessionSplit() {
     std::string exportDir = std::string(EXPORTS_DIR) + "\\" + month;
     EnsureDir(exportDir.c_str());
     std::string exportPath = exportDir + "\\commitball_" + sessionTs + ".txt";
+    std::string metaPath = exportDir + "\\commitball_" + sessionTs + ".meta.json";
 
     Log("Session split: size=%lld, exporting...", (long long)GetDbSize());
 
@@ -386,6 +563,7 @@ inline void CheckSessionSplit() {
     rename(CURRENT_DB, sessionPath.c_str());
 
     ExportSessionDb(sessionPath, exportPath);
+    GenerateSessionMetadata(sessionTs, sessionPath, exportPath, metaPath);
 
     OpenDb(CURRENT_DB);
 
@@ -435,6 +613,57 @@ inline void CheckSessionSplit() {
     }
 
     Log("Session split done: new current.db with tail rows, record_id=%d", g_recordId);
+}
+
+inline void ProcessDirectCommand(const std::string& cmd) {
+    Log("Direct command received: %s", cmd.c_str());
+    if (cmd == "RELOAD_TRIGGER") {
+        ReloadBarTriggerConfig();
+        return;
+    }
+    const std::string setPrefix = "SET_TRIGGER ";
+    if (cmd.rfind(setPrefix, 0) == 0) {
+        std::string trigger = cmd.substr(setPrefix.size());
+        if (SetBarTriggerConfig(trigger)) {
+            Log("Bar trigger command applied");
+            std::wstring* bubble = new std::wstring(L"Bar \x5524\x9192\x5E8F\x5217\x5DF2\x66F4\x65B0");
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        } else {
+            Log("Invalid bar trigger from Bar: %s", trigger.c_str());
+        }
+        return;
+    }
+    const std::string eyePrefix = "SET_EYE_MODE ";
+    if (cmd.rfind(eyePrefix, 0) == 0) {
+        std::string mode = cmd.substr(eyePrefix.size());
+        bool enabled = g_eyeModeEnabled;
+        if (mode == "ON") enabled = true;
+        else if (mode == "OFF") enabled = false;
+        else if (mode == "TOGGLE") enabled = !g_eyeModeEnabled;
+        else {
+            Log("Invalid eye mode command: %s", mode.c_str());
+            return;
+        }
+
+        SetEyeModeConfig(enabled);
+        PostMessage(g_hWnd, WM_PIPE_MSG, 0, 3);
+        std::wstring* bubble = new std::wstring(enabled
+            ? L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5F00\x542F"
+            : L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5173\x95ED");
+        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        return;
+    }
+    const std::string bubblePrefix = "BUBBLE ";
+    if (cmd.rfind(bubblePrefix, 0) == 0) {
+        std::string text = cmd.substr(bubblePrefix.size());
+        int wideLen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, NULL, 0);
+        if (wideLen > 0) {
+            std::wstring wide(wideLen, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wide[0], wideLen);
+            std::wstring* bubble = new std::wstring(wide.c_str());
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        }
+    }
 }
 
 inline std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProcess, RECT& outRect) {
@@ -729,17 +958,18 @@ inline void CreateBarPipeServer() {
     char readBuf[BUF_SIZE];
 
     while (g_running) {
-        HANDLE hPipe = CreateNamedPipeW(
+        g_directPipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\CommitBall-direct",
             PIPE_ACCESS_INBOUND,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1, BUF_SIZE, 0, 0, NULL);
 
-        if (hPipe == INVALID_HANDLE_VALUE) {
+        if (g_directPipe == INVALID_HANDLE_VALUE) {
             Sleep(1000);
             continue;
         }
 
+        HANDLE hPipe = g_directPipe;
         if (ConnectNamedPipe(hPipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
             std::string acc;
             DWORD bytesRead;
@@ -751,14 +981,20 @@ inline void CreateBarPipeServer() {
                 while (!text.empty() && (text.back() == '\r' || text.back() == '\n'))
                     text.pop_back();
                 if (!text.empty()) {
-                    std::string* pText = new std::string(std::move(text));
-                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, 1); // lParam=1: direct-input
+                    if (text.rfind("CMD ", 0) == 0) {
+                        ProcessDirectCommand(text.substr(4));
+                    } else {
+                        std::string* pText = new std::string(std::move(text));
+                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, 1); // lParam=1: direct-input
+                    }
                 }
             }
         }
 
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);
+        if (g_directPipe == hPipe)
+            g_directPipe = INVALID_HANDLE_VALUE;
     }
 }
 

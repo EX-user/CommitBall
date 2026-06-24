@@ -3,6 +3,7 @@
 #include <gdiplus.h>
 #include <string>
 #include <cstdio>
+#include <cmath>
 
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -23,6 +24,8 @@ const int SNAP_THRESHOLD = 20;
 
 #define IDT_OUTPUT 1
 #define IDT_COLOR_ANIM 2
+#define IDT_BLINK 3
+#define IDT_BUBBLE_HIDE 4
 #define IDM_STATUS      1000
 #define IDM_EXIT        1002
 #define IDM_OPEN_DIR    1003
@@ -32,6 +35,7 @@ const int SNAP_THRESHOLD = 20;
 #define IDM_OPEN_LIVE   1007
 #define IDM_AGENT       1008
 #define IDM_INVOKE_AGENT 1009
+#define IDM_BAR_SHOW    1010
 
 enum Edge { EDGE_NONE, EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
 extern Edge g_snappedEdge;
@@ -43,6 +47,25 @@ inline int g_tgtR = 59, g_tgtG = 130, g_tgtB = 246;
 inline int g_curPenR = 255, g_curPenG = 255, g_curPenB = 255;
 inline int g_tgtPenR = 255, g_tgtPenG = 255, g_tgtPenB = 255;
 inline bool g_noAdmin = false;
+inline bool g_blinkDim = false;
+inline HWND g_bubbleWnd = nullptr;
+inline float g_pupilAngle = 0.0f;
+inline float g_pupilTargetAngle = 0.0f;
+inline float g_eyeYaw = 0.0f;
+inline float g_eyePitch = 0.0f;
+inline float g_eyeTargetYaw = 0.0f;
+inline float g_eyeTargetPitch = 0.0f;
+inline float g_eyelidProgress = 0.0f;
+inline bool g_blinkActive = false;
+inline bool g_blinkClosing = true;
+inline DWORD g_blinkPhaseStart = 0;
+inline DWORD g_nextBlinkAt = 0;
+inline DWORD g_lastEyeTick = 0;
+inline DWORD g_lastMouseMoveAt = 0;
+inline DWORD g_nextIdleLookAt = 0;
+inline bool g_hasLastCursor = false;
+inline int g_lastCursorX = 0;
+inline int g_lastCursorY = 0;
 
 inline const wchar_t* GetStatusText() {
     if (g_noAdmin) return L"\x72B6\x6001: \x65E0\x6743\x9650, \x7A0D\x540E\x9000\x51FA...";
@@ -73,6 +96,9 @@ void SavePosition();
 void LoadPosition();
 void ApplySnappedEdge();
 void UnsnapForRecording();
+void ToggleBlink();
+void UpdateEyeAnimation();
+void ShowBallBubble(const wchar_t* text);
 LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 inline bool BallInit(HINSTANCE hInstance) {
@@ -138,6 +164,113 @@ inline void AnimateColor() {
     RedrawBall();
 }
 
+inline void ToggleBlink() {
+    extern State g_state;
+    if (g_state != RECORDING || !g_eyeModeEnabled) {
+        g_blinkDim = false;
+        g_eyelidProgress = 0.0f;
+        g_blinkActive = false;
+        return;
+    }
+    UpdateEyeAnimation();
+    RedrawBall();
+}
+
+inline float ClampFloat(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+inline float EaseInOut(float t) {
+    t = ClampFloat(t, 0.0f, 1.0f);
+    return 0.5f - 0.5f * cosf(t * 3.14159265f);
+}
+
+inline void ScheduleNextBlink(DWORD now) {
+    g_nextBlinkAt = now + 1100 + (DWORD)(rand() % 3300);
+}
+
+inline void UpdateEyeAnimation() {
+    DWORD now = GetTickCount();
+    if (g_lastEyeTick == 0) {
+        g_lastEyeTick = now;
+        g_lastMouseMoveAt = now;
+        ScheduleNextBlink(now);
+    }
+
+    POINT cursor;
+    RECT rc;
+    if (GetCursorPos(&cursor) && g_hWnd && GetWindowRect(g_hWnd, &rc)) {
+        if (!g_hasLastCursor) {
+            g_lastCursorX = cursor.x;
+            g_lastCursorY = cursor.y;
+            g_hasLastCursor = true;
+            g_lastMouseMoveAt = now;
+        }
+
+        int cursorDx = cursor.x - g_lastCursorX;
+        int cursorDy = cursor.y - g_lastCursorY;
+        if (cursorDx * cursorDx + cursorDy * cursorDy >= 4) {
+            g_lastCursorX = cursor.x;
+            g_lastCursorY = cursor.y;
+            g_lastMouseMoveAt = now;
+            g_nextIdleLookAt = 0;
+        }
+
+        bool idleLook = (now - g_lastMouseMoveAt) >= 6000;
+        if (idleLook) {
+            if (g_nextIdleLookAt == 0 || now >= g_nextIdleLookAt ||
+                (fabsf(g_eyeTargetYaw - g_eyeYaw) < 0.035f && fabsf(g_eyeTargetPitch - g_eyePitch) < 0.035f)) {
+                g_eyeTargetYaw = ((float)((rand() % 101) - 50) / 100.0f) * 0.95f;
+                g_eyeTargetPitch = ((float)((rand() % 81) - 40) / 100.0f) * 0.72f;
+                g_nextIdleLookAt = now + 900 + (DWORD)(rand() % 1700);
+            }
+        } else {
+            float centerX = (float)(rc.left + BALL_CX);
+            float centerY = (float)(rc.top + BALL_CY);
+            float dx = (float)cursor.x - centerX;
+            float dy = (float)cursor.y - centerY;
+            g_eyeTargetYaw = ClampFloat(dx / 190.0f, -1.0f, 1.0f) * 0.78f;
+            g_eyeTargetPitch = ClampFloat(dy / 165.0f, -1.0f, 1.0f) * 0.58f;
+        }
+    } else {
+        g_eyeTargetYaw = 0.0f;
+        g_eyeTargetPitch = 0.0f;
+    }
+    g_pupilTargetAngle = 0.0f;
+    float trackingEase = (now - g_lastMouseMoveAt) >= 6000 ? 0.025f : 0.045f;
+    g_eyeYaw += (g_eyeTargetYaw - g_eyeYaw) * trackingEase;
+    g_eyePitch += (g_eyeTargetPitch - g_eyePitch) * trackingEase;
+    g_pupilAngle = 0.0f;
+
+    if (!g_blinkActive && now >= g_nextBlinkAt) {
+        g_blinkActive = true;
+        g_blinkClosing = true;
+        g_blinkPhaseStart = now;
+    }
+
+    if (g_blinkActive) {
+        const DWORD closeMs = 120;
+        const DWORD openMs = 190;
+        DWORD elapsed = now - g_blinkPhaseStart;
+        if (g_blinkClosing) {
+            float t = EaseInOut((float)elapsed / (float)closeMs);
+            g_eyelidProgress = t;
+            if (elapsed >= closeMs) {
+                g_blinkClosing = false;
+                g_blinkPhaseStart = now;
+            }
+        } else {
+            float t = EaseInOut((float)(now - g_blinkPhaseStart) / (float)openMs);
+            g_eyelidProgress = 1.0f - t;
+            if (now - g_blinkPhaseStart >= openMs) {
+                g_blinkActive = false;
+                g_eyelidProgress = 0.0f;
+                ScheduleNextBlink(now);
+            }
+        }
+    }
+}
+
 inline void RedrawBall() {
     extern State g_state;
 
@@ -169,7 +302,8 @@ inline void RedrawBall() {
         BALL_CX - BALL_RADIUS, BALL_CY - BALL_RADIUS,
         BALL_RADIUS * 2, BALL_RADIUS * 2);
 
-    Gdiplus::Pen pen(Gdiplus::Color(255, g_curPenR, g_curPenG, g_curPenB), 2.5f);
+    BYTE penAlpha = (g_state == RECORDING && g_blinkDim) ? 90 : 255;
+    Gdiplus::Pen pen(Gdiplus::Color(penAlpha, g_curPenR, g_curPenG, g_curPenB), 2.5f);
     graphics.DrawEllipse(&pen,
         BALL_CX - BALL_RADIUS + 1, BALL_CY - BALL_RADIUS + 1,
         (BALL_RADIUS - 1) * 2, (BALL_RADIUS - 1) * 2);
@@ -179,15 +313,86 @@ inline void RedrawBall() {
     Gdiplus::FontFamily fontFamily(L"Segoe UI Symbol");
     if (fontFamily.IsAvailable()) {
         Gdiplus::Font font(&fontFamily, 34.0f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
-        Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 255, 255, 255));
+        bool eyeModeActive = (g_state == RECORDING && g_eyeModeEnabled);
+        BYTE textAlpha = eyeModeActive ? (BYTE)(255 - 130 * ClampFloat(g_eyelidProgress, 0.0f, 1.0f)) : 255;
+        Gdiplus::SolidBrush textBrush(Gdiplus::Color(textAlpha, 255, 255, 255));
         Gdiplus::StringFormat sf;
         sf.SetAlignment(Gdiplus::StringAlignmentCenter);
         sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
         Gdiplus::RectF rect(
-            (float)(BALL_CX - BALL_RADIUS) + (g_state == RECORDING ? 4.0f : 0.0f),
+            (float)(BALL_CX - BALL_RADIUS) + (eyeModeActive ? 4.0f : 0.0f),
             (float)(BALL_CY - BALL_RADIUS),
             (float)(BALL_RADIUS * 2), (float)(BALL_RADIUS * 2));
-        graphics.DrawString(symbol, -1, &font, rect, &sf, &textBrush);
+        if (eyeModeActive && !g_noAdmin) {
+            float yaw = ClampFloat(g_eyeYaw, -0.78f, 0.78f);
+            float pitch = ClampFloat(g_eyePitch, -0.58f, 0.58f);
+            float eyeX = sinf(yaw) * 16.0f;
+            float eyeY = sinf(pitch) * 11.0f;
+            float yawDepth = cosf(yaw);
+            float pitchDepth = cosf(pitch);
+            float pupilW = 23.0f * (0.62f + 0.38f * yawDepth);
+            float pupilH = 29.0f * (0.72f + 0.28f * pitchDepth);
+            float cx = (float)BALL_CX + eyeX + 1.0f;
+            float cy = (float)BALL_CY + eyeY;
+            BYTE pupilAlpha = (BYTE)(245 - 90 * ClampFloat(g_eyelidProgress, 0.0f, 1.0f));
+            BYTE shade = (BYTE)(235 + 20 * ClampFloat((yawDepth + pitchDepth) * 0.5f, 0.0f, 1.0f));
+            Gdiplus::SolidBrush pupilBrush(Gdiplus::Color(pupilAlpha, shade, shade, 255));
+            Gdiplus::SolidBrush glintBrush(Gdiplus::Color(85, 255, 255, 255));
+            Gdiplus::GraphicsPath pupilPath;
+            Gdiplus::PointF pupil[3] = {
+                Gdiplus::PointF(cx + pupilW * 0.55f, cy),
+                Gdiplus::PointF(cx - pupilW * 0.45f, cy - pupilH * 0.50f),
+                Gdiplus::PointF(cx - pupilW * 0.45f, cy + pupilH * 0.50f)
+            };
+            pupilPath.AddPolygon(pupil, 3);
+            graphics.FillPath(&pupilBrush, &pupilPath);
+            graphics.FillEllipse(&glintBrush, cx - pupilW * 0.24f, cy - pupilH * 0.28f, 4.6f, 4.0f);
+
+            float cover = ClampFloat(g_eyelidProgress, 0.0f, 1.0f);
+            if (cover > 0.01f) {
+                Gdiplus::SolidBrush lidBrush(Gdiplus::Color(248, g_curR, g_curG, g_curB));
+                Gdiplus::Pen lidPen(Gdiplus::Color(120, 255, 255, 255), 1.2f);
+                Gdiplus::GraphicsState lidState = graphics.Save();
+                Gdiplus::GraphicsPath clipPath;
+                clipPath.AddEllipse(
+                    (float)(BALL_CX - BALL_RADIUS + 2),
+                    (float)(BALL_CY - BALL_RADIUS + 2),
+                    (float)((BALL_RADIUS - 2) * 2),
+                    (float)((BALL_RADIUS - 2) * 2));
+                graphics.SetClip(&clipPath, Gdiplus::CombineModeReplace);
+
+                float left = (float)(BALL_CX - BALL_RADIUS + 6);
+                float right = (float)(BALL_CX + BALL_RADIUS - 6);
+                float topEdge = (float)(BALL_CY - BALL_RADIUS + 6);
+                float bottomEdge = (float)(BALL_CY + BALL_RADIUS - 6);
+                float topLidY = topEdge + 31.0f * cover;
+                float bottomLidY = bottomEdge - 31.0f * cover;
+
+                Gdiplus::GraphicsPath topLid;
+                topLid.StartFigure();
+                topLid.AddLine(left, topEdge - 8.0f, right, topEdge - 8.0f);
+                topLid.AddLine(right, topEdge - 8.0f, right, topLidY);
+                topLid.AddBezier(right, topLidY, right - 18.0f, topLidY + 7.0f, left + 18.0f, topLidY + 7.0f, left, topLidY);
+                topLid.AddLine(left, topLidY, left, topEdge - 8.0f);
+                topLid.CloseFigure();
+                graphics.FillPath(&lidBrush, &topLid);
+
+                Gdiplus::GraphicsPath bottomLid;
+                bottomLid.StartFigure();
+                bottomLid.AddLine(left, bottomEdge + 8.0f, right, bottomEdge + 8.0f);
+                bottomLid.AddLine(right, bottomEdge + 8.0f, right, bottomLidY);
+                bottomLid.AddBezier(right, bottomLidY, right - 18.0f, bottomLidY - 7.0f, left + 18.0f, bottomLidY - 7.0f, left, bottomLidY);
+                bottomLid.AddLine(left, bottomLidY, left, bottomEdge + 8.0f);
+                bottomLid.CloseFigure();
+                graphics.FillPath(&lidBrush, &bottomLid);
+
+                graphics.DrawBezier(&lidPen, right, topLidY, right - 18.0f, topLidY + 7.0f, left + 18.0f, topLidY + 7.0f, left, topLidY);
+                graphics.DrawBezier(&lidPen, right, bottomLidY, right - 18.0f, bottomLidY - 7.0f, left + 18.0f, bottomLidY - 7.0f, left, bottomLidY);
+                graphics.Restore(lidState);
+            }
+        } else {
+            graphics.DrawString(symbol, -1, &font, rect, &sf, &textBrush);
+        }
     }
 
     POINT ptSrc = {0, 0};
@@ -207,6 +412,139 @@ inline void RedrawBall() {
     DeleteObject(hBmp);
     DeleteDC(hdcMem);
     ReleaseDC(NULL, hdcScreen);
+}
+
+inline void ShowBallBubble(const wchar_t* text) {
+    if (!g_hWnd || !text || !text[0]) return;
+    if (g_bubbleWnd) {
+        DestroyWindow(g_bubbleWnd);
+        g_bubbleWnd = nullptr;
+    }
+
+    RECT rc;
+    GetWindowRect(g_hWnd, &rc);
+    int width = 286;
+    int height = 64;
+    int tailH = 10;
+    int x = rc.left + BALL_SIZE / 2 - width / 2;
+    int y = rc.top - height - 8;
+    bool above = true;
+    RECT workArea;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+    x = max(workArea.left + 8, min(x, workArea.right - width - 8));
+    if (y < workArea.top + 8) {
+        y = rc.bottom + 8;
+        above = false;
+    }
+
+    g_bubbleWnd = CreateWindowExW(
+        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        L"STATIC",
+        L"",
+        WS_POPUP,
+        x, y, width, height,
+        NULL, NULL, GetModuleHandleW(NULL), NULL);
+    if (!g_bubbleWnd) return;
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    void* pvBits = nullptr;
+    HBITMAP hBmp = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pvBits, NULL, 0);
+    HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hBmp);
+
+    Gdiplus::Graphics graphics(hdcMem);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+    graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
+
+    float bodyTop = above ? 3.0f : (float)tailH;
+    float bodyH = (float)height - (float)tailH - 6.0f;
+    Gdiplus::RectF body(6.0f, bodyTop, (float)width - 12.0f, bodyH);
+    float radius = 12.0f;
+
+    Gdiplus::GraphicsPath shadowPath;
+    Gdiplus::RectF shadow = body;
+    shadow.X += 0.0f;
+    shadow.Y += 2.0f;
+    shadowPath.AddArc(shadow.X, shadow.Y, radius, radius, 180, 90);
+    shadowPath.AddArc(shadow.GetRight() - radius, shadow.Y, radius, radius, 270, 90);
+    shadowPath.AddArc(shadow.GetRight() - radius, shadow.GetBottom() - radius, radius, radius, 0, 90);
+    shadowPath.AddArc(shadow.X, shadow.GetBottom() - radius, radius, radius, 90, 90);
+    shadowPath.CloseFigure();
+    Gdiplus::SolidBrush shadowBrush(Gdiplus::Color(34, 30, 36, 52));
+    graphics.FillPath(&shadowBrush, &shadowPath);
+
+    Gdiplus::GraphicsPath path;
+    path.AddArc(body.X, body.Y, radius, radius, 180, 90);
+    path.AddArc(body.GetRight() - radius, body.Y, radius, radius, 270, 90);
+    path.AddArc(body.GetRight() - radius, body.GetBottom() - radius, radius, radius, 0, 90);
+    path.AddArc(body.X, body.GetBottom() - radius, radius, radius, 90, 90);
+    path.CloseFigure();
+
+    float tailCenter = (float)(rc.left + BALL_SIZE / 2 - x);
+    tailCenter = ClampFloat(tailCenter, 28.0f, (float)width - 28.0f);
+    Gdiplus::PointF tail[3];
+    if (above) {
+        tail[0] = Gdiplus::PointF(tailCenter - 9.0f, body.GetBottom() - 1.0f);
+        tail[1] = Gdiplus::PointF(tailCenter + 9.0f, body.GetBottom() - 1.0f);
+        tail[2] = Gdiplus::PointF(tailCenter, (float)height - 4.0f);
+    } else {
+        tail[0] = Gdiplus::PointF(tailCenter - 9.0f, body.Y + 1.0f);
+        tail[1] = Gdiplus::PointF(tailCenter + 9.0f, body.Y + 1.0f);
+        tail[2] = Gdiplus::PointF(tailCenter, 3.0f);
+    }
+
+    Gdiplus::SolidBrush fillBrush(Gdiplus::Color(248, 255, 255, 255));
+    Gdiplus::Pen borderPen(Gdiplus::Color(255, 210, 210, 220), 1.0f);
+    Gdiplus::SolidBrush accentBrush(Gdiplus::Color(255, 59, 130, 246));
+    Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 38, 45, 62));
+    graphics.FillPath(&fillBrush, &path);
+    graphics.FillPolygon(&fillBrush, tail, 3);
+    graphics.DrawPath(&borderPen, &path);
+    graphics.DrawLines(&borderPen, tail, 3);
+
+    Gdiplus::RectF accent(body.X + 14.0f, body.Y + 16.0f, 6.0f, 20.0f);
+    Gdiplus::GraphicsPath accentPath;
+    accentPath.AddArc(accent.X, accent.Y, 6.0f, 6.0f, 180, 90);
+    accentPath.AddArc(accent.GetRight() - 6.0f, accent.Y, 6.0f, 6.0f, 270, 90);
+    accentPath.AddArc(accent.GetRight() - 6.0f, accent.GetBottom() - 6.0f, 6.0f, 6.0f, 0, 90);
+    accentPath.AddArc(accent.X, accent.GetBottom() - 6.0f, 6.0f, 6.0f, 90, 90);
+    accentPath.CloseFigure();
+    graphics.FillPath(&accentBrush, &accentPath);
+
+    Gdiplus::FontFamily fontFamily(L"Segoe UI");
+    Gdiplus::Font font(&fontFamily, 13.5f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+    Gdiplus::StringFormat fmt;
+    fmt.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+    fmt.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    fmt.SetAlignment(Gdiplus::StringAlignmentNear);
+    fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    Gdiplus::RectF textRect(body.X + 30.0f, body.Y + 6.0f, body.Width - 44.0f, body.Height - 12.0f);
+    graphics.DrawString(text, -1, &font, textRect, &fmt, &textBrush);
+
+    POINT ptDst = { x, y };
+    POINT ptSrc = { 0, 0 };
+    SIZE size = { width, height };
+    BLENDFUNCTION blend = {};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = 255;
+    blend.AlphaFormat = AC_SRC_ALPHA;
+    UpdateLayeredWindow(g_bubbleWnd, hdcScreen, &ptDst, &size, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    SelectObject(hdcMem, hOld);
+    DeleteObject(hBmp);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+
+    ShowWindow(g_bubbleWnd, SW_SHOWNOACTIVATE);
+    SetTimer(g_hWnd, IDT_BUBBLE_HIDE, 2600, NULL);
 }
 
 inline void SavePosition() {
@@ -296,6 +634,12 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_STATUS, GetStatusText());
         AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, IDM_DB_INFO, GetDbInfoText().c_str());
         {
+            extern bool IsBarRunning();
+            extern std::wstring GetBarStatusText();
+            AppendMenuW(hMenu, MF_STRING | MF_DISABLED | MF_GRAYED, 0,
+                IsBarRunning() ? GetBarStatusText().c_str() : L"Bar: \x672A\x8FD0\x884C");
+        }
+        {
             extern bool IsAgentRunning();
             extern std::wstring GetAgentStatusText();
             if (IsAgentRunning()) {
@@ -305,6 +649,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_OPEN_DIR, L"\x6253\x5F00\x6570\x636E\x8DEF\x5F84");
         AppendMenuW(hMenu, MF_STRING, IDM_OPEN_LIVE, L"\x67E5\x770B\x5F53\x524D\x8BB0\x5F55\x6587\x672C");
+        AppendMenuW(hMenu, MF_STRING, IDM_BAR_SHOW, L"\x6253\x5F00 Bar");
         AppendMenuW(hMenu, MF_STRING, IDM_AGENT, L"\x6253\x5F00 Agent \x7EC8\x7AEF");
         {
             extern bool IsAgentBusy();
@@ -320,12 +665,8 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         int cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0, hWnd, NULL);
         DestroyMenu(hMenu);
         if (cmd == IDM_EXIT) {
-            PostQuitMessage(0);
-            CreateThread(NULL, 0, [](LPVOID) -> DWORD {
-                Sleep(3000);
-                ExitProcess(0);
-                return 0;
-            }, NULL, 0, NULL);
+            extern void FastCommitBallExit();
+            FastCommitBallExit();
         } else if (cmd == IDM_OPEN_DIR) {
             char dataPath[MAX_PATH];
             GetModuleFileNameA(NULL, dataPath, MAX_PATH);
@@ -346,6 +687,9 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                     ShellExecuteA(NULL, NULL, livePath, NULL, NULL, SW_SHOWNORMAL);
                 }
             }
+        } else if (cmd == IDM_BAR_SHOW) {
+            extern void SendShowLockedToBar();
+            SendShowLockedToBar();
         } else if (cmd == IDM_AGENT) {
             extern void SendShowToAgent();
             SendShowToAgent();
@@ -393,7 +737,10 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
         case IDM_EXIT:
-            DestroyWindow(g_hWnd);
+            {
+                extern void FastCommitBallExit();
+                FastCommitBallExit();
+            }
             break;
         }
         return 0;
@@ -402,12 +749,19 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         PostQuitMessage(0);
         return 0;
 
-    // WM_PIPE_MSG: wParam=data ptr, lParam=0→keyboard msg(std::wstring*), lParam=1→direct-input(std::string*)
+    // WM_PIPE_MSG: lParam=0 keyboard msg(std::wstring*), 1 direct-input(std::string*), 2 bubble(std::wstring*), 3 refresh ball state
     case WM_PIPE_MSG: {
         if (lParam == 1) {
             std::string* pText = (std::string*)wParam;
             InsertDirectInput(*pText);
             delete pText;
+        } else if (lParam == 2) {
+            std::wstring* pText = (std::wstring*)wParam;
+            ShowBallBubble(pText->c_str());
+            delete pText;
+        } else if (lParam == 3) {
+            extern void OnStateChanged();
+            OnStateChanged();
         } else {
             std::wstring* pMsg = (std::wstring*)wParam;
             ProcessMessage(*pMsg);
@@ -429,6 +783,14 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             CheckAutoAnalyse();
         } else if (wParam == IDT_COLOR_ANIM) {
             AnimateColor();
+        } else if (wParam == IDT_BLINK) {
+            ToggleBlink();
+        } else if (wParam == IDT_BUBBLE_HIDE) {
+            KillTimer(g_hWnd, IDT_BUBBLE_HIDE);
+            if (g_bubbleWnd) {
+                DestroyWindow(g_bubbleWnd);
+                g_bubbleWnd = nullptr;
+            }
         }
         return 0;
     }
