@@ -10,10 +10,12 @@
         ResizeMode="NoResize"
         Focusable="True"
         KeyDown="Window_KeyDown"
-        Loaded="Window_Loaded">
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
     <Grid>
         <Grid.RowDefinitions>
-                <RowDefinition Height="32"/>
+            <RowDefinition Height="32"/>
+            <RowDefinition Height="28"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="36"/>
         </Grid.RowDefinitions>
@@ -33,7 +35,24 @@
                     ToolTip="隐藏到后台继续运行"/>
         </Grid>
 
-        <RichTextBox Grid.Row="1" x:Name="OutputBox" IsReadOnly="True"
+        <Grid Grid.Row="1" Background="#242734">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="32"/>
+            </Grid.ColumnDefinitions>
+            <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="TabsPanel" Orientation="Horizontal" Margin="6,3,0,0"/>
+            </ScrollViewer>
+            <Button x:Name="NewTabBtn" Grid.Column="1" Content="+"
+                    Width="24" Height="22" Margin="2,3,6,3"
+                    FontSize="14" FontFamily="Cascadia Code, Consolas"
+                    Foreground="#C8D8F8" Background="Transparent" BorderThickness="0"
+                    Click="NewTabBtn_Click" Cursor="Hand"
+                    ToolTip="新建会话"/>
+        </Grid>
+
+        <RichTextBox Grid.Row="2" x:Name="OutputBox" IsReadOnly="True"
+                     IsDocumentEnabled="True"
                      Foreground="#C8D8F8" Background="Transparent"
                      FontSize="13" FontFamily="Cascadia Code, Consolas, Courier New"
                      BorderThickness="0" 
@@ -68,7 +87,7 @@
             </RichTextBox.Resources>
         </RichTextBox>
 
-        <Grid Grid.Row="2" Background="#3D4058">
+        <Grid Grid.Row="3" Background="#3D4058">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>

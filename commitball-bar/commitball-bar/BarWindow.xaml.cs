@@ -34,6 +34,8 @@ namespace CommitBallBar
         private int _historyIndex = -1;
         private bool _suppressTextChange = false;
         private int _prefixIndex = -1;
+        private System.Windows.Threading.DispatcherTimer? _toastTimer;
+        private static readonly string StatusPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "bar-status");
 
         private static readonly (string label, string prefix)[] Prefixes = new[]
         {
@@ -46,27 +48,63 @@ namespace CommitBallBar
         {
             InitializeComponent();
             PositionWindow();
+            PreviewMouseDown += BarWindow_PreviewMouseDown;
             InputBox.LostKeyboardFocus += InputBox_LostKeyboardFocus;
+            Deactivated += (_, _) => ScheduleAutoHideCheck(180);
+            WriteStatus("hidden");
+        }
+
+        private void WriteStatus(string status)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(StatusPath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(StatusPath, status);
+            }
+            catch { }
         }
 
         private void InputBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
+            if (IsDirectCommandMode())
+                ResetPrefix();
             if (!_locked && Visibility == Visibility.Visible)
+                ScheduleAutoHideCheck(150);
+        }
+
+        private void BarWindow_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (IsInputArea(e.OriginalSource as DependencyObject))
+                return;
+
+            Keyboard.ClearFocus();
+        }
+
+        private bool IsInputArea(DependencyObject source)
+        {
+            while (source != null)
             {
-                var delay = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
-                delay.Tick += (s, _) =>
-                {
-                    delay.Stop();
-                    if (!_locked && Visibility == Visibility.Visible)
-                    {
-                        bool barFocus = IsKeyboardFocusWithin;
-                        bool panelFocus = _panelWindow?.IsKeyboardFocusWithin == true;
-                        if (!barFocus && !panelFocus)
-                            HideBar();
-                    }
-                };
-                delay.Start();
+                if (source == InputBox || source == PrefixTag)
+                    return true;
+                source = VisualTreeHelper.GetParent(source);
             }
+            return false;
+        }
+
+        private void ScheduleAutoHideCheck(int delayMs)
+        {
+            var delay = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(delayMs) };
+            delay.Tick += (s, _) =>
+            {
+                delay.Stop();
+                if (_locked || Visibility != Visibility.Visible) return;
+                bool barFocus = IsKeyboardFocusWithin || IsActive;
+                bool panelFocus = _panelWindow?.IsKeyboardFocusWithin == true || _panelWindow?.IsActive == true;
+                if (!barFocus && !panelFocus)
+                    HideBar();
+            };
+            delay.Start();
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -82,15 +120,24 @@ namespace CommitBallBar
             Top = workArea.Height * 3 / 4 - ActualHeight / 2;
         }
 
-        public void ShowBar()
+        public void ShowBar(bool locked = false)
         {
             if (!Dispatcher.CheckAccess())
             {
-                Dispatcher.Invoke(() => ShowBar());
+                Dispatcher.Invoke(() => ShowBar(locked));
                 return;
             }
 
-            if (Visibility == Visibility.Visible) return;
+            if (locked)
+                SetLocked(true);
+
+            if (Visibility == Visibility.Visible)
+            {
+                WriteStatus(_locked ? "locked" : "visible");
+                BringToFront();
+                InputBox.Focus();
+                return;
+            }
 
             InputBox.Clear();
             _historyIndex = -1;
@@ -103,6 +150,19 @@ namespace CommitBallBar
             if (_panelEnabled)
                 ShowPanel();
             BringToFront();
+            WriteStatus(_locked ? "locked" : "visible");
+        }
+
+        private void SetLocked(bool locked)
+        {
+            _locked = locked;
+            LockBtn.Content = _locked ? "🔒" : "🔓";
+            LockBtn.Foreground = _locked
+                ? (Brush)new BrushConverter().ConvertFromString("#3B82F6")
+                : (Brush)new BrushConverter().ConvertFromString("#AAAAAE");
+            HintText.Text = _locked ? "Esc 关闭 | Enter 提交并继续" : "Esc 关闭 | 键入后 Enter 提交";
+            if (Visibility == Visibility.Visible)
+                WriteStatus(_locked ? "locked" : "visible");
         }
 
         private void ShowPanel()
@@ -119,6 +179,35 @@ namespace CommitBallBar
             _panelWindow.ShowPanel();
         }
 
+        public void RefreshPanel()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(RefreshPanel);
+                return;
+            }
+            if (_panelWindow == null)
+            {
+                if (Visibility == Visibility.Visible && _panelEnabled)
+                    ShowPanel();
+                return;
+            }
+            _panelWindow.RefreshPanel();
+        }
+
+        public void ShowPanelFromTool()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(ShowPanelFromTool);
+                return;
+            }
+            _panelEnabled = true;
+            PanelBtn.Foreground = (Brush)new BrushConverter().ConvertFromString("#3B82F6");
+            ShowBar(true);
+            ShowPanel();
+        }
+
         private void HideBar()
         {
             _panelWindow?.HidePanel();
@@ -127,6 +216,7 @@ namespace CommitBallBar
             ResetPrefix();
             Visibility = Visibility.Hidden;
             Hide();
+            WriteStatus("hidden");
         }
 
         private void BringToFront()
@@ -146,6 +236,8 @@ namespace CommitBallBar
         {
             _prefixIndex = -1;
             PrefixTag.Visibility = Visibility.Collapsed;
+            CommandToast.Visibility = Visibility.Collapsed;
+            _toastTimer?.Stop();
             InputBox.Margin = new Thickness(16, 0, 0, 0);
             HintText.Margin = new Thickness(18, 0, 18, 0);
         }
@@ -226,14 +318,23 @@ namespace CommitBallBar
             if (e.Key == Key.Enter)
             {
                 e.Handled = true;
+                if (Keyboard.FocusedElement != InputBox || !InputBox.IsKeyboardFocusWithin)
+                    return;
                 var rawText = InputBox.Text.Trim();
                 if (!string.IsNullOrEmpty(rawText))
                 {
+                    AddHistory(rawText);
+                    if (IsDirectCommandMode())
+                    {
+                        if (SendAgentInstruction(rawText))
+                            ShowCommandToast("已发送给 Agent", true);
+                        else
+                            ShowCommandToast("Agent 指令发送失败", false);
+                        InputBox.Clear();
+                        InputBox.Focus();
+                        return;
+                    }
                     var text = _prefixIndex >= 0 ? Prefixes[_prefixIndex].prefix + rawText : rawText;
-                    if (_history.Count == 0 || _history[_history.Count - 1] != rawText)
-                        _history.Add(rawText);
-                    _historyIndex = -1;
-                    App.WriteLog($"History add: count={_history.Count}, text={rawText.Substring(0, Math.Min(rawText.Length, 40))}");
                     SaveNote(text);
                 }
                 if (_locked)
@@ -261,6 +362,14 @@ namespace CommitBallBar
                 _historyIndex = -1;
         }
 
+        private void AddHistory(string rawText)
+        {
+            if (_history.Count == 0 || _history[_history.Count - 1] != rawText)
+                _history.Add(rawText);
+            _historyIndex = -1;
+            App.WriteLog($"History add: count={_history.Count}, text={rawText.Substring(0, Math.Min(rawText.Length, 40))}");
+        }
+
         private void DragBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ChangedButton == MouseButton.Left)
@@ -269,12 +378,7 @@ namespace CommitBallBar
 
         private void LockBtn_Click(object sender, RoutedEventArgs e)
         {
-            _locked = !_locked;
-            LockBtn.Content = _locked ? "🔒" : "🔓";
-            LockBtn.Foreground = _locked
-                ? (Brush)new BrushConverter().ConvertFromString("#3B82F6")
-                : (Brush)new BrushConverter().ConvertFromString("#AAAAAE");
-            HintText.Text = _locked ? "Esc 关闭 | Enter 提交并继续" : "Esc 关闭 | 键入后 Enter 提交";
+            SetLocked(!_locked);
         }
 
         private void PanelBtn_Click(object sender, RoutedEventArgs e)
@@ -287,7 +391,6 @@ namespace CommitBallBar
                 ShowPanel();
             else
                 _panelWindow?.HidePanel();
-            Dispatcher.BeginInvoke(new Action(() => InputBox.Focus()));
         }
 
         private void SaveNote(string text)
@@ -298,6 +401,50 @@ namespace CommitBallBar
             var line = DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine;
             File.AppendAllText(path, line, System.Text.Encoding.UTF8);
             SendToCommitBall(text);
+        }
+
+        private void ShowCommandToast(string text, bool success)
+        {
+            CommandToastText.Text = text;
+            CommandToast.Background = (Brush)new BrushConverter().ConvertFromString(success ? "#EAF2FF" : "#FFF2E8");
+            CommandToastText.Foreground = (Brush)new BrushConverter().ConvertFromString(success ? "#2563EB" : "#C35A14");
+            CommandToast.Visibility = Visibility.Visible;
+
+            _toastTimer?.Stop();
+            _toastTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
+            _toastTimer.Tick += (_, _) =>
+            {
+                _toastTimer?.Stop();
+                CommandToast.Visibility = Visibility.Collapsed;
+            };
+            _toastTimer.Start();
+        }
+
+        private bool IsDirectCommandMode()
+        {
+            return _prefixIndex >= 0 &&
+                _prefixIndex < Prefixes.Length &&
+                Prefixes[_prefixIndex].label == "指令";
+        }
+
+        private bool SendAgentInstruction(string text)
+        {
+            try
+            {
+                using (var pipe = new System.IO.Pipes.NamedPipeClientStream(".", "CommitBall-direct", System.IO.Pipes.PipeDirection.Out))
+                {
+                    pipe.Connect(1000);
+                    var bytes = System.Text.Encoding.UTF8.GetBytes("CMD AGENT_INPUT " + text);
+                    pipe.Write(bytes, 0, bytes.Length);
+                    App.WriteLog("Sent Agent instruction via CommitBall: " + text.Substring(0, Math.Min(text.Length, 40)));
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                App.WriteLog("SendAgentInstruction failed: " + ex.Message);
+                return false;
+            }
         }
 
         private void SendToCommitBall(string text)

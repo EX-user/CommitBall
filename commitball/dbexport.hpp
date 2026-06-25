@@ -74,6 +74,16 @@ inline std::string DbToText(sqlite3* db) {
                 std::string timerTs = ts ? ts : "";
                 if (timerTs.length() >= 16) timerTs = timerTs.substr(11, 5);
                 body += "[timer] " + timerTs + "\n";
+            } else if (type && strcmp(type, "away") == 0) {
+                if (!body.empty() && body.back() != '\n') body += "\n";
+                std::string awayTs = ts ? ts : "";
+                if (awayTs.length() >= 16) awayTs = awayTs.substr(11, 5);
+                body += "[away] " + awayTs + " " + content + "\n";
+            } else if (type && strcmp(type, "back") == 0) {
+                if (!body.empty() && body.back() != '\n') body += "\n";
+                std::string backTs = ts ? ts : "";
+                if (backTs.length() >= 16) backTs = backTs.substr(11, 5);
+                body += "[back] " + backTs + " " + content + "\n";
             } else if (type && (strcmp(type, "paste") == 0 || strcmp(type, "paste-big") == 0 || strcmp(type, "paste-mega") == 0)) {
                 if (!body.empty() && body.back() != '\n') body += "\n";
                 std::string pc = content;

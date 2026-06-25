@@ -1,3 +1,4 @@
 #include <winres.h>
 
 IDI_ICON1 ICON "..\\tools\\commitball.ico"
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "commitball.manifest"

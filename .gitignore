@@ -4,6 +4,10 @@ commitball/CommitBall.exp
 commitball/CommitBall.lib
 commitball/CommitBall.pdb
 commitball/*.obj
+commitball/RCa*
+commitball/RDa*
+$null
+dist/
 
 # CommitBall runtime files
 commitball.db

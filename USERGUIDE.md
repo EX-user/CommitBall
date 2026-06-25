@@ -53,7 +53,7 @@ CommitBall 包含三个组件，启动后自动运行：
 满足以下任一条件时自动触发 Agent 分析：
 
 1. **数据库容量达到 90%**（约 460KB）且本次数据库未分析过
-2. **panel.html 超过 12 小时未更新**
+2. **panel.html 超过 4 小时未更新**
 
 触发条件：Agent 正在运行且当前不繁忙。若 Agent 繁忙，等待下次检查（每 60 秒检查一次）。
 
@@ -279,7 +279,7 @@ Agent 的 tool 调用无硬性上限。当连续调用超过 20 次时，系统�
     ├── 键入 \ccb → 弹出输入条 → 可提交快速笔记
     │
     ├── [自动] DB 达到 90% → 触发 Agent 分析
-    ├── [自动] panel.html 超过 12 小时未更新 → 触发 Agent 分析
+    ├── [自动] panel.html 超过 4 小时未更新 → 触发 Agent 分析
     ├── [手动] 右键 → 启动 Agent 分析
     │
     └── Agent 生成报告 + 面板 → panel.html → 输入条面板自动刷新
@@ -289,6 +289,6 @@ Agent 的 tool 调用无硬性上限。当连续调用超过 20 次时，系统�
 
 ## 5. 安装与卸载
 
-- 安装：运行 `CommitBall-0.1.2.0-installer.exe`，以管理员权限安装到 `C:\Program Files\CommitBall`
+- 安装：运行 `CommitBall-0.1.3.0-installer.exe`，以管理员权限安装到 `C:\Program Files\CommitBall`
 - 卸载：运行 `C:\Program Files\CommitBall\uninstall.exe`
 - 数据保留：卸载不会删除 `data/` 目录下的用户数据

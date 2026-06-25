@@ -44,6 +44,9 @@ inline const char* ClickTypeName(CONTROLTYPEID id) {
 }
 
 inline LRESULT CALLBACK LLMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode == HC_ACTION) {
+        MarkUserInputActivity();
+    }
     if (nCode == HC_ACTION && wParam == WM_LBUTTONUP && g_state == RECORDING && g_pUIAutomation) {
         MSLLHOOKSTRUCT* p = (MSLLHOOKSTRUCT*)lParam;
         POINT pt = p->pt;

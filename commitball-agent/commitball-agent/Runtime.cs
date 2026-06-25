@@ -18,7 +18,9 @@ namespace CommitBallAgent
             Action<string> onToolError,
             Action<string?> onSubtaskProgress,
             CancellationToken ct,
-            bool isSubtask = false)
+            bool isSubtask = false,
+            Action<int, int>? onUsage = null,
+            Func<string>? onRepairArchives = null)
         {
             session.Messages.Add(new Message { Role = "user", Content = userInput });
 
@@ -50,6 +52,7 @@ namespace CommitBallAgent
 
                 var toolNames = resp.ToolCalls.Count > 0 ? $" [{string.Join(", ", resp.ToolCalls.ConvertAll(tc => tc.Name))}]" : "";
                 AgentWindow.Log($"[{session.Id}] LLM #{i}: {resp.ElapsedMs}ms, tokens={resp.PromptTokens}+{resp.CompletionTokens}, toolCalls={resp.ToolCalls.Count}{toolNames}, msgs={session.Messages.Count}");
+                onUsage?.Invoke(resp.PromptTokens, resp.CompletionTokens);
 
                 if (resp.ToolCalls.Count > 0)
                 {
@@ -143,7 +146,10 @@ namespace CommitBallAgent
                         try
                         {
                             var args = JsonNode.Parse(argsStr)?.AsObject() ?? new JsonObject();
-                            result = Tools.Execute(tc.Name, args);
+                            if (tc.Name == "repair_archives" && onRepairArchives != null)
+                                result = onRepairArchives();
+                            else
+                                result = Tools.Execute(tc.Name, args, session);
                             isError = result.StartsWith("Error") || result.StartsWith("File not found") ||
                                       result.StartsWith("Cannot read") || result.StartsWith("Unknown tool") ||
                                       result.StartsWith("Directory not found") ||
@@ -213,6 +219,20 @@ namespace CommitBallAgent
                     return $"write({filename}, {lines} lines, {content.Length} chars)";
                 }
                 catch { }
+            }
+            if (name == "rename_session")
+            {
+                try
+                {
+                    var args = JsonNode.Parse(argsStr)?.AsObject();
+                    var title = args?["title"]?.GetValue<string>() ?? "?";
+                    return $"rename_session({Truncate(title, 40)})";
+                }
+                catch { }
+            }
+            if (name == "set_bar_trigger" || name == "set_eye_mode" || name == "repair_archives" || name == "show_ball_bubble")
+            {
+                return $"{name}()";
             }
             return $"{name}({argsStr})";
         }

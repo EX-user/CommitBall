@@ -11,7 +11,7 @@
 ## 技术路线
 
 - **CB-Weasel Fork**：基于 Weasel（小狼毫）改名，避免与官方安装冲突。`_Respond()` 中 `get_commit()` 捕获中文 commit；`ProcessKeyEvent()` 转发英文字符，均通过 Named Pipe 发送
-- **CommitBall.exe**：Pipe Server 接收 commit/keystroke + WH_KEYBOARD_LL 捕获特殊键 + 三击检测 + SQLite 存储 + 定时输出 txt
+- **CommitBall.exe**：Pipe Server 接收 commit/keystroke + WH_KEYBOARD_LL 捕获特殊键 + 四击 CapsLock 检测 + SQLite 存储 + 定时输出 txt
 - **构建**：C++ / MSVC x64，SQLite 直接编译（公有领域）
 
 ## 约束
@@ -54,9 +54,9 @@ cd commit-ball
 ### 使用
 
 1. 启动 CommitBall.exe
-2. 三击 `[` 激活录音
+2. 快速按 4 次 `CapsLock` 激活录音
 3. 打字（中文/英文/特殊键）
-4. 三击 `[` 停止录音
+4. 快速按 4 次 `CapsLock` 停止录音
 5. 每 30 秒自动输出到 `live.txt`
 
 ## 架构
@@ -68,7 +68,7 @@ WeaselServer.exe
             └─ Named Pipe (\\.\pipe\CommitBall)
                  └─ CommitBall.exe
                       ├─ Named Pipe Server (接收 commit + 英文字符)
-                      ├─ WH_KEYBOARD_LL (特殊键 + 三击检测)
+                      ├─ WH_KEYBOARD_LL (特殊键 + 四击 CapsLock 检测)
                       ├─ SQLite (数据存储, record_id 分 session)
                        └─ live.txt (定时输出, DbToText)
 ```

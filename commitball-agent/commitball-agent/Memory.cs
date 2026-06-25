@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CommitBallAgent
 {
@@ -62,6 +66,9 @@ namespace CommitBallAgent
         public DateTime UpdatedAt { get; set; } = DateTime.Now;
         public List<Message> Messages { get; set; } = new();
         public string? ParentSessionId { get; set; }
+        public string? Title { get; set; }
+        public string? TitleSource { get; set; }
+        public DateTime? NamedAt { get; set; }
     }
 
     static class Memory
@@ -110,10 +117,39 @@ namespace CommitBallAgent
             File.WriteAllText(GetPath(session.Id, isSubtask), json);
         }
 
-        public static List<(string Id, DateTime UpdatedAt, int MsgCount)> ListSessions()
+        public static Task EnsureNamedAsync(Session session)
+        {
+            if (session == null) return Task.CompletedTask;
+            if (!string.IsNullOrWhiteSpace(session.ParentSessionId)) return Task.CompletedTask;
+            if (session.Messages.Count == 0) return Task.CompletedTask;
+            if (!string.IsNullOrWhiteSpace(session.Title)) return Task.CompletedTask;
+
+            RenameSession(session, BuildFallbackTitle(session), "fallback");
+            return Task.CompletedTask;
+        }
+
+        public static string RenameSession(Session session, string title, string source = "agent")
+        {
+            if (session == null) return "Error: session is required";
+            if (!string.IsNullOrWhiteSpace(session.ParentSessionId))
+                return "Error: subtask sessions cannot be renamed";
+
+            var clean = CleanTitle(title);
+            if (string.IsNullOrWhiteSpace(clean))
+                return "Error: title is required";
+
+            session.Title = MakeUniqueTitle(clean, session.Id);
+            session.TitleSource = source;
+            session.NamedAt = DateTime.Now;
+            Save(session);
+            AgentWindow.Log($"Session renamed: {session.Id} title={session.Title} source={source}");
+            return $"Session renamed: {session.Title}";
+        }
+
+        public static List<(string Id, DateTime UpdatedAt, int MsgCount, string Title)> ListSessions()
         {
             Directory.CreateDirectory(Config.MemoryDir);
-            var result = new List<(string, DateTime, int)>();
+            var result = new List<(string, DateTime, int, string)>();
             foreach (var file in Directory.GetFiles(Config.MemoryDir, "*.json"))
             {
                 try
@@ -121,12 +157,65 @@ namespace CommitBallAgent
                     var json = File.ReadAllText(file);
                     var s = JsonSerializer.Deserialize<Session>(json, JsonOpts);
                     if (s != null && string.IsNullOrEmpty(s.ParentSessionId))
-                        result.Add((s.Id, s.UpdatedAt, s.Messages.Count));
+                        result.Add((s.Id, s.UpdatedAt, s.Messages.Count, s.Title ?? ""));
                 }
                 catch { }
             }
             result.Sort((a, b) => b.Item2.CompareTo(a.Item2));
             return result;
+        }
+
+        private static string BuildFallbackTitle(Session session)
+        {
+            foreach (var msg in session.Messages)
+            {
+                if (msg.Role != "user" && msg.Role != "assistant") continue;
+                var text = CleanTitle(msg.Content);
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text.Length <= 20 ? text : text[..20];
+            }
+            return $"会话 {session.Id}";
+        }
+
+        private static string CleanTitle(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+            var title = NormalizeWhitespace(text);
+            title = title.Trim(' ', '\t', '\r', '\n', '"', '\'', '“', '”', '‘', '’', '`', '#', '-', '*');
+            title = Regex.Replace(title, @"^(标题|会话标题)\s*[:：]\s*", "", RegexOptions.IgnoreCase);
+            if (title.Contains('\n')) title = title.Split('\n')[0];
+            if (title.Length > 40) title = title[..40];
+            return title.Trim();
+        }
+
+        private static string NormalizeWhitespace(string text)
+        {
+            return Regex.Replace(text, @"\s+", " ").Trim();
+        }
+
+        private static string MakeUniqueTitle(string title, string sessionId)
+        {
+            var clean = string.IsNullOrWhiteSpace(title) ? $"会话 {sessionId}" : title.Trim();
+            var exists = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Directory.CreateDirectory(Config.MemoryDir);
+            foreach (var file in Directory.GetFiles(Config.MemoryDir, "*.json"))
+            {
+                try
+                {
+                    var s = JsonSerializer.Deserialize<Session>(File.ReadAllText(file), JsonOpts);
+                    if (s == null || s.Id == sessionId || string.IsNullOrWhiteSpace(s.Title)) continue;
+                    exists.Add(s.Title);
+                }
+                catch { }
+            }
+            if (!exists.Contains(clean)) return clean;
+            var rnd = new Random();
+            string candidate;
+            do
+            {
+                candidate = $"{clean}-{rnd.Next(1000, 10000)}";
+            } while (exists.Contains(candidate));
+            return candidate;
         }
     }
 }

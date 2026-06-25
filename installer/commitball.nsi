@@ -11,7 +11,7 @@
   !define WEASEL_VERSION "0.17.4"
 !endif
 !ifndef COMMITBALL_VERSION
-  !define COMMITBALL_VERSION "0.1.2"
+  !define COMMITBALL_VERSION "0.2.0"
 !endif
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
@@ -23,6 +23,7 @@ InstallDir "$PROGRAMFILES64\CommitBall"
 InstallDirRegKey HKLM "SOFTWARE\Rime\CBWeasel" "InstallDir"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
+AutoCloseWindow true
 
 ; MUI settings
 !define MUI_ICON "..\tools\commitball.ico"
@@ -35,8 +36,6 @@ SetCompressor /SOLID lzma
   !insertmacro MUI_PAGE_COMPONENTS
   !insertmacro MUI_PAGE_INSTFILES
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\CommitBall.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "启动 CommitBall"
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM

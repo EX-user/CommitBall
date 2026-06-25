@@ -45,7 +45,7 @@ powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
 3. 编译 CommitBall.exe
 4. 调用 NSIS 构建安装包
 
-产物：`installer/archives/CommitBall-0.1.2.0-installer.exe`
+产物：`installer/archives/CommitBall-0.1.3.0-installer.exe`
 
 ## 安装包内容
 

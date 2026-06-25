@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows;
@@ -50,6 +51,7 @@ namespace CommitBallBar
 
             try
             {
+                StartParentWatcher(e.Args);
                 _bar = new BarWindow();
                 WriteLog("BarWindow created");
                 _pipe = new PipeServer(_bar);
@@ -61,6 +63,40 @@ namespace CommitBallBar
                 WriteLog("ERROR: " + ex);
                 throw;
             }
+        }
+
+        private void StartParentWatcher(string[] args)
+        {
+            var parentPid = ParseParentPid(args);
+            if (parentPid <= 0) return;
+
+            var watcher = new Thread(() =>
+            {
+                try
+                {
+                    using var parent = Process.GetProcessById(parentPid);
+                    WriteLog($"Parent watcher started: pid={parentPid}");
+                    parent.WaitForExit();
+                    WriteLog("Parent exited, shutting down Bar");
+                    Dispatcher.BeginInvoke(new Action(() => Shutdown()));
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("Parent watcher failed: " + ex.Message);
+                }
+            });
+            watcher.IsBackground = true;
+            watcher.Start();
+        }
+
+        private static int ParseParentPid(string[] args)
+        {
+            for (int i = 0; i + 1 < args.Length; i++)
+            {
+                if (args[i] == "--parent-pid" && int.TryParse(args[i + 1], out var pid))
+                    return pid;
+            }
+            return 0;
         }
 
         protected override void OnExit(ExitEventArgs e)
