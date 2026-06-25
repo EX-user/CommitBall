@@ -35,6 +35,9 @@ namespace CommitBallBar
         private bool _suppressTextChange = false;
         private int _prefixIndex = -1;
         private System.Windows.Threading.DispatcherTimer? _toastTimer;
+        private string _completionBase = "";
+        private List<string> _completionMatches = new List<string>();
+        private int _completionIndex = -1;
         private static readonly string StatusPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "bar-status");
 
         private static readonly (string label, string prefix)[] Prefixes = new[]
@@ -42,6 +45,16 @@ namespace CommitBallBar
             ("代办", "[直达代办]用户明确希望注册代办事项，内容为："),
             ("配置", "[直达配置]用户正在补充事实性信息，场景信息或长期偏好，内容为："),
             ("指令", "[直达指令]用户正在输入直接指令，请确保被处理，内容为："),
+        };
+
+        private static readonly string[] BuiltInCommands = new[]
+        {
+            "/trigger ",
+            "/eye on",
+            "/eye off",
+            "/eye toggle",
+            "/archive repair",
+            "/archives repair",
         };
 
         public BarWindow()
@@ -212,6 +225,12 @@ namespace CommitBallBar
             if (e.Key == Key.Tab)
             {
                 e.Handled = true;
+                if (IsDirectCommandMode() && InputBox.Text.Length > 0)
+                {
+                    CompleteBuiltInCommand();
+                    return;
+                }
+
                 _prefixIndex++;
                 if (_prefixIndex >= Prefixes.Length)
                     ResetPrefix();
@@ -317,8 +336,93 @@ namespace CommitBallBar
         {
             HintText.Visibility = string.IsNullOrEmpty(InputBox.Text) ? Visibility.Visible : Visibility.Collapsed;
             if (_suppressTextChange) return;
+            ResetCompletion();
             if (_historyIndex >= 0)
                 _historyIndex = -1;
+        }
+
+        private void ResetCompletion()
+        {
+            _completionBase = "";
+            _completionMatches.Clear();
+            _completionIndex = -1;
+        }
+
+        private void CompleteBuiltInCommand()
+        {
+            var text = InputBox.Text;
+            var startTrimmed = text.TrimStart();
+            var leading = text.Length - startTrimmed.Length;
+            var query = startTrimmed;
+            if (string.IsNullOrWhiteSpace(query))
+                return;
+
+            if (!query.StartsWith("/"))
+            {
+                ShowCommandToast("内置指令以 / 开头", false);
+                return;
+            }
+
+            var sameBase = _completionBase == query && _completionMatches.Count > 0;
+            if (!sameBase)
+            {
+                _completionBase = query;
+                _completionMatches = FindCommandMatches(query);
+                _completionIndex = -1;
+            }
+
+            if (_completionMatches.Count == 0)
+            {
+                ShowCommandToast("没有匹配的内置指令", false);
+                App.WriteLog($"Command completion: no match for {query}");
+                return;
+            }
+
+            string completed;
+            var common = CommonPrefix(_completionMatches);
+            if (common.Length > query.Length)
+            {
+                completed = common;
+            }
+            else
+            {
+                _completionIndex = (_completionIndex + 1) % _completionMatches.Count;
+                completed = _completionMatches[_completionIndex];
+            }
+
+            _suppressTextChange = true;
+            InputBox.Text = text.Substring(0, leading) + completed;
+            _suppressTextChange = false;
+            InputBox.CaretIndex = InputBox.Text.Length;
+            App.WriteLog($"Command completion: {query} -> {completed}");
+        }
+
+        private static List<string> FindCommandMatches(string query)
+        {
+            var result = new List<string>();
+            foreach (var command in BuiltInCommands)
+            {
+                if (command.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                    result.Add(command);
+            }
+            return result;
+        }
+
+        private static string CommonPrefix(List<string> values)
+        {
+            if (values.Count == 0) return "";
+            var prefix = values[0];
+            for (int i = 1; i < values.Count; i++)
+            {
+                var value = values[i];
+                var n = Math.Min(prefix.Length, value.Length);
+                int j = 0;
+                while (j < n && char.ToLowerInvariant(prefix[j]) == char.ToLowerInvariant(value[j]))
+                    j++;
+                prefix = prefix.Substring(0, j);
+                if (prefix.Length == 0) break;
+            }
+            return prefix;
         }
 
         private void AddHistory(string rawText)
@@ -369,10 +473,20 @@ namespace CommitBallBar
                 rawText.StartsWith("/trigger ", StringComparison.OrdinalIgnoreCase);
             var isEyeCommand = rawText.Equals("/eye", StringComparison.OrdinalIgnoreCase) ||
                 rawText.StartsWith("/eye ", StringComparison.OrdinalIgnoreCase);
-            if ((isTriggerCommand || isEyeCommand) && !IsDirectCommandMode())
+            var isArchiveRepairCommand = rawText.Equals("/archive repair", StringComparison.OrdinalIgnoreCase) ||
+                rawText.Equals("/archives repair", StringComparison.OrdinalIgnoreCase);
+            if ((isTriggerCommand || isEyeCommand || isArchiveRepairCommand) && !IsDirectCommandMode())
             {
                 ShowCommandToast("先切到「指令」模式", false);
                 App.WriteLog("Command rejected: not in direct command mode");
+                return true;
+            }
+
+            if (isArchiveRepairCommand)
+            {
+                SendCommandToCommitBall("REPAIR_ARCHIVES");
+                ShowCommandToast("归档检查已开始", true);
+                App.WriteLog("Archive repair command sent");
                 return true;
             }
 
