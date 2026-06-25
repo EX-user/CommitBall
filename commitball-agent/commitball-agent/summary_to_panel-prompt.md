@@ -33,6 +33,19 @@
 默认读取 `live/live.txt` 和 `exports/` 目录下最近的导出文件进行分析。直接开始，不需要确认。
 直接在当前对话中完成分析，不要拆分子任务。
 
+## agent-out 输出目录规范
+
+`write` 工具默认写入 `data/agent-out/`。除非用户明确要求兼容旧文件，不要把新文件直接写在 `agent-out` 根目录。
+调用 `write` 时优先使用 `category` 参数，例如 `category="reports"`、`category="extracts"` 或 `category="scratch"`；如果只给简单文件名，工具会自动放到对应月份目录。
+
+- 分析报告写入 `reports/YYYY-MM/YYMMDD_HHMM-report.md`
+- 希望持久化的提取内容写入 `extracts/YYYY-MM/YYMMDD_HHMM-extract.md`
+- 长期记忆主文件只维护 `memory/summary_task_exp_decay_memory.md`
+- 根目录的 `summary_task_exp_decay_memory.md` 是旧版本兼容文件，只能在 memory 子目录文件不存在时作为只读迁移来源，不要写入或覆盖它
+- 面板必须通过 `display_panel` 工具更新根目录的 `panel.html`，不要用 `write` 覆盖 `panel.html`
+- 临时拆分、统计、中间判断写入 `scratch/YYYY-MM/`
+- 根目录只保留 `panel.html`、`panel-template.html`、`summary_task_exp_decay_memory.md`、`summary_task_exp_decay_memory_template.md` 和历史兼容文件
+
 ## 第一步：分析工作日志
 
 先用 list 工具查看 `exports/` 目录，找到最近的导出文件（`commitball_*.txt`），与 `live/live.txt` 一起作为分析素材。如果 exports 中没有文件或文件过旧，仅分析 live.txt 即可。
@@ -61,44 +74,50 @@ D. **行为模式提取**
    - 提炼重复行为、切换模式、工具使用组合
    - 可给出规律性总结, 如高频跨窗口对照式阅读、文献-笔记-工具循环
 
-> 提取输入文件的最后变更时间, 把分析报告和希望持久化的内容分别写成两个文件: `agent-out/YYMMDD_HHMM-report.md` 和 `agent-out/YYMMDD_HHMM-extract.md`。注意使用write工具时路径无需包含`agent_out/`，因其为默认路径。
+> 提取输入文件的最后变更时间, 把分析报告和希望持久化的内容分别写成两个文件: `reports/YYYY-MM/YYMMDD_HHMM-report.md` 和 `extracts/YYYY-MM/YYMMDD_HHMM-extract.md`。注意使用 write 工具时路径无需包含 `agent-out/`，因其为默认路径。
 
 > 对于所有希望持久化的内容, 区分其属于"代办", "疑问", "评论"和"陈述"中的哪一种。如果是评论, 需要仔细地确认评论对象。如果无法区分, 简单地分类为"其他"。extract文件中根据不同种类划分段落。
 
 > `data/notes`下储存了当日的直达输入，即`[direct] text`，你需要逐条浏览，并分辨：
 > - 一些输入属于代办，你必须在panel和长期记忆文档中体现这一点。
-> - 一些输入是用户直接提供的情景设定或事实信息，可能需要写入长期记忆中，即`summary_task_exp_decay_memory.md`文件中。
+> - 一些输入是用户直接提供的情景设定或事实信息，可能需要写入长期记忆中，即 `agent-out/memory/summary_task_exp_decay_memory.md` 文件中。
 > - 一些输入是用户对当前会话的直接指示，例如 "取消xxx代办" 或 "在panel中提醒我xxx"
 > - 务必区分对"你"的指示和用户为自己记录代办事项
 
 ## 第二步：指数归纳 — 长期记忆维护
 
-检查 `agent-out/summary_task_exp_decay_memory.md` 是否存在，及其文件大小，然后：
+长期记忆只维护 `agent-out/memory/summary_task_exp_decay_memory.md`。
+
+维护长期记忆时，可以先用 list 工具查看 `exports/YYYY-MM/` 下最近的 `*.meta.json`，参考其中的 `title`、`work_tags`、`summary`、`clusters` 等归档元数据，辅助判断近期工作主题和工作维度；不要修改这些 meta 文件。
+
+检查 `agent-out/memory/summary_task_exp_decay_memory.md` 是否存在，及其文件大小，然后：
 
 **情况 A：文件不存在（首次归纳）**
-- 读取 `agent-out/` 下所有 `YYMMDD_HHMM-report.md` 和 `YYMMDD_HHMM-extract.md` 文件
-- 提取所有报告中的关键信息，结合刚刚总结的内容，参考`summary_task_exp_decay_memory_template.md`，生成 `summary_task_exp_decay_memory.md`
+- 如果 `agent-out/summary_task_exp_decay_memory.md` 存在，可以读取它作为旧版只读迁移来源，但不要写回根目录。
+- 读取 `agent-out/reports/` 和 `agent-out/extracts/` 下所有报告/提取文件；同时兼容读取 `agent-out/` 根目录下历史遗留的 `YYMMDD_HHMM-report.md` 和 `YYMMDD_HHMM-extract.md`
+- 提取报告中的关键信息，结合刚刚总结的内容，参考 `summary_task_exp_decay_memory_template.md`，生成 `memory/summary_task_exp_decay_memory.md`
 - 不论读入了多少内容，生成的exp_decay_memory文件不超过 200 行
 - 分两个章节：`## 轨迹`（工作轨迹、主题流变）和 `## 持久化`（代办、疑问、评论、陈述）
 - **持久化章节中必须完整保留所有 `[direct]` 消息原文及时间戳，不得省略、压缩或概括任何一条直达输入。即使内容看似不重要，也要逐条收录。**
 
 **情况 B：文件已存在（增量归纳）**
-- **禁止**读取 `agent-out/` 中的 `YYMMDD_HHMM-report.md` 和 `YYMMDD_HHMM-extract.md` 文件（已归纳过，不需要再次读取）
+- **禁止**读取 `agent-out/reports/`、`agent-out/extracts/` 以及 `agent-out/` 根目录历史遗留的旧 report/extract 文件（已归纳过，不需要再次读取）
 - 如果exp_decay_memory文件的大小不超过40KB，可跳过下一步
-- 计算exp_decay_memory文件大小的0.7倍大小具体是多大。将现有的 `summary_task_exp_decay_memory.md` 内容压缩至不超过原本字符数的 0.7 倍。保留最重要的信息，对于过时信息，丢弃细节精简为整体描述。确保压缩后不超过40KB
+- 计算exp_decay_memory文件大小的0.7倍大小具体是多大。将现有的 `memory/summary_task_exp_decay_memory.md` 内容压缩至不超过原本字符数的 0.7 倍。保留最重要的信息，对于过时信息，丢弃细节精简为整体描述。确保压缩后不超过40KB
   - **压缩时允许丢弃已过时的 `[direct]` 消息**：判断每条直达输入的时效性（如代办是否已完成、疑问是否已解决、评论是否仍相关），已失去时效性的可以删除或概括，仍然有效的必须保留原文
-- **确保`summary_task_exp_decay_memory.md`现在不超过40KB**
+- **确保 `memory/summary_task_exp_decay_memory.md` 现在不超过40KB**
 - 将刚刚在第一步中生成的 report/extract 追加到压缩后的内容中。注意，由于系统自动调用，当前的总结内容可能与长期记忆中有重叠。不要反复记录相同事项
 - 保持 `## 轨迹` 和 `## 持久化` 两个章节结构
 - 追加新内容时，**当前轮次**提取到的所有 `[direct]` 消息必须完整保留原文及时间戳，不得省略、压缩或概括。即使内容看似不重要，也要逐条收录。
+- 写入长期记忆时，调用 `write` 工具并传入 `category="memory"`、`filename="summary_task_exp_decay_memory.md"`。不要写入根目录同名文件。
 
 ## 第三步：生成面板
 
-基于 `summary_task_exp_decay_memory.md`（而非临时分析结果）生成可视化面板：
+基于 `memory/summary_task_exp_decay_memory.md`（而非临时分析结果）生成可视化面板：
 
 1. 读取 `agent-out/panel-template.html`
-2. 将exp_decay_memory和最新获取的信息填入模板
-3. 将生成的完整 HTML 写入 `agent-out/panel.html`（覆盖旧文件，不带时间戳）
+2. 将 `memory/summary_task_exp_decay_memory.md` 和最新获取的信息填入模板
+3. 调用 `display_panel` 工具写入 `agent-out/panel.html`（覆盖旧文件，不带时间戳）
 
 面板要求:
 - 必须保留模板中的所有 `<style>` 标签和 CSS 规则

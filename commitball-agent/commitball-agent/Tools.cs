@@ -31,7 +31,7 @@ namespace CommitBallAgent
         {
             var listDef = "{\"type\":\"function\",\"function\":{\"name\":\"list\",\"description\":\"List files and directories under data/. Shows name, size, and modification time. Use 'match' to filter by wildcard pattern (e.g. '*2026-06-03*').\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Subdirectory relative to data/, empty or omitted for root\"},\"match\":{\"type\":\"string\",\"description\":\"Wildcard pattern to filter filenames (e.g. '*2026-06-03*', '*.txt')\"}}}}}";
             var readDef = "{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"Read a text file under data/. Returns file content with line numbers.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\",\"description\":\"File path relative to data/\"},\"start\":{\"type\":\"integer\",\"description\":\"Starting line number (1-based), default 1\"},\"lines\":{\"type\":\"integer\",\"description\":\"Max number of lines to read, default 50\"},\"maxLen\":{\"type\":\"integer\",\"description\":\"Max total characters to return, default 4000\"}},\"required\":[\"file\"]}}}";
-            var writeDef = "{\"type\":\"function\",\"function\":{\"name\":\"write\",\"description\":\"Write content to a file under data/agent-out/. Creates the file if it does not exist.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"filename\":{\"type\":\"string\",\"description\":\"Filename to write under data/agent-out/\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write\"}},\"required\":[\"filename\",\"content\"]}}}";
+            var writeDef = "{\"type\":\"function\",\"function\":{\"name\":\"write\",\"description\":\"Write content to a text file under data/agent-out/. Prefer category plus filename. Categories create organized subdirectories: reports/YYYY-MM/, extracts/YYYY-MM/, reminders/YYYY-MM/, responses/YYYY-MM/, analysis/YYYY-MM/, scratch/YYYY-MM/, or memory/.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"filename\":{\"type\":\"string\",\"description\":\"Filename or relative path under the selected category. Must not be absolute or contain ..\"},\"category\":{\"type\":\"string\",\"enum\":[\"reports\",\"extracts\",\"reminders\",\"responses\",\"analysis\",\"scratch\",\"memory\"],\"description\":\"Optional output category. If set and filename has no directory, non-memory categories are written under category/YYYY-MM/.\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write\"}},\"required\":[\"filename\",\"content\"]}}}";
             var grepDef = "{\"type\":\"function\",\"function\":{\"name\":\"grep\",\"description\":\"Search text files under data/agent-out, data/exports, or a specified data/ subdirectory. Returns matching file, line number, and line text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Case-insensitive text or regex pattern to search for\"},\"path\":{\"type\":\"string\",\"description\":\"Optional subdirectory under data/. Defaults to agent-out and exports\"},\"maxMatches\":{\"type\":\"integer\",\"description\":\"Maximum matches to return, default 50\"}},\"required\":[\"pattern\"]}}}";
             var displayPanelDef = "{\"type\":\"function\",\"function\":{\"name\":\"display_panel\",\"description\":\"Write an HTML panel to data/agent-out/panel.html and ask CommitBall-Bar to refresh the panel.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"html\":{\"type\":\"string\",\"description\":\"Complete HTML content to display in the Bar panel\"}},\"required\":[\"html\"]}}}";
             var updateMetaDef = "{\"type\":\"function\",\"function\":{\"name\":\"update_meta\",\"description\":\"Update archive metadata for one data/exports/**/*.meta.json file. Preserves fixed session/path/time fields and updates title, work_tags, summary, and optional per-cluster summaries.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\",\"description\":\"Metadata file path relative to data/, must be under exports/ and end with .meta.json\"},\"title\":{\"type\":\"string\",\"description\":\"Short human-readable session title\"},\"work_tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"3-6 concise work-dimension tags\"},\"summary\":{\"type\":\"string\",\"description\":\"Brief session summary grounded in exported log content\"},\"cluster_summaries\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"cluster_id\":{\"type\":\"string\",\"description\":\"Cluster id from meta, e.g. cluster_01\"},\"summary\":{\"type\":\"string\",\"description\":\"What the user did in this focus cluster\"},\"inferred_intent\":{\"type\":\"string\",\"description\":\"What the user likely wanted to do, grounded in evidence\"},\"reminder\":{\"type\":\"string\",\"description\":\"A useful reminder or empty string if none\"}},\"required\":[\"cluster_id\",\"summary\"]},\"description\":\"Optional per-focus cluster summaries to merge into meta.clusters\"}},\"required\":[\"file\",\"title\",\"work_tags\",\"summary\"]}}}";
@@ -47,12 +47,15 @@ namespace CommitBallAgent
         {
             if (isSubtask)
                 return "You are a sub-task executor. Complete the given task using available tools, then provide a concise final result. " +
-                       "Available tools: list, read, write. All file operations are scoped to data/.";
+                       "Available tools: list, read, write. All file operations are scoped to data/. " +
+                       "When writing analysis output, keep data/agent-out organized: reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted notes, reminders/YYYY-MM/ for reminders, responses/YYYY-MM/ for replies, analysis/YYYY-MM/ for analysis artifacts, scratch/YYYY-MM/ for temporary working files, and memory/ for long-lived memory files.";
             return "You are CommitBall Agent, an AI assistant that can read and manage files in the data/ directory. " +
                    "Use the list tool to explore available files before reading them. " +
                    "All file operations are scoped to data/. " +
-                   "If data/agent-out/summary_task_exp_decay_memory.md exists, read it for background context on the user's recent activities. " +
-                   "If it doesn't exist, you should wait for further instructions.";
+                   "Keep data/agent-out organized: keep panel.html and panel-template.html at the root; use display_panel to update panel.html; maintain long-term memory only in memory/summary_task_exp_decay_memory.md; treat root summary_task_exp_decay_memory.md as legacy read-only compatibility data; write new reports to reports/YYYY-MM/, extracted persistent notes to extracts/YYYY-MM/, reminders to reminders/YYYY-MM/, user-facing replies to responses/YYYY-MM/, analysis artifacts to analysis/YYYY-MM/, temporary files to scratch/YYYY-MM/, and auxiliary memory files to memory/. " +
+                   "If data/agent-out/memory/summary_task_exp_decay_memory.md exists, read it for background context on the user's recent activities. " +
+                   "If it doesn't exist but data/agent-out/summary_task_exp_decay_memory.md exists, you may read the root file once as legacy context and then write any updated memory to memory/summary_task_exp_decay_memory.md. " +
+                   "If neither exists, you should wait for further instructions.";
         }
 
         public static bool IsSubtask(string toolName) => toolName == "subtask";
@@ -171,33 +174,137 @@ namespace CommitBallAgent
         private static string ExecuteWrite(JsonObject args)
         {
             var filename = args["filename"]?.GetValue<string>() ?? "";
+            var category = args["category"]?.GetValue<string>() ?? "";
             var content = args["content"]?.GetValue<string>() ?? "";
             if (string.IsNullOrWhiteSpace(filename))
                 return "Error: 'filename' parameter is required";
             if (string.IsNullOrEmpty(content))
                 return "Error: 'content' parameter is required";
 
-            if (filename.Contains("..") || filename.Contains('/') || filename.Contains('\\'))
-                return "Error: filename must be a simple name without path separators";
-
-            var invalidChars = Path.GetInvalidFileNameChars();
-            var badChar = filename.FirstOrDefault(c => invalidChars.Contains(c) || c == ':');
-            if (badChar != '\0')
-                return $"Error: filename contains invalid character '{badChar}'. Use only letters, digits, hyphens, underscores and dots.";
-
             var outDir = Path.Combine(BaseDir, "agent-out");
             Directory.CreateDirectory(outDir);
-            var full = Path.Combine(outDir, filename);
+            if (!TryBuildAgentOutWriteName(filename, category, out var writeName, out var buildError))
+                return buildError;
+            if (!TryResolveAgentOutWritePath(writeName, outDir, out var normalized, out var full, out var error))
+                return error;
 
             try
             {
+                var dir = Path.GetDirectoryName(full);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
                 File.WriteAllText(full, content);
-                return $"Written {content.Length} chars to agent-out/{filename}";
+                return $"Written {content.Length} chars to agent-out/{normalized}";
             }
             catch (Exception ex)
             {
                 return $"Error writing file: {ex.Message}";
             }
+        }
+
+        private static bool TryBuildAgentOutWriteName(string filename, string category, out string writeName, out string error)
+        {
+            writeName = filename.Replace('\\', '/').Trim().TrimStart('/');
+            error = "";
+            var normalizedCategory = NormalizeAgentOutCategory(category);
+            if (!string.IsNullOrWhiteSpace(category) && normalizedCategory.Length == 0)
+            {
+                error = "Error: category must be one of reports, extracts, reminders, responses, analysis, scratch, or memory";
+                return false;
+            }
+
+            if (normalizedCategory.Length == 0)
+                return true;
+
+            if (writeName.StartsWith(normalizedCategory + "/", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (writeName.Contains('/'))
+            {
+                writeName = normalizedCategory + "/" + writeName;
+                return true;
+            }
+
+            writeName = normalizedCategory == "memory"
+                ? $"memory/{writeName}"
+                : $"{normalizedCategory}/{DateTime.Now:yyyy-MM}/{writeName}";
+            return true;
+        }
+
+        private static string NormalizeAgentOutCategory(string category)
+        {
+            category = (category ?? "").Trim().ToLowerInvariant();
+            return category switch
+            {
+                "report" or "reports" => "reports",
+                "extract" or "extracts" => "extracts",
+                "reminder" or "reminders" => "reminders",
+                "response" or "responses" => "responses",
+                "analysis" => "analysis",
+                "scratch" or "tmp" or "temp" => "scratch",
+                "memory" => "memory",
+                "" => "",
+                _ => ""
+            };
+        }
+
+        private static bool TryResolveAgentOutWritePath(string filename, string outDir, out string normalized, out string full, out string error)
+        {
+            normalized = filename.Replace('\\', '/').Trim().TrimStart('/');
+            full = "";
+            error = "";
+
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                error = "Error: filename must not be empty";
+                return false;
+            }
+            if (Path.IsPathRooted(filename) || normalized.Contains("..") || normalized.Contains(':'))
+            {
+                error = "Error: filename must be a relative path under agent-out and must not contain '..' or ':'";
+                return false;
+            }
+
+            var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                error = "Error: filename must not be empty";
+                return false;
+            }
+
+            var invalidChars = Path.GetInvalidFileNameChars();
+            foreach (var segment in segments)
+            {
+                if (segment == "." || segment == ".." || segment.Any(c => invalidChars.Contains(c) || c == ':'))
+                {
+                    error = $"Error: filename contains invalid path segment '{segment}'.";
+                    return false;
+                }
+            }
+
+            if (segments.Length > 1)
+            {
+                var allowedTopDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "reports", "extracts", "reminders", "responses", "analysis", "scratch", "memory"
+                };
+                if (!allowedTopDirs.Contains(segments[0]))
+                {
+                    error = "Error: subdirectory must be one of reports, extracts, reminders, responses, analysis, scratch, or memory";
+                    return false;
+                }
+            }
+
+            normalized = string.Join("/", segments);
+            var outRoot = Path.GetFullPath(outDir);
+            full = Path.GetFullPath(Path.Combine(outRoot, Path.Combine(segments)));
+            if (!full.StartsWith(outRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(full, outRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "Error: filename escapes agent-out directory";
+                return false;
+            }
+            return true;
         }
 
         private static string ExecuteGrep(JsonObject args)

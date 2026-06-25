@@ -37,7 +37,19 @@ B. **热点文件与软件** - 频繁使用的文档、网页或软件
 C. **键盘事件拣选** - 提取闪念/评论/随手笔记等希望持久化的内容
 D. **行为模式提取** - 重复行为、切换模式、工具使用组合
 
-> 提取输入文件的最后变更时间, 把分析报告和希望持久化的内容分别写成两个文件: YYMMDD_HHMM-report.md 和 YYMMDD_HHMM-extract.md。
+## agent-out 输出目录规范
+
+`write` 工具默认写入 `data/agent-out/`。除非用户明确要求兼容旧文件，不要把新文件直接写在 `agent-out` 根目录。
+调用 `write` 时优先使用 `category` 参数，例如 `category="reports"` 或 `category="extracts"`；如果只给简单文件名，工具会自动放到对应月份目录。
+
+- 分析报告写入 `reports/YYYY-MM/YYMMDD_HHMM-report.md`
+- 希望持久化的提取内容写入 `extracts/YYYY-MM/YYMMDD_HHMM-extract.md`
+- 临时拆分、统计、中间判断写入 `scratch/YYYY-MM/`
+- 面板内容只能通过 `display_panel` 更新根目录的 `panel.html`
+- 长期记忆只维护 `memory/summary_task_exp_decay_memory.md`；根目录同名文件只作为旧版本兼容文件，不要写入
+- 根目录只保留 `panel.html`、`panel-template.html` 和历史兼容文件
+
+> 提取输入文件的最后变更时间, 把分析报告和希望持久化的内容分别写成两个文件: `reports/YYYY-MM/YYMMDD_HHMM-report.md` 和 `extracts/YYYY-MM/YYMMDD_HHMM-extract.md`。
 > 对于所有希望持久化的内容, 区分其属于"代办", "疑问", "评论"和"陈述"中的哪一种。如果是评论, 需要仔细地确认评论对象。如果无法区分, 简单地分类为"其他"。extract文件中根据不同种类划分段落。
 
 默认情况下, 你将分析live/live.txt这个文件。直接开始分析，不需要确认。

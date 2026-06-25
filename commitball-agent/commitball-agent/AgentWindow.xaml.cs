@@ -247,6 +247,7 @@ namespace CommitBallAgent
                     AppendOutput("  /summary_to_panel Analyse + panel in one pass (single task)\n");
                     AppendOutput("  /name_archive     Improve one archive .meta.json title/tags/summary\n");
                     AppendOutput("  /repair_archives  Complete missing archive txt/meta/agent analysis\n");
+                    AppendOutput("  /organize_agent_out Organize agent-out files and rebuild index.json\n");
                     AppendOutput("  /vendor           Show or update API config\n");
                     AppendOutput("\n");
                     return;
@@ -324,6 +325,12 @@ namespace CommitBallAgent
             if (_inSessionMenu)
             {
                 HandleSessionMenuInput(text);
+                return;
+            }
+
+            if (text == "/organize_agent_out")
+            {
+                OrganizeAgentOut();
                 return;
             }
 
@@ -434,6 +441,189 @@ namespace CommitBallAgent
 
             AppendOutput($"> {text}\n", "#FFFFFF");
             _ = RunChatAsync(text);
+        }
+
+        private void OrganizeAgentOut()
+        {
+            var outDir = Path.Combine(Config.DataDir, "agent-out");
+            if (!Directory.Exists(outDir))
+            {
+                AppendOutput("\nNo agent-out directory found.\n\n", "#E8915A");
+                return;
+            }
+
+            var moved = 0;
+            var copied = 0;
+            var skipped = 0;
+            var errors = 0;
+            foreach (var file in Directory.GetFiles(outDir, "*", SearchOption.TopDirectoryOnly))
+            {
+                var name = Path.GetFileName(file);
+                if (ShouldKeepAgentOutRootFile(name))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                var category = ClassifyAgentOutFile(name);
+                if (string.IsNullOrWhiteSpace(category))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                var month = GetAgentOutMonth(file, name);
+                var targetDir = category == "memory"
+                    ? Path.Combine(outDir, category)
+                    : Path.Combine(outDir, category, month);
+                var target = GetUniquePath(Path.Combine(targetDir, name));
+
+                try
+                {
+                    Directory.CreateDirectory(targetDir);
+                    File.Move(file, target);
+                    moved++;
+                }
+                catch (Exception ex)
+                {
+                    errors++;
+                    Log($"OrganizeAgentOut move failed: {file} -> {target}: {ex.Message}");
+                }
+            }
+
+            var memoryRoot = Path.Combine(outDir, "summary_task_exp_decay_memory.md");
+            if (File.Exists(memoryRoot))
+            {
+                try
+                {
+                    var memoryDir = Path.Combine(outDir, "memory");
+                    Directory.CreateDirectory(memoryDir);
+                    var memoryCopy = Path.Combine(memoryDir, "summary_task_exp_decay_memory.md");
+                    if (!File.Exists(memoryCopy) || File.GetLastWriteTime(memoryRoot) > File.GetLastWriteTime(memoryCopy))
+                    {
+                        File.Copy(memoryRoot, memoryCopy, true);
+                        copied++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors++;
+                    Log($"OrganizeAgentOut memory copy failed: {ex.Message}");
+                }
+            }
+
+            try
+            {
+                var indexed = WriteAgentOutIndex(outDir);
+                AppendOutput($"\nagent-out organized. moved={moved}, copied={copied}, skipped={skipped}, indexed={indexed}, errors={errors}\n\n", errors == 0 ? "#6ECF6E" : "#E8915A");
+            }
+            catch (Exception ex)
+            {
+                Log($"OrganizeAgentOut index failed: {ex.Message}");
+                AppendOutput($"\nagent-out organized but index failed: {ex.Message}\n\n", "#E8915A");
+            }
+        }
+
+        private static bool ShouldKeepAgentOutRootFile(string name)
+        {
+            return name.Equals("panel.html", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("panel-template.html", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("summary_task_exp_decay_memory.md", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("summary_task_exp_decay_memory_template.md", StringComparison.OrdinalIgnoreCase) ||
+                   name.Equals("index.json", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ClassifyAgentOutFile(string name)
+        {
+            var lower = name.ToLowerInvariant();
+            if (lower.EndsWith("-report.md")) return "reports";
+            if (lower.EndsWith("-extract.md")) return "extracts";
+            if (lower.Contains("reminder") && lower.EndsWith(".md")) return "reminders";
+            if (lower.Contains("response") && lower.EndsWith(".md")) return "responses";
+            if (lower.Contains("summary") || lower.Contains("analysis")) return "analysis";
+            if (lower.EndsWith(".md") || lower.EndsWith(".txt") || lower.EndsWith(".json") || lower.EndsWith(".py")) return "scratch";
+            return "";
+        }
+
+        private static string GetAgentOutMonth(string file, string name)
+        {
+            var match = Regex.Match(name, @"20\d{2}[-_](0[1-9]|1[0-2])");
+            if (match.Success)
+                return match.Value.Replace('_', '-');
+            return File.GetLastWriteTime(file).ToString("yyyy-MM");
+        }
+
+        private static string GetUniquePath(string target)
+        {
+            if (!File.Exists(target)) return target;
+            var dir = Path.GetDirectoryName(target) ?? "";
+            var stem = Path.GetFileNameWithoutExtension(target);
+            var ext = Path.GetExtension(target);
+            for (int i = 1; i < 1000; i++)
+            {
+                var candidate = Path.Combine(dir, $"{stem}-{i:000}{ext}");
+                if (!File.Exists(candidate)) return candidate;
+            }
+            return Path.Combine(dir, $"{stem}-{Guid.NewGuid().ToString("N")[..6]}{ext}");
+        }
+
+        private static int WriteAgentOutIndex(string outDir)
+        {
+            var files = new List<object>();
+            foreach (var file in Directory.GetFiles(outDir, "*", SearchOption.AllDirectories).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                var info = new FileInfo(file);
+                var rel = Path.GetRelativePath(outDir, file).Replace('\\', '/');
+                var first = rel.Contains('/') ? rel[..rel.IndexOf('/')] : "";
+                var category = IsKnownAgentOutCategory(first) ? first : "root";
+                files.Add(new
+                {
+                    path = rel,
+                    category,
+                    role = GetAgentOutRole(rel, category),
+                    size = info.Length,
+                    modified_at = info.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+                });
+            }
+
+            var index = new
+            {
+                version = 1,
+                generated_at = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                root_keep_files = new[]
+                {
+                    "panel.html",
+                    "panel-template.html",
+                    "summary_task_exp_decay_memory.md",
+                    "summary_task_exp_decay_memory_template.md"
+                },
+                files
+            };
+            var opts = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(Path.Combine(outDir, "index.json"), JsonSerializer.Serialize(index, opts));
+            return files.Count;
+        }
+
+        private static bool IsKnownAgentOutCategory(string category)
+        {
+            return category.Equals("reports", StringComparison.OrdinalIgnoreCase) ||
+                   category.Equals("extracts", StringComparison.OrdinalIgnoreCase) ||
+                   category.Equals("reminders", StringComparison.OrdinalIgnoreCase) ||
+                   category.Equals("responses", StringComparison.OrdinalIgnoreCase) ||
+                   category.Equals("analysis", StringComparison.OrdinalIgnoreCase) ||
+                   category.Equals("scratch", StringComparison.OrdinalIgnoreCase) ||
+                   category.Equals("memory", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetAgentOutRole(string rel, string category)
+        {
+            var name = Path.GetFileName(rel).ToLowerInvariant();
+            if (name == "panel.html") return "bar-panel";
+            if (name == "panel-template.html") return "bar-panel-template";
+            if (name == "summary_task_exp_decay_memory.md") return category == "memory" ? "memory-copy" : "memory-root";
+            if (name == "summary_task_exp_decay_memory_template.md") return "memory-template";
+            if (name == "index.json") return "agent-out-index";
+            return category;
         }
 
         private void RepairArchiveAnalysis()
