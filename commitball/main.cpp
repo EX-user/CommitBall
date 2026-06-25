@@ -313,24 +313,24 @@ std::wstring GetAgentStatusText() {
     return L"Agent: \x7a7a\x95f2";
 }
 
-void SendInvokeToAgent(const char* json) {
+bool SendInvokeToAgent(const char* json) {
     if (!IsAgentRunning()) {
         Log("SendInvokeToAgent: agent not running");
-        return;
+        return false;
     }
     char buf[64] = {};
     FILE* f = fopen("data/agent-status", "r");
     if (f) { fgets(buf, sizeof(buf), f); fclose(f); }
     if (std::string(buf).find("busy") != std::string::npos) {
         Log("SendInvokeToAgent: agent busy, skipping");
-        return;
+        return false;
     }
     HANDLE hPipe = CreateFileW(
         L"\\\\.\\pipe\\CommitBall-Agent",
         GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if (hPipe == INVALID_HANDLE_VALUE) {
         Log("SendInvokeToAgent: pipe connect failed (err=%d)", GetLastError());
-        return;
+        return false;
     }
     std::string msg = "INVOKE ";
     msg += json;
@@ -339,6 +339,7 @@ void SendInvokeToAgent(const char* json) {
     WriteFile(hPipe, msg.c_str(), (DWORD)msg.size(), &written, NULL);
     CloseHandle(hPipe);
     Log("SendInvokeToAgent: sent %d bytes", (int)msg.size());
+    return true;
 }
 
 void InvokeAgentAnalyse() {
@@ -356,6 +357,45 @@ void InvokeAgentAnalyse() {
     json += "\",\"/summary_to_panel\"]";
     Log("InvokeAgentAnalyse: %s", json.c_str());
     SendInvokeToAgent(json.c_str());
+}
+
+static std::string DataRelativePath(const std::string& path) {
+    std::string p = path;
+    std::replace(p.begin(), p.end(), '\\', '/');
+    const std::string prefix = "data/";
+    if (p.rfind(prefix, 0) == 0)
+        return p.substr(prefix.size());
+    return p;
+}
+
+void InvokeAgentNameArchive(const char* txtPath, const char* metaPath) {
+    if (!txtPath || !metaPath) return;
+    std::string txtRel = DataRelativePath(txtPath);
+    std::string metaRel = DataRelativePath(metaPath);
+    std::string command = "/name_archive ";
+    command += txtRel;
+    command += " ";
+    command += metaRel;
+
+    std::string json = "[\"/new\",\"";
+    json += JsonEscape(command);
+    json += "\"]";
+    Log("InvokeAgentNameArchive: %s", json.c_str());
+    SendInvokeToAgent(json.c_str());
+}
+
+void InvokeAgentRepairArchives() {
+    std::string json = "[\"/repair_archives\"]";
+    Log("InvokeAgentRepairArchives: %s", json.c_str());
+    if (!EnsureAgentRunning()) {
+        Log("InvokeAgentRepairArchives: agent launch failed");
+        return;
+    }
+    for (int i = 0; i < 10; ++i) {
+        if (SendInvokeToAgent(json.c_str())) return;
+        Sleep(300);
+    }
+    Log("InvokeAgentRepairArchives: failed after retries");
 }
 
 DWORD g_lastAutoCheckTime = 0;

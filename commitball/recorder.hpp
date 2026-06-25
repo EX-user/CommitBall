@@ -450,13 +450,237 @@ inline std::string JsonEscape(const std::string& s) {
     return out;
 }
 
+inline std::string TrimCopy(const std::string& s) {
+    size_t start = 0;
+    while (start < s.size() && (unsigned char)s[start] <= 32) start++;
+    size_t end = s.size();
+    while (end > start && (unsigned char)s[end - 1] <= 32) end--;
+    return s.substr(start, end - start);
+}
+
+inline std::string Shorten(const std::string& s, size_t maxLen) {
+    if (s.size() <= maxLen) return s;
+    return s.substr(0, maxLen);
+}
+
+inline std::string FocusProcessName(const std::string& focus) {
+    size_t bar = focus.rfind('|');
+    std::string proc = (bar != std::string::npos && bar + 1 < focus.size()) ? focus.substr(bar + 1) : focus;
+    return TrimCopy(proc);
+}
+
+inline std::string FocusWindowTitle(const std::string& focus) {
+    size_t bar = focus.rfind('|');
+    std::string title = (bar != std::string::npos) ? focus.substr(0, bar) : focus;
+    return TrimCopy(title);
+}
+
+inline void AddUniqueLimited(std::vector<std::string>& items, const std::string& value, size_t maxItems, size_t maxLen) {
+    std::string clean = Shorten(TrimCopy(value), maxLen);
+    if (clean.empty()) return;
+    if (std::find(items.begin(), items.end(), clean) != items.end()) return;
+    if (items.size() < maxItems) items.push_back(clean);
+}
+
+inline bool FileExistsA(const std::string& path) {
+    DWORD attrs = GetFileAttributesA(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+inline bool DirExistsA(const std::string& path) {
+    DWORD attrs = GetFileAttributesA(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+inline bool DirHasFilesA(const std::string& path) {
+    WIN32_FIND_DATAA fd;
+    std::string pattern = path + "\\*";
+    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    bool hasFiles = false;
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            hasFiles = true;
+            break;
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return hasFiles;
+}
+
+inline void DeleteFilesInDirA(const std::string& path) {
+    WIN32_FIND_DATAA fd;
+    std::string pattern = path + "\\*";
+    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        std::string file = path + "\\" + fd.cFileName;
+        DeleteFileA(file.c_str());
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+}
+
+inline bool TextFileContainsA(const std::string& path, const char* needle) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    bool found = false;
+    char buf[4096];
+    std::string tail;
+    while (!found) {
+        size_t n = fread(buf, 1, sizeof(buf), f);
+        if (n == 0) break;
+        std::string chunk = tail + std::string(buf, n);
+        if (chunk.find(needle) != std::string::npos) found = true;
+        tail = chunk.size() > 256 ? chunk.substr(chunk.size() - 256) : chunk;
+    }
+    fclose(f);
+    return found;
+}
+
+inline std::string SafeFileStem(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        unsigned char uc = (unsigned char)c;
+        if ((uc >= 'a' && uc <= 'z') || (uc >= 'A' && uc <= 'Z') || (uc >= '0' && uc <= '9')) out += c;
+        else if (c == '-' || c == '_') out += c;
+        else if (out.empty() || out.back() != '_') out += '_';
+        if (out.size() >= 40) break;
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out.empty() ? "focus" : out;
+}
+
+inline std::string ArchiveDataRelativePath(const std::string& path) {
+    std::string rel = path;
+    for (char& c : rel) if (c == '\\') c = '/';
+    const std::string prefix = "data/";
+    if (rel.rfind(prefix, 0) == 0) rel = rel.substr(prefix.size());
+    return rel;
+}
+
+struct ArchiveClusterInfo {
+    int id = 0;
+    std::string key;
+    std::string window;
+    std::string process;
+    std::string path;
+    std::string relPath;
+    std::vector<std::string> windowSamples;
+    std::vector<std::string> commitSamples;
+    int eventCount = 0;
+    int directInputCount = 0;
+};
+
+inline std::string ClusterRuleSummary(const ArchiveClusterInfo& cluster) {
+    std::string summary = "Process: ";
+    summary += cluster.process.empty() ? "(unknown)" : cluster.process;
+    summary += ", events=" + std::to_string(cluster.eventCount);
+    if (!cluster.windowSamples.empty()) {
+        summary += ", windows: ";
+        for (size_t i = 0; i < cluster.windowSamples.size(); ++i) {
+            if (i) summary += " / ";
+            summary += cluster.windowSamples[i];
+        }
+    }
+    if (!cluster.commitSamples.empty()) {
+        summary += ", commit notes: ";
+        for (size_t i = 0; i < cluster.commitSamples.size(); ++i) {
+            if (i) summary += " / ";
+            summary += cluster.commitSamples[i];
+        }
+    }
+    return Shorten(summary, 500);
+}
+
+inline void WriteArchiveClusters(sqlite3* db, const std::string& clusterDir, std::vector<ArchiveClusterInfo>& clusters) {
+    if (!db) return;
+    EnsureDir(clusterDir.c_str());
+    DeleteFilesInDirA(clusterDir);
+
+    std::map<std::string, size_t> clusterIndex;
+    std::string currentFocus = "unknown|unknown";
+
+    auto ensureCluster = [&](const std::string& focus) -> ArchiveClusterInfo& {
+        std::string process = FocusProcessName(focus);
+        if (process.empty()) process = "unknown";
+        std::string key = process;
+        auto it = clusterIndex.find(key);
+        if (it != clusterIndex.end()) return clusters[it->second];
+
+        ArchiveClusterInfo info;
+        info.id = (int)clusters.size() + 1;
+        info.key = key;
+        info.window = FocusWindowTitle(focus);
+        info.process = process;
+        AddUniqueLimited(info.windowSamples, info.window, 5, 100);
+        std::string stem = SafeFileStem(info.process.empty() ? info.window : info.process);
+        char filename[128];
+        snprintf(filename, sizeof(filename), "cluster_%02d_%s.txt", info.id, stem.c_str());
+        info.path = clusterDir + "\\" + filename;
+        info.relPath = ArchiveDataRelativePath(info.path);
+        clusters.push_back(info);
+        clusterIndex[key] = clusters.size() - 1;
+        return clusters.back();
+    };
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT ts, type, content FROM log ORDER BY id", -1, &stmt, nullptr) != SQLITE_OK)
+        return;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* ts = (const char*)sqlite3_column_text(stmt, 0);
+        const char* type = (const char*)sqlite3_column_text(stmt, 1);
+        const char* content = (const char*)sqlite3_column_text(stmt, 2);
+        std::string typeStr = type ? type : "";
+        std::string contentStr = content ? content : "";
+        if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+            currentFocus = contentStr;
+        }
+
+        ArchiveClusterInfo& cluster = ensureCluster(currentFocus);
+        if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+            std::string window = FocusWindowTitle(contentStr);
+            AddUniqueLimited(cluster.windowSamples, window, 5, 100);
+            if (cluster.window.empty()) cluster.window = window;
+        }
+        cluster.eventCount++;
+        if (type && strcmp(type, "direct-input") == 0)
+            cluster.directInputCount++;
+        if (type && strcmp(type, "commit") == 0 && !contentStr.empty())
+            AddUniqueLimited(cluster.commitSamples, contentStr, 5, 180);
+
+        FILE* f = fopen(cluster.path.c_str(), "a");
+        if (f) {
+            fprintf(f, "[%s] [%s] %s\n", ts ? ts : "", type ? type : "", content ? content : "");
+            fclose(f);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    std::sort(clusters.begin(), clusters.end(), [](const auto& a, const auto& b) {
+        return a.eventCount > b.eventCount;
+    });
+}
+
 inline void GenerateSessionMetadata(const std::string& sessionId, const std::string& dbPath, const std::string& txtPath, const std::string& metaPath) {
     sqlite3* db = nullptr;
     if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) return;
 
     std::string startedAt, endedAt, firstDirect;
     std::map<std::string, int> focusCounts;
-    int timerCount = 0;
+    std::map<std::string, int> processCounts;
+    std::vector<std::string> commitSamples;
+    int totalRows = 0;
+    int directInputCount = 0;
+    std::string clusterDir = metaPath;
+    size_t dot = clusterDir.rfind(".meta.json");
+    if (dot != std::string::npos) clusterDir = clusterDir.substr(0, dot);
+    clusterDir += "_clusters";
+    std::vector<ArchiveClusterInfo> clusters;
+    WriteArchiveClusters(db, clusterDir, clusters);
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, "SELECT ts, type, content FROM log ORDER BY id", -1, &stmt, nullptr) == SQLITE_OK) {
@@ -464,14 +688,20 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
             const char* ts = (const char*)sqlite3_column_text(stmt, 0);
             const char* type = (const char*)sqlite3_column_text(stmt, 1);
             const char* content = (const char*)sqlite3_column_text(stmt, 2);
+            totalRows++;
             if (ts && startedAt.empty()) startedAt = ts;
             if (ts) endedAt = ts;
-            if (type && strncmp(type, "focus", 5) == 0 && content && content[0]) {
-                focusCounts[content]++;
-            } else if (type && strcmp(type, "direct-input") == 0 && content && firstDirect.empty()) {
-                firstDirect = content;
-            } else if (type && strcmp(type, "timer") == 0) {
-                timerCount++;
+            std::string typeStr = type ? type : "";
+            std::string contentStr = content ? content : "";
+            if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+                focusCounts[contentStr]++;
+                std::string proc = FocusProcessName(contentStr);
+                if (!proc.empty()) processCounts[proc]++;
+            } else if (type && strcmp(type, "direct-input") == 0 && !contentStr.empty()) {
+                directInputCount++;
+                if (firstDirect.empty()) firstDirect = contentStr;
+            } else if (type && strcmp(type, "commit") == 0 && !contentStr.empty()) {
+                AddUniqueLimited(commitSamples, contentStr, 5, 180);
             }
         }
         sqlite3_finalize(stmt);
@@ -480,22 +710,51 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
 
     std::vector<std::pair<std::string, int>> ranked(focusCounts.begin(), focusCounts.end());
     std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+    std::vector<std::pair<std::string, int>> rankedProc(processCounts.begin(), processCounts.end());
+    std::sort(rankedProc.begin(), rankedProc.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
 
     std::string title = "CommitBall session";
     if (!firstDirect.empty()) {
-        title = firstDirect.substr(0, 80);
+        title = Shorten(firstDirect, 80);
     } else if (!ranked.empty()) {
-        title = ranked[0].first.substr(0, 80);
+        std::string windowTitle = FocusWindowTitle(ranked[0].first);
+        title = Shorten(windowTitle.empty() ? ranked[0].first : windowTitle, 80);
     }
 
     std::vector<std::string> tags;
-    for (size_t i = 0; i < ranked.size() && tags.size() < 5; ++i) {
-        std::string tag = ranked[i].first;
-        size_t bar = tag.rfind('|');
-        if (bar != std::string::npos && bar + 1 < tag.size()) tag = tag.substr(bar + 1);
-        if (!tag.empty() && std::find(tags.begin(), tags.end(), tag) == tags.end())
-            tags.push_back(tag);
+    for (size_t i = 0; i < rankedProc.size() && tags.size() < 4; ++i) {
+        AddUniqueLimited(tags, rankedProc[i].first, 5, 32);
     }
+    if (!commitSamples.empty()) AddUniqueLimited(tags, "commit", 5, 32);
+
+    std::string ruleSummary;
+    if (!ranked.empty()) {
+        ruleSummary += "Top windows: ";
+        for (size_t i = 0; i < ranked.size() && i < 3; ++i) {
+            if (i) ruleSummary += "; ";
+            std::string titlePart = FocusWindowTitle(ranked[i].first);
+            std::string procPart = FocusProcessName(ranked[i].first);
+            ruleSummary += Shorten(titlePart.empty() ? ranked[i].first : titlePart, 80);
+            if (!procPart.empty()) ruleSummary += " (" + procPart + ")";
+            ruleSummary += " x" + std::to_string(ranked[i].second);
+        }
+        ruleSummary += ". ";
+    }
+    if (!commitSamples.empty()) {
+        ruleSummary += "Commit notes: ";
+        for (size_t i = 0; i < commitSamples.size(); ++i) {
+            if (i) ruleSummary += " / ";
+            ruleSummary += commitSamples[i];
+        }
+        ruleSummary += ". ";
+    }
+    if (ruleSummary.empty()) {
+        ruleSummary = "Recorded " + std::to_string(totalRows) + " events";
+        if (!startedAt.empty() || !endedAt.empty())
+            ruleSummary += ", from " + startedAt + " to " + endedAt;
+        ruleSummary += ".";
+    }
+    ruleSummary = Shorten(ruleSummary, 600);
 
     FILE* f = fopen(metaPath.c_str(), "w");
     if (!f) return;
@@ -505,6 +764,9 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
     fprintf(f, "  \"ended_at\": \"%s\",\n", JsonEscape(endedAt).c_str());
     fprintf(f, "  \"txt_path\": \"%s\",\n", JsonEscape(txtPath).c_str());
     fprintf(f, "  \"db_path\": \"%s\",\n", JsonEscape(dbPath).c_str());
+    fprintf(f, "  \"cluster_strategy\": \"process\",\n");
+    fprintf(f, "  \"cluster_dir\": \"%s\",\n", JsonEscape(ArchiveDataRelativePath(clusterDir)).c_str());
+    fprintf(f, "  \"cluster_count\": %d,\n", (int)clusters.size());
     fprintf(f, "  \"title\": \"%s\",\n", JsonEscape(title).c_str());
     fprintf(f, "  \"work_tags\": [");
     for (size_t i = 0; i < tags.size(); ++i) {
@@ -512,12 +774,117 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
         fprintf(f, "\"%s\"", JsonEscape(tags[i]).c_str());
     }
     fprintf(f, "],\n");
-    fprintf(f, "  \"summary\": \"%s\",\n", JsonEscape("Rule-based metadata from focus, direct input, and timer events.").c_str());
+    fprintf(f, "  \"rule_summary\": \"%s\",\n", JsonEscape(ruleSummary).c_str());
     fprintf(f, "  \"source\": \"rule\",\n");
-    fprintf(f, "  \"timer_count\": %d\n", timerCount);
+    fprintf(f, "  \"event_count\": %d,\n", totalRows);
+    fprintf(f, "  \"direct_input_count\": %d,\n", directInputCount);
+    fprintf(f, "  \"focus_top\": [");
+    for (size_t i = 0; i < ranked.size() && i < 5; ++i) {
+        if (i) fprintf(f, ", ");
+        fprintf(f, "{\"window\": \"%s\", \"process\": \"%s\", \"count\": %d}",
+            JsonEscape(FocusWindowTitle(ranked[i].first)).c_str(),
+            JsonEscape(FocusProcessName(ranked[i].first)).c_str(),
+            ranked[i].second);
+    }
+    fprintf(f, "],\n");
+    fprintf(f, "  \"clusters\": [");
+    for (size_t i = 0; i < clusters.size(); ++i) {
+        const auto& cluster = clusters[i];
+        if (i) fprintf(f, ", ");
+        fprintf(f, "{");
+        fprintf(f, "\"id\": \"cluster_%02d\", ", cluster.id);
+        fprintf(f, "\"window\": \"%s\", ", JsonEscape(cluster.window).c_str());
+        fprintf(f, "\"process\": \"%s\", ", JsonEscape(cluster.process).c_str());
+        fprintf(f, "\"txt_path\": \"%s\", ", JsonEscape(cluster.relPath).c_str());
+        fprintf(f, "\"event_count\": %d, ", cluster.eventCount);
+        fprintf(f, "\"direct_input_count\": %d, ", cluster.directInputCount);
+        fprintf(f, "\"window_samples\": [");
+        for (size_t j = 0; j < cluster.windowSamples.size(); ++j) {
+            if (j) fprintf(f, ", ");
+            fprintf(f, "\"%s\"", JsonEscape(cluster.windowSamples[j]).c_str());
+        }
+        fprintf(f, "], ");
+        fprintf(f, "\"rule_summary\": \"%s\"", JsonEscape(ClusterRuleSummary(cluster)).c_str());
+        fprintf(f, "}");
+    }
+    fprintf(f, "]\n");
     fprintf(f, "}\n");
     fclose(f);
     Log("Session metadata written: %s", metaPath.c_str());
+}
+
+inline bool RepairOneArchiveDb(const std::string& dbPath, const std::string& month, int& txtFixed, int& metaFixed, int& clusterFixed) {
+    size_t slash = dbPath.find_last_of("\\/");
+    std::string name = slash == std::string::npos ? dbPath : dbPath.substr(slash + 1);
+    size_t dot = name.rfind(".db");
+    if (dot == std::string::npos) return false;
+    std::string sessionId = name.substr(0, dot);
+
+    std::string exportDir = std::string(EXPORTS_DIR) + "\\" + month;
+    EnsureDir(exportDir.c_str());
+    std::string exportBase = exportDir + "\\commitball_" + sessionId;
+    std::string txtPath = exportBase + ".txt";
+    std::string metaPath = exportBase + ".meta.json";
+    std::string clusterDir = exportBase + "_clusters";
+
+    bool changed = false;
+    if (!FileExistsA(txtPath)) {
+        ExportSessionDb(dbPath, txtPath);
+        txtFixed++;
+        changed = true;
+        Log("Archive repair: exported txt %s", txtPath.c_str());
+    }
+
+    bool needMeta = !FileExistsA(metaPath) ||
+        !DirExistsA(clusterDir) ||
+        !DirHasFilesA(clusterDir) ||
+        !TextFileContainsA(metaPath, "\"clusters\"") ||
+        !TextFileContainsA(metaPath, "\"cluster_strategy\": \"process\"") ||
+        TextFileContainsA(metaPath, "\"event_counts\"");
+    if (needMeta) {
+        GenerateSessionMetadata(sessionId, dbPath, txtPath, metaPath);
+        metaFixed++;
+        clusterFixed++;
+        changed = true;
+        Log("Archive repair: regenerated meta/clusters %s", metaPath.c_str());
+    }
+    return changed;
+}
+
+inline void RepairArchiveFiles() {
+    int dbCount = 0, txtFixed = 0, metaFixed = 0, clusterFixed = 0;
+    WIN32_FIND_DATAA monthFd;
+    std::string monthPattern = std::string(SESSIONS_DIR) + "\\*";
+    HANDLE monthH = FindFirstFileA(monthPattern.c_str(), &monthFd);
+    if (monthH != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(monthFd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+            if (strcmp(monthFd.cFileName, ".") == 0 || strcmp(monthFd.cFileName, "..") == 0) continue;
+            std::string month = monthFd.cFileName;
+            std::string dbPattern = std::string(SESSIONS_DIR) + "\\" + month + "\\*.db";
+            WIN32_FIND_DATAA dbFd;
+            HANDLE dbH = FindFirstFileA(dbPattern.c_str(), &dbFd);
+            if (dbH == INVALID_HANDLE_VALUE) continue;
+            do {
+                if (dbFd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                std::string dbPath = std::string(SESSIONS_DIR) + "\\" + month + "\\" + dbFd.cFileName;
+                dbCount++;
+                RepairOneArchiveDb(dbPath, month, txtFixed, metaFixed, clusterFixed);
+            } while (FindNextFileA(dbH, &dbFd));
+            FindClose(dbH);
+        } while (FindNextFileA(monthH, &monthFd));
+        FindClose(monthH);
+    }
+
+    Log("Archive repair files done: db=%d txt=%d meta=%d clusters=%d", dbCount, txtFixed, metaFixed, clusterFixed);
+    wchar_t msg[256];
+    swprintf_s(msg, L"\x5F52\x6863\x68C0\x67E5\x5B8C\x6210: db=%d txt+%d meta+%d cluster+%d\xFF0C" L"Agent\x5206\x6790\x5DF2\x6392\x961F",
+        dbCount, txtFixed, metaFixed, clusterFixed);
+    std::wstring* bubble = new std::wstring(msg);
+    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+
+    extern void InvokeAgentRepairArchives();
+    InvokeAgentRepairArchives();
 }
 
 inline void CheckSessionSplit() {
@@ -564,6 +931,10 @@ inline void CheckSessionSplit() {
 
     ExportSessionDb(sessionPath, exportPath);
     GenerateSessionMetadata(sessionTs, sessionPath, exportPath, metaPath);
+    {
+        extern void InvokeAgentNameArchive(const char* txtPath, const char* metaPath);
+        InvokeAgentNameArchive(exportPath.c_str(), metaPath.c_str());
+    }
 
     OpenDb(CURRENT_DB);
 
@@ -651,6 +1022,10 @@ inline void ProcessDirectCommand(const std::string& cmd) {
             ? L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5F00\x542F"
             : L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5173\x95ED");
         PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        return;
+    }
+    if (cmd == "REPAIR_ARCHIVES") {
+        RepairArchiveFiles();
         return;
     }
     const std::string bubblePrefix = "BUBBLE ";

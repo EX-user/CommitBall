@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -105,7 +106,7 @@ namespace CommitBallAgent
             else
                 _session = Memory.LoadOrCreate();
             AppendOutput($"CommitBall Agent Terminal v0.1.3\n");
-            AppendOutput($"Session: {_session.Id} ({_session.Messages.Count} msgs)\n\n");
+            AppendOutput(FormatSessionHeader(_session));
             foreach (var msg in _session.Messages)
             {
                 if (msg.Role == "user")
@@ -232,7 +233,7 @@ namespace CommitBallAgent
             }
         }
 
-        private void ProcessInput(string text)
+        private async void ProcessInput(string text)
         {
             if (text == "/help" || text == "/vendor" || text.StartsWith("/vendor "))
             {
@@ -244,6 +245,8 @@ namespace CommitBallAgent
                     AppendOutput("  /session   List and switch sessions\n");
                     AppendOutput("  /analyse          Analyse live.txt work log (subtask mode)\n");
                     AppendOutput("  /summary_to_panel Analyse + panel in one pass (single task)\n");
+                    AppendOutput("  /name_archive     Improve one archive .meta.json title/tags/summary\n");
+                    AppendOutput("  /repair_archives  Complete missing archive txt/meta/agent analysis\n");
                     AppendOutput("  /vendor           Show or update API config\n");
                     AppendOutput("\n");
                     return;
@@ -307,7 +310,7 @@ namespace CommitBallAgent
                             var sessions = Memory.ListSessions();
                             _session = sessions.Count > 0 ? Memory.LoadOrCreate(sessions[0].Id) : Memory.LoadOrCreate();
                             AppendOutput($"\nConfig saved → {baseUrl} / {model}\n", "#6ECF6E");
-                            AppendOutput($"Session: {_session.Id}\n\n");
+                            AppendOutput(FormatSessionHeader(_session));
                         }
                         else
                         {
@@ -338,9 +341,10 @@ namespace CommitBallAgent
 
             if (text == "/new")
             {
+                await Memory.EnsureNamedAsync(_session);
                 _session = Memory.LoadOrCreate();
                 OutputBox.Document.Blocks.Clear();
-                AppendOutput($"Session: {_session.Id}\n\n");
+                AppendOutput(FormatSessionHeader(_session));
                 return;
             }
 
@@ -392,8 +396,155 @@ namespace CommitBallAgent
                 return;
             }
 
+            if (text == "/repair_archives")
+            {
+                RepairArchiveAnalysis();
+                return;
+            }
+
+            if (text.StartsWith("/name_archive ", StringComparison.OrdinalIgnoreCase))
+            {
+                var args = text.Substring("/name_archive ".Length)
+                    .Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                if (args.Length < 2)
+                {
+                    AppendOutput("\nUsage: /name_archive exports/YYYY-MM/file.txt exports/YYYY-MM/file.meta.json\n\n", "#E8915A");
+                    return;
+                }
+
+                var txtFile = args[0].Replace('\\', '/');
+                var metaFile = args[1].Replace('\\', '/');
+                var prompt =
+                    "你正在为 CommitBall 归档 session 生成更准确的标题、工作维度标签、整体摘要和按应用聚类的独立总结。\n" +
+                    "请严格按以下步骤执行：\n" +
+                    $"1. 使用 read 工具读取 `{metaFile}`，了解现有字段，尤其是 cluster_dir 和 clusters 数组；rule_summary 只是规则摘录，不要直接当成最终摘要。\n" +
+                    $"2. 使用 read 工具读取 `{txtFile}`，必要时分段读取，重点关注 direct 输入、focus 窗口、timer 分段和实际工作内容。\n" +
+                    "3. 对 meta.clusters 中每个重要 cluster，使用 read 工具读取它的 txt_path。每个 cluster 表示同一应用/process 下按时间顺序归并的操作。\n" +
+                    "4. 为每个 cluster 生成独立总结：用户在这个应用里做了什么、可能想做什么、需要提醒用户什么。必须基于 cluster 文件内容，不要猜测不存在的事实。\n" +
+                    "5. 生成一个不超过 30 个中文字符或 80 个英文字符的 title。\n" +
+                    "6. 生成 3-6 个 work_tags，标签应体现工作维度，而不是泛泛的软件名；可包含项目名、任务类型、文档/代码/测试/调试等维度。\n" +
+                    "7. 生成 1-3 句话 summary，必须由你阅读导出文本和 cluster 后总结，忠实于内容，不要猜测不存在的工作。\n" +
+                    $"8. 调用 update_meta 工具更新 `{metaFile}`，参数必须包含 title、work_tags、summary；如果读取了 cluster，还要传入 cluster_summaries 数组，cluster_id 使用 meta 中的 id。\n" +
+                    "9. 不要使用 write 工具覆盖 meta。最后简短说明已更新的 title、tags 和 cluster 数量。\n";
+
+                AppendOutput($"> /name_archive {txtFile} {metaFile}\n", "#FFFFFF");
+                _ = RunChatAsync(prompt);
+                return;
+            }
+
             AppendOutput($"> {text}\n", "#FFFFFF");
             _ = RunChatAsync(text);
+        }
+
+        private void RepairArchiveAnalysis()
+        {
+            var exportDir = Path.Combine(Config.DataDir, "exports");
+            if (!Directory.Exists(exportDir))
+            {
+                AppendOutput("\nNo exports directory found.\n\n", "#E8915A");
+                return;
+            }
+
+            var pending = new List<string>();
+            foreach (var metaPath in Directory.GetFiles(exportDir, "*.meta.json", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    if (IsArchiveAgentComplete(metaPath)) continue;
+                    var metaRel = ToDataRelativePath(metaPath);
+                    var txtRel = GetArchiveTxtPath(metaPath);
+                    if (string.IsNullOrWhiteSpace(txtRel))
+                    {
+                        AppendOutput($"Archive missing txt_path: {metaRel}\n", "#E8915A");
+                        continue;
+                    }
+                    pending.Add($"/name_archive {txtRel} {metaRel}");
+                }
+                catch (Exception ex)
+                {
+                    AppendOutput($"Archive scan error: {Path.GetFileName(metaPath)} {ex.Message}\n", "#E8915A");
+                }
+            }
+
+            if (pending.Count == 0)
+            {
+                AppendOutput("\nArchives already have agent analysis.\n\n", "#6ECF6E");
+                return;
+            }
+
+            var queue = new List<string>();
+            foreach (var command in pending)
+            {
+                queue.Add("/new");
+                queue.Add(command);
+            }
+            EnqueueInvoke(queue.ToArray());
+            AppendOutput($"\nQueued archive agent analysis: {pending.Count}\n\n", "#6ECF6E");
+        }
+
+        private static bool IsArchiveAgentComplete(string metaPath)
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(metaPath));
+            var root = doc.RootElement;
+            var sourceOk = root.TryGetProperty("source", out var source) && source.GetString() == "agent";
+            var summaryOk = root.TryGetProperty("summary_source", out var summarySource) && summarySource.GetString() == "agent" &&
+                root.TryGetProperty("summary", out var summary) && !string.IsNullOrWhiteSpace(summary.GetString());
+            if (!sourceOk || !summaryOk) return false;
+
+            if (root.TryGetProperty("clusters", out var clusters) && clusters.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var cluster in clusters.EnumerateArray())
+                {
+                    var eventCount = cluster.TryGetProperty("event_count", out var count) && count.ValueKind == JsonValueKind.Number
+                        ? count.GetInt32()
+                        : 0;
+                    if (eventCount <= 0) continue;
+                    var hasSummary = cluster.TryGetProperty("summary_source", out var clusterSource) && clusterSource.GetString() == "agent" &&
+                        cluster.TryGetProperty("agent_summary", out var agentSummary) && !string.IsNullOrWhiteSpace(agentSummary.GetString());
+                    if (!hasSummary) return false;
+                }
+            }
+            return true;
+        }
+
+        private static string GetArchiveTxtPath(string metaPath)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(metaPath));
+                var root = doc.RootElement;
+                if (root.TryGetProperty("txt_path", out var txtPath))
+                {
+                    var rel = NormalizeDataRelativePath(txtPath.GetString() ?? "");
+                    if (!string.IsNullOrWhiteSpace(rel)) return rel;
+                }
+            }
+            catch { }
+
+            var filename = Path.GetFileName(metaPath);
+            if (filename.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+            {
+                var txt = metaPath[..^".meta.json".Length] + ".txt";
+                return ToDataRelativePath(txt);
+            }
+            return "";
+        }
+
+        private static string ToDataRelativePath(string path)
+        {
+            var full = Path.GetFullPath(path);
+            var baseDir = Path.GetFullPath(Config.DataDir);
+            if (full.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase))
+                return full[baseDir.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+            return NormalizeDataRelativePath(path);
+        }
+
+        private static string NormalizeDataRelativePath(string path)
+        {
+            var rel = path.Replace('\\', '/').TrimStart('/');
+            if (rel.StartsWith("data/", StringComparison.OrdinalIgnoreCase))
+                rel = rel[5..];
+            return rel;
         }
 
         private void EnterSessionMenu()
@@ -406,24 +557,26 @@ namespace CommitBallAgent
             {
                 AppendOutput("(no sessions)\n");
             }
-            foreach (var (id, updatedAt, msgCount) in sessions)
+            foreach (var (id, updatedAt, msgCount, title) in sessions)
             {
                 var marker = id == _session.Id ? " *" : "";
                 var fi = new FileInfo(Path.Combine(Config.MemoryDir, $"{id}.json"));
                 var created = fi.Exists ? fi.CreationTime : updatedAt;
-                AppendOutput($"  {id}  {created:MM-dd HH:mm} ~ {updatedAt:MM-dd HH:mm}  {msgCount}msgs{marker}\n");
+                var titleText = string.IsNullOrWhiteSpace(title) ? "(未命名)" : title;
+                AppendOutput($"  {id}  {titleText}  {created:MM-dd HH:mm} ~ {updatedAt:MM-dd HH:mm}  {msgCount}msgs{marker}\n");
             }
             AppendOutput("\nEnter session id to switch, /new for new. Esc to cancel.\n");
         }
 
-        private void HandleSessionMenuInput(string input)
+        private async void HandleSessionMenuInput(string input)
         {
             if (input == "/new")
             {
                 _inSessionMenu = false;
+                await Memory.EnsureNamedAsync(_session);
                 _session = Memory.LoadOrCreate();
                 OutputBox.Document.Blocks.Clear();
-                AppendOutput($"Session: {_session.Id}\n\n");
+                AppendOutput(FormatSessionHeader(_session));
                 return;
             }
 
@@ -441,9 +594,10 @@ namespace CommitBallAgent
             }
 
             _inSessionMenu = false;
+            await Memory.EnsureNamedAsync(_session);
             _session = target;
             OutputBox.Document.Blocks.Clear();
-            AppendOutput($"Session: {_session.Id}\n\n");
+            AppendOutput(FormatSessionHeader(_session));
             foreach (var msg in _session.Messages)
             {
                 if (msg.Role == "user")
@@ -453,6 +607,12 @@ namespace CommitBallAgent
                 else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.Content))
                     AppendOutput($"{msg.Content}\n\n");
             }
+        }
+
+        private static string FormatSessionHeader(Session session)
+        {
+            var title = string.IsNullOrWhiteSpace(session.Title) ? "" : $"  {session.Title}";
+            return $"Session: {session.Id}{title} ({session.Messages.Count} msgs)\n\n";
         }
 
         private string _subtaskTail = "";
