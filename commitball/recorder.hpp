@@ -26,7 +26,9 @@ extern sqlite3* g_db;
 extern sqlite3_stmt* g_insertStmt;
 extern DWORD g_lastOutputTime;
 extern DWORD g_lastTimerEvent;
+extern DWORD g_lastUserInputTime;
 extern DWORD g_recordingStartTime;
+extern bool g_awayLogged;
 extern bool g_running;
 extern HWND g_hWnd;
 extern HWND g_lastFocusHwnd;
@@ -34,6 +36,7 @@ extern int g_focusNoChangeCount;
 extern IUIAutomation* g_pUIAutomation;
 
 const int FLUSH_INTERVAL = 30000;
+const DWORD USER_AWAY_INTERVAL = 10 * 60 * 1000;
 const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
 const int FOCUS_TITLE_MAX = 128;
 #define WM_PIPE_MSG (WM_USER + 1)
@@ -63,6 +66,25 @@ DWORD g_barSeqTime = 0;
 inline bool g_eyeModeEnabled = true;
 
 inline void Log(const char* fmt, ...);
+inline void CheckSessionSplit();
+inline std::string GetTimestamp();
+
+inline void MarkUserInputActivity() {
+    DWORD now = GetTickCount();
+    if (g_state == RECORDING && g_awayLogged && g_insertStmt && g_db) {
+        std::string ts = GetTimestamp();
+        sqlite3_reset(g_insertStmt);
+        sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+        sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(g_insertStmt, 3, "back", -1, SQLITE_STATIC);
+        sqlite3_bind_text(g_insertStmt, 4, "keyboard/mouse input resumed", -1, SQLITE_STATIC);
+        sqlite3_step(g_insertStmt);
+        Log("Back event recorded: keyboard/mouse input resumed");
+        CheckSessionSplit();
+    }
+    g_lastUserInputTime = now;
+    g_awayLogged = false;
+}
 
 inline bool CheckBarTrigger(UINT vk) {
     char c = 0;
@@ -482,33 +504,6 @@ inline void AddUniqueLimited(std::vector<std::string>& items, const std::string&
     if (items.size() < maxItems) items.push_back(clean);
 }
 
-inline bool FileExistsA(const std::string& path) {
-    DWORD attrs = GetFileAttributesA(path.c_str());
-    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-inline bool DirExistsA(const std::string& path) {
-    DWORD attrs = GetFileAttributesA(path.c_str());
-    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-inline bool DirHasFilesA(const std::string& path) {
-    WIN32_FIND_DATAA fd;
-    std::string pattern = path + "\\*";
-    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return false;
-    bool hasFiles = false;
-    do {
-        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
-        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            hasFiles = true;
-            break;
-        }
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
-    return hasFiles;
-}
-
 inline void DeleteFilesInDirA(const std::string& path) {
     WIN32_FIND_DATAA fd;
     std::string pattern = path + "\\*";
@@ -521,23 +516,6 @@ inline void DeleteFilesInDirA(const std::string& path) {
         DeleteFileA(file.c_str());
     } while (FindNextFileA(h, &fd));
     FindClose(h);
-}
-
-inline bool TextFileContainsA(const std::string& path, const char* needle) {
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return false;
-    bool found = false;
-    char buf[4096];
-    std::string tail;
-    while (!found) {
-        size_t n = fread(buf, 1, sizeof(buf), f);
-        if (n == 0) break;
-        std::string chunk = tail + std::string(buf, n);
-        if (chunk.find(needle) != std::string::npos) found = true;
-        tail = chunk.size() > 256 ? chunk.substr(chunk.size() - 256) : chunk;
-    }
-    fclose(f);
-    return found;
 }
 
 inline std::string SafeFileStem(const std::string& s) {
@@ -813,87 +791,12 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
     Log("Session metadata written: %s", metaPath.c_str());
 }
 
-inline bool RepairOneArchiveDb(const std::string& dbPath, const std::string& month, int& txtFixed, int& metaFixed, int& clusterFixed) {
-    size_t slash = dbPath.find_last_of("\\/");
-    std::string name = slash == std::string::npos ? dbPath : dbPath.substr(slash + 1);
-    size_t dot = name.rfind(".db");
-    if (dot == std::string::npos) return false;
-    std::string sessionId = name.substr(0, dot);
-
-    std::string exportDir = std::string(EXPORTS_DIR) + "\\" + month;
-    EnsureDir(exportDir.c_str());
-    std::string exportBase = exportDir + "\\commitball_" + sessionId;
-    std::string txtPath = exportBase + ".txt";
-    std::string metaPath = exportBase + ".meta.json";
-    std::string clusterDir = exportBase + "_clusters";
-
-    bool changed = false;
-    if (!FileExistsA(txtPath)) {
-        ExportSessionDb(dbPath, txtPath);
-        txtFixed++;
-        changed = true;
-        Log("Archive repair: exported txt %s", txtPath.c_str());
-    }
-
-    bool needMeta = !FileExistsA(metaPath) ||
-        !DirExistsA(clusterDir) ||
-        !DirHasFilesA(clusterDir) ||
-        !TextFileContainsA(metaPath, "\"clusters\"") ||
-        !TextFileContainsA(metaPath, "\"cluster_strategy\": \"process\"") ||
-        TextFileContainsA(metaPath, "\"event_counts\"");
-    if (needMeta) {
-        GenerateSessionMetadata(sessionId, dbPath, txtPath, metaPath);
-        metaFixed++;
-        clusterFixed++;
-        changed = true;
-        Log("Archive repair: regenerated meta/clusters %s", metaPath.c_str());
-    }
-    return changed;
-}
-
-inline void RepairArchiveFiles() {
-    int dbCount = 0, txtFixed = 0, metaFixed = 0, clusterFixed = 0;
-    WIN32_FIND_DATAA monthFd;
-    std::string monthPattern = std::string(SESSIONS_DIR) + "\\*";
-    HANDLE monthH = FindFirstFileA(monthPattern.c_str(), &monthFd);
-    if (monthH != INVALID_HANDLE_VALUE) {
-        do {
-            if (!(monthFd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
-            if (strcmp(monthFd.cFileName, ".") == 0 || strcmp(monthFd.cFileName, "..") == 0) continue;
-            std::string month = monthFd.cFileName;
-            std::string dbPattern = std::string(SESSIONS_DIR) + "\\" + month + "\\*.db";
-            WIN32_FIND_DATAA dbFd;
-            HANDLE dbH = FindFirstFileA(dbPattern.c_str(), &dbFd);
-            if (dbH == INVALID_HANDLE_VALUE) continue;
-            do {
-                if (dbFd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-                std::string dbPath = std::string(SESSIONS_DIR) + "\\" + month + "\\" + dbFd.cFileName;
-                dbCount++;
-                RepairOneArchiveDb(dbPath, month, txtFixed, metaFixed, clusterFixed);
-            } while (FindNextFileA(dbH, &dbFd));
-            FindClose(dbH);
-        } while (FindNextFileA(monthH, &monthFd));
-        FindClose(monthH);
-    }
-
-    Log("Archive repair files done: db=%d txt=%d meta=%d clusters=%d", dbCount, txtFixed, metaFixed, clusterFixed);
-    wchar_t msg[256];
-    swprintf_s(msg, L"\x5F52\x6863\x68C0\x67E5\x5B8C\x6210: db=%d txt+%d meta+%d cluster+%d\xFF0C" L"Agent\x5206\x6790\x5DF2\x6392\x961F",
-        dbCount, txtFixed, metaFixed, clusterFixed);
-    std::wstring* bubble = new std::wstring(msg);
-    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
-
-    extern void InvokeAgentRepairArchives();
-    InvokeAgentRepairArchives();
-}
-
 inline void CheckSessionSplit() {
     if (GetDbSize() >= SESSION_SPLIT_SIZE * 9 / 10) {
         if (!GetConfigBool("auto_analysed")) {
             extern bool IsAgentRunning();
-            extern bool IsAgentBusy();
             extern void InvokeAgentAnalyse();
-            if (IsAgentRunning() && !IsAgentBusy()) {
+            if (IsAgentRunning()) {
                 SetConfigBool("auto_analysed", true);
                 InvokeAgentAnalyse();
             }
@@ -988,6 +891,12 @@ inline void CheckSessionSplit() {
 
 inline void ProcessDirectCommand(const std::string& cmd) {
     Log("Direct command received: %s", cmd.c_str());
+    const std::string agentPrefix = "AGENT_INPUT ";
+    if (cmd.rfind(agentPrefix, 0) == 0) {
+        extern void InvokeAgentText(const char* text);
+        InvokeAgentText(cmd.substr(agentPrefix.size()).c_str());
+        return;
+    }
     if (cmd == "RELOAD_TRIGGER") {
         ReloadBarTriggerConfig();
         return;
@@ -1022,10 +931,6 @@ inline void ProcessDirectCommand(const std::string& cmd) {
             ? L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5F00\x542F"
             : L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5173\x95ED");
         PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
-        return;
-    }
-    if (cmd == "REPAIR_ARCHIVES") {
-        RepairArchiveFiles();
         return;
     }
     const std::string bubblePrefix = "BUBBLE ";
@@ -1160,6 +1065,28 @@ inline void CheckTimerEvent() {
     }
 }
 
+inline void CheckAwayEvent() {
+    if (g_state != RECORDING || g_awayLogged || !g_insertStmt || !g_db) return;
+
+    DWORD now = GetTickCount();
+    if (g_lastUserInputTime == 0) {
+        g_lastUserInputTime = now;
+        return;
+    }
+    if (now - g_lastUserInputTime < USER_AWAY_INTERVAL) return;
+
+    std::string ts = GetTimestamp();
+    sqlite3_reset(g_insertStmt);
+    sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+    sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(g_insertStmt, 3, "away", -1, SQLITE_STATIC);
+    sqlite3_bind_text(g_insertStmt, 4, "no keyboard/mouse input for 10 minutes", -1, SQLITE_STATIC);
+    sqlite3_step(g_insertStmt);
+    g_awayLogged = true;
+    Log("Away event recorded: no keyboard/mouse input for 10 minutes");
+    CheckSessionSplit();
+}
+
 inline void CheckSessionTimeout() {
     if (g_state != RECORDING) return;
     if (GetTickCount() - g_recordingStartTime < 3600000) return;
@@ -1173,6 +1100,8 @@ inline void CheckSessionTimeout() {
     g_recordingStartTime = GetTickCount();
     g_lastTimerEvent = GetTickCount();
     g_lastOutputTime = GetTickCount();
+    g_lastUserInputTime = GetTickCount();
+    g_awayLogged = false;
     g_focusNoChangeCount = 0;
 
     std::wstring title, process;
@@ -1207,6 +1136,7 @@ inline const wchar_t* SpecialKeyName(UINT vk) {
 
 inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && wParam == WM_KEYDOWN) {
+        MarkUserInputActivity();
         KBDLLHOOKSTRUCT* p = (KBDLLHOOKSTRUCT*)lParam;
         UINT vk = p->vkCode;
 
@@ -1222,6 +1152,8 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
                 g_lastOutputTime = GetTickCount();
                 g_lastTimerEvent = GetTickCount();
                 g_recordingStartTime = GetTickCount();
+                g_lastUserInputTime = GetTickCount();
+                g_awayLogged = false;
                 std::wstring title, process;
                 RECT rect;
                 GetFocusInfo(title, process, rect);
@@ -1375,6 +1307,7 @@ inline void CreateBarPipeServer() {
 
 inline void ProcessMessage(const std::wstring& msg) {
     if (g_state != RECORDING) return;
+    MarkUserInputActivity();
 
     std::string timestamp = GetTimestamp();
 

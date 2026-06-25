@@ -42,6 +42,8 @@ namespace CommitBallBar
                                 }
                                 else if (msg == "REFRESH_PANEL")
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.RefreshPanel()));
+                                else if (msg == "SHOW_PANEL")
+                                    _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.ShowPanelFromTool()));
                                 else if (msg == "QUIT")
                                 {
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => Application.Current.Shutdown()));

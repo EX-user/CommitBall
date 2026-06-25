@@ -314,20 +314,23 @@ std::wstring GetAgentStatusText() {
 }
 
 bool SendInvokeToAgent(const char* json) {
-    if (!IsAgentRunning()) {
+    if (!EnsureAgentRunning()) {
         Log("SendInvokeToAgent: agent not running");
         return false;
     }
-    char buf[64] = {};
-    FILE* f = fopen("data/agent-status", "r");
-    if (f) { fgets(buf, sizeof(buf), f); fclose(f); }
-    if (std::string(buf).find("busy") != std::string::npos) {
-        Log("SendInvokeToAgent: agent busy, skipping");
-        return false;
+    HANDLE hPipe = INVALID_HANDLE_VALUE;
+    for (int i = 0; i < 24; ++i) {
+        hPipe = CreateFileW(
+            L"\\\\.\\pipe\\CommitBall-Agent",
+            GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (hPipe != INVALID_HANDLE_VALUE) break;
+        DWORD err = GetLastError();
+        if (err == ERROR_PIPE_BUSY) {
+            WaitNamedPipeW(L"\\\\.\\pipe\\CommitBall-Agent", 300);
+        } else {
+            Sleep(125);
+        }
     }
-    HANDLE hPipe = CreateFileW(
-        L"\\\\.\\pipe\\CommitBall-Agent",
-        GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if (hPipe == INVALID_HANDLE_VALUE) {
         Log("SendInvokeToAgent: pipe connect failed (err=%d)", GetLastError());
         return false;
@@ -352,10 +355,19 @@ void InvokeAgentAnalyse() {
         "\xe5\xbd\x93\xe5\x89\x8d\xe6\x97\xb6\xe9\x97\xb4\xe6\x98\xaf %04d-%02d-%02d %s %02d:%02d",
         1900 + ti.tm_year, 1 + ti.tm_mon, ti.tm_mday,
         weekdays[ti.tm_wday], ti.tm_hour, ti.tm_min);
-    std::string json = "[\"/new\",\"";
+    std::string json = "[\"";
     json += timeBuf;
     json += "\",\"/summary_to_panel\"]";
     Log("InvokeAgentAnalyse: %s", json.c_str());
+    SendInvokeToAgent(json.c_str());
+}
+
+void InvokeAgentText(const char* text) {
+    if (!text || !text[0]) return;
+    std::string json = "[\"";
+    json += JsonEscape(text);
+    json += "\"]";
+    Log("InvokeAgentText: %s", json.c_str());
     SendInvokeToAgent(json.c_str());
 }
 
@@ -377,25 +389,11 @@ void InvokeAgentNameArchive(const char* txtPath, const char* metaPath) {
     command += " ";
     command += metaRel;
 
-    std::string json = "[\"/new\",\"";
+    std::string json = "[\"";
     json += JsonEscape(command);
     json += "\"]";
     Log("InvokeAgentNameArchive: %s", json.c_str());
     SendInvokeToAgent(json.c_str());
-}
-
-void InvokeAgentRepairArchives() {
-    std::string json = "[\"/repair_archives\"]";
-    Log("InvokeAgentRepairArchives: %s", json.c_str());
-    if (!EnsureAgentRunning()) {
-        Log("InvokeAgentRepairArchives: agent launch failed");
-        return;
-    }
-    for (int i = 0; i < 10; ++i) {
-        if (SendInvokeToAgent(json.c_str())) return;
-        Sleep(300);
-    }
-    Log("InvokeAgentRepairArchives: failed after retries");
 }
 
 DWORD g_lastAutoCheckTime = 0;
@@ -404,7 +402,7 @@ void CheckAutoAnalyse() {
     if (GetTickCount() - g_lastAutoCheckTime < 60000) return;
     g_lastAutoCheckTime = GetTickCount();
 
-    if (!IsAgentRunning() || IsAgentBusy()) return;
+    if (!IsAgentRunning()) return;
 
     WIN32_FILE_ATTRIBUTE_DATA fileInfo;
     if (GetFileAttributesExA("data/agent-out/panel.html", GetFileExInfoStandard, &fileInfo)) {
@@ -490,9 +488,11 @@ int g_recordId = 0;
 HWND g_hWnd = nullptr;
 DWORD g_lastOutputTime = 0;
 DWORD g_lastTimerEvent = 0;
+DWORD g_lastUserInputTime = 0;
 DWORD g_recordingStartTime = 0;
 ULONG_PTR g_gdiplusToken = 0;
 bool g_running = true;
+bool g_awayLogged = false;
 HWND g_lastFocusHwnd = nullptr;
 int g_focusNoChangeCount = 0;
 

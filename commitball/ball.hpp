@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdio>
 #include <cmath>
+#include <cwctype>
 
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -100,6 +101,33 @@ void ToggleBlink();
 void UpdateEyeAnimation();
 void ShowBallBubble(const wchar_t* text);
 LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+inline bool IsUnsupportedBubbleChar(wchar_t ch) {
+    unsigned int c = (unsigned int)ch;
+    if (c == 0x200D) return true;              // zero width joiner
+    if (c >= 0xFE00 && c <= 0xFE0F) return true; // variation selectors
+    if (c >= 0x20E0 && c <= 0x20FF) return true; // combining symbol marks
+    if (c >= 0x2600 && c <= 0x27BF) return true; // most BMP emoji/dingbats
+    return false;
+}
+
+inline std::wstring SanitizeBubbleText(const wchar_t* text) {
+    std::wstring out;
+    if (!text) return out;
+    for (const wchar_t* p = text; *p; ++p) {
+        wchar_t ch = *p;
+        if (ch >= 0xD800 && ch <= 0xDBFF) {
+            if (p[1] >= 0xDC00 && p[1] <= 0xDFFF) ++p;
+            continue;
+        }
+        if (ch >= 0xDC00 && ch <= 0xDFFF) continue;
+        if (IsUnsupportedBubbleChar(ch)) continue;
+        out.push_back(ch);
+    }
+    while (!out.empty() && iswspace(out.front())) out.erase(out.begin());
+    while (!out.empty() && iswspace(out.back())) out.pop_back();
+    return out;
+}
 
 inline bool BallInit(HINSTANCE hInstance) {
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
@@ -416,6 +444,8 @@ inline void RedrawBall() {
 
 inline void ShowBallBubble(const wchar_t* text) {
     if (!g_hWnd || !text || !text[0]) return;
+    std::wstring safeText = SanitizeBubbleText(text);
+    if (safeText.empty()) safeText = L"...";
     if (g_bubbleWnd) {
         DestroyWindow(g_bubbleWnd);
         g_bubbleWnd = nullptr;
@@ -519,15 +549,17 @@ inline void ShowBallBubble(const wchar_t* text) {
     accentPath.CloseFigure();
     graphics.FillPath(&accentBrush, &accentPath);
 
-    Gdiplus::FontFamily fontFamily(L"Segoe UI");
-    Gdiplus::Font font(&fontFamily, 13.5f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+    Gdiplus::FontFamily yaheiFamily(L"Microsoft YaHei UI");
+    Gdiplus::FontFamily segoeFamily(L"Segoe UI");
+    Gdiplus::FontFamily* fontFamily = yaheiFamily.IsAvailable() ? &yaheiFamily : &segoeFamily;
+    Gdiplus::Font font(fontFamily, 13.5f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
     Gdiplus::StringFormat fmt;
     fmt.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
     fmt.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
     fmt.SetAlignment(Gdiplus::StringAlignmentNear);
     fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
     Gdiplus::RectF textRect(body.X + 30.0f, body.Y + 6.0f, body.Width - 44.0f, body.Height - 12.0f);
-    graphics.DrawString(text, -1, &font, textRect, &fmt, &textBrush);
+    graphics.DrawString(safeText.c_str(), -1, &font, textRect, &fmt, &textBrush);
 
     POINT ptDst = { x, y };
     POINT ptSrc = { 0, 0 };
@@ -652,9 +684,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         AppendMenuW(hMenu, MF_STRING, IDM_BAR_SHOW, L"\x6253\x5F00 Bar");
         AppendMenuW(hMenu, MF_STRING, IDM_AGENT, L"\x6253\x5F00 Agent \x7EC8\x7AEF");
         {
-            extern bool IsAgentBusy();
-            UINT invokeFlags = IsAgentBusy() ? (MF_STRING | MF_DISABLED | MF_GRAYED) : MF_STRING;
-            AppendMenuW(hMenu, invokeFlags, IDM_INVOKE_AGENT, L"\x542F\x52A8 Agent \x5206\x6790");
+            AppendMenuW(hMenu, MF_STRING, IDM_INVOKE_AGENT, L"\x542F\x52A8 Agent \x5206\x6790");
         }
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_HELP, L"\x5E2E\x52A9");
@@ -777,6 +807,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 g_lastOutputTime = GetTickCount();
             }
             CheckFocusTimer();
+            CheckAwayEvent();
             CheckTimerEvent();
             CheckSessionTimeout();
             extern void CheckAutoAnalyse();
