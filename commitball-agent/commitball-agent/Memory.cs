@@ -117,50 +117,33 @@ namespace CommitBallAgent
             File.WriteAllText(GetPath(session.Id, isSubtask), json);
         }
 
-        public static async Task EnsureNamedAsync(Session session)
+        public static Task EnsureNamedAsync(Session session)
         {
-            if (session == null) return;
-            if (!string.IsNullOrWhiteSpace(session.ParentSessionId)) return;
-            if (session.Messages.Count == 0) return;
-            if (!string.IsNullOrWhiteSpace(session.Title)) return;
+            if (session == null) return Task.CompletedTask;
+            if (!string.IsNullOrWhiteSpace(session.ParentSessionId)) return Task.CompletedTask;
+            if (session.Messages.Count == 0) return Task.CompletedTask;
+            if (!string.IsNullOrWhiteSpace(session.Title)) return Task.CompletedTask;
 
-            var fallback = BuildFallbackTitle(session);
-            var title = fallback;
-            var source = "fallback";
+            RenameSession(session, BuildFallbackTitle(session), "fallback");
+            return Task.CompletedTask;
+        }
 
-            if (Config.IsConfigured)
-            {
-                try
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                    var transcript = BuildTranscriptForNaming(session, 3600);
-                    if (!string.IsNullOrWhiteSpace(transcript))
-                    {
-                        var messages = new List<Message>
-                        {
-                            new Message { Role = "system", Content = "你只负责给对话命名。输出一个20字左右的中文标题，不要解释，不要加引号，不要使用Markdown。" },
-                            new Message { Role = "user", Content = "请总结下面 CommitBall Agent 对话的主要内容，并输出20字左右标题：\n\n" + transcript }
-                        };
-                        var resp = await LLMClient.ChatAsync(messages, toolsJson: null, onToken: null, ct: cts.Token);
-                        var candidate = CleanTitle(resp.Content);
-                        if (!string.IsNullOrWhiteSpace(candidate) && !candidate.StartsWith("[API Error", StringComparison.OrdinalIgnoreCase))
-                        {
-                            title = candidate;
-                            source = "agent";
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AgentWindow.Log($"EnsureNamedAsync fallback for {session.Id}: {ex.Message}");
-                }
-            }
+        public static string RenameSession(Session session, string title, string source = "agent")
+        {
+            if (session == null) return "Error: session is required";
+            if (!string.IsNullOrWhiteSpace(session.ParentSessionId))
+                return "Error: subtask sessions cannot be renamed";
 
-            session.Title = MakeUniqueTitle(title, session.Id);
+            var clean = CleanTitle(title);
+            if (string.IsNullOrWhiteSpace(clean))
+                return "Error: title is required";
+
+            session.Title = MakeUniqueTitle(clean, session.Id);
             session.TitleSource = source;
             session.NamedAt = DateTime.Now;
             Save(session);
-            AgentWindow.Log($"Session named: {session.Id} title={session.Title} source={source}");
+            AgentWindow.Log($"Session renamed: {session.Id} title={session.Title} source={source}");
+            return $"Session renamed: {session.Title}";
         }
 
         public static List<(string Id, DateTime UpdatedAt, int MsgCount, string Title)> ListSessions()
@@ -180,22 +163,6 @@ namespace CommitBallAgent
             }
             result.Sort((a, b) => b.Item2.CompareTo(a.Item2));
             return result;
-        }
-
-        private static string BuildTranscriptForNaming(Session session, int maxLen)
-        {
-            var parts = new List<string>();
-            foreach (var msg in session.Messages)
-            {
-                if (msg.Role != "user" && msg.Role != "assistant") continue;
-                if (string.IsNullOrWhiteSpace(msg.Content)) continue;
-                var content = NormalizeWhitespace(msg.Content);
-                if (content.Length == 0) continue;
-                parts.Add($"{msg.Role}: {content}");
-                var joined = string.Join("\n", parts);
-                if (joined.Length >= maxLen) return joined[..maxLen];
-            }
-            return string.Join("\n", parts);
         }
 
         private static string BuildFallbackTitle(Session session)

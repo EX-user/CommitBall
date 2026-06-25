@@ -47,7 +47,7 @@ namespace CommitBallAgent
                                         var json = msg.Substring(7);
                                         var inputs = JsonSerializer.Deserialize<string[]>(json);
                                         if (inputs != null && inputs.Length > 0)
-                                            _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _window.EnqueueInvoke(inputs)));
+                                            _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _window.EnqueueExternalInvoke(inputs)));
                                     }
                                     catch { }
                                 }
