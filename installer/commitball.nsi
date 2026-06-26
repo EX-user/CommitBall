@@ -56,6 +56,7 @@ Section "CB-Weasel 输入法" SecMain
   DetailPrint "停止旧进程..."
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-BallShell.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Agent.exe'
   Sleep 1000
@@ -73,6 +74,12 @@ Section "CB-Weasel 输入法" SecMain
   File "..\commitball-agent\commitball-agent\analyse-prompt.md"
   File "..\commitball-agent\commitball-agent\analyse-prompt-st.md"
   File "..\commitball-agent\commitball-agent\summary_to_panel-prompt.md"
+
+  ; CommitBall-BallShell
+  File "..\publish\ball-shell\CommitBall-BallShell.exe"
+
+  SetOutPath "$INSTDIR\Assets\Skins\eye-of-commit"
+  File "..\publish\ball-shell\Assets\Skins\eye-of-commit\*.*"
 
   SetOutPath "$INSTDIR\data\agent-out"
   File "..\commitball-agent\commitball-agent\panel-template.html"
@@ -171,6 +178,7 @@ Section "Uninstall"
   ; Stop processes
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-BallShell.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Agent.exe'
   Sleep 1000
@@ -192,6 +200,7 @@ Section "Uninstall"
   ; Remove files
   RMDir /r "$INSTDIR\cb-weasel"
   Delete "$INSTDIR\CommitBall.exe"
+  Delete "$INSTDIR\CommitBall-BallShell.exe"
   Delete "$INSTDIR\CommitBall-Bar.exe"
   Delete "$INSTDIR\CommitBall-Agent.exe"
   Delete "$INSTDIR\analyse-prompt.md"
@@ -199,5 +208,6 @@ Section "Uninstall"
   Delete "$INSTDIR\summary_to_panel-prompt.md"
   Delete "$INSTDIR\uninstall.exe"
   Delete "$DESKTOP\CommitBall.lnk"
+  RMDir /r "$INSTDIR\Assets"
   RMDir "$INSTDIR"
 SectionEnd

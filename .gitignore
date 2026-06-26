@@ -8,6 +8,7 @@ commitball/RCa*
 commitball/RDa*
 $null
 dist/
+staging/
 
 # CommitBall runtime files
 commitball.db
@@ -32,6 +33,10 @@ commitball-bar/data/
 commitball-agent/commitball-agent/bin/
 commitball-agent/commitball-agent/obj/
 publish/
+
+# CommitBall-BallShell build artifacts
+commitball-ball-shell/bin/
+commitball-ball-shell/obj/
 
 # Installer artifacts
 installer/archives/

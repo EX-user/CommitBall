@@ -8,11 +8,17 @@
 
 HANDLE g_barProcess = nullptr;
 HANDLE g_agentProcess = nullptr;
+HANDLE g_ballShellProcess = nullptr;
 HANDLE g_childJob = nullptr;
 
 bool EnsureAgentRunning();
 void RequestCommitBallExit();
 void FastCommitBallExit();
+bool IsBallShellEnabled();
+void PushBallShellState();
+void PushBallShellStatus();
+void SendBallShellBubble(const wchar_t* text);
+void CheckBallShellHealth();
 
 void ExitLog(const char* fmt, ...) {
     CreateDirectoryA("data", NULL);
@@ -371,6 +377,238 @@ void InvokeAgentText(const char* text) {
     SendInvokeToAgent(json.c_str());
 }
 
+bool g_ballShellActive = false;
+
+bool ShouldUseBallShell() {
+    char env[8] = {};
+    DWORD len = GetEnvironmentVariableA("COMMITBALL_USE_BALL_SHELL", env, sizeof(env));
+    if (len > 0) {
+        if (env[0] == '0' || env[0] == 'f' || env[0] == 'F' || env[0] == 'n' || env[0] == 'N')
+            return false;
+        if (env[0] == '1' || env[0] == 't' || env[0] == 'T' || env[0] == 'y' || env[0] == 'Y')
+            return true;
+    }
+    if (GetFileAttributesA("data\\disable-ball-shell.flag") != INVALID_FILE_ATTRIBUTES)
+        return false;
+    if (GetFileAttributesA("data\\use-ball-shell.flag") != INVALID_FILE_ATTRIBUTES)
+        return true;
+    return GetConfigBool("use_ball_shell");
+}
+
+bool IsBallShellRunning() {
+    if (!g_ballShellProcess) return false;
+    DWORD exitCode = 0;
+    if (!GetExitCodeProcess(g_ballShellProcess, &exitCode)) return false;
+    if (exitCode != STILL_ACTIVE) {
+        CloseHandle(g_ballShellProcess);
+        g_ballShellProcess = nullptr;
+        g_ballShellActive = false;
+        return false;
+    }
+    return true;
+}
+
+bool IsBallShellEnabled() {
+    return g_ballShellActive && IsBallShellRunning();
+}
+
+bool SendBallShellLine(const std::string& line) {
+    if (!IsBallShellEnabled()) return false;
+    HANDLE hPipe = INVALID_HANDLE_VALUE;
+    for (int i = 0; i < 8; ++i) {
+        hPipe = CreateFileW(
+            L"\\\\.\\pipe\\CommitBall-BallShell",
+            GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (hPipe != INVALID_HANDLE_VALUE) break;
+        DWORD err = GetLastError();
+        if (err == ERROR_PIPE_BUSY) {
+            WaitNamedPipeW(L"\\\\.\\pipe\\CommitBall-BallShell", 200);
+        } else {
+            Sleep(80);
+        }
+    }
+    if (hPipe == INVALID_HANDLE_VALUE) {
+        Log("SendBallShellLine: pipe connect failed (err=%d)", GetLastError());
+        return false;
+    }
+
+    std::string msg = line;
+    msg += "\n";
+    DWORD written = 0;
+    BOOL ok = WriteFile(hPipe, msg.c_str(), (DWORD)msg.size(), &written, NULL);
+    CloseHandle(hPipe);
+    return ok && written == msg.size();
+}
+
+std::string JsonWide(const std::wstring& text) {
+    return JsonEscape(WideToUtf8(text));
+}
+
+bool LaunchBallShell() {
+    if (IsBallShellRunning()) return true;
+
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (!lastSlash) return false;
+    wcscpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - exePath), L"CommitBall-BallShell.exe");
+
+    DWORD attrs = GetFileAttributesW(exePath);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        Log("BallShell exe NOT found (err=%d)", GetLastError());
+        return false;
+    }
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi = {};
+    wchar_t cmdLine[MAX_PATH + 64];
+    swprintf_s(cmdLine, L"\"%ls\" --parent-pid %lu", exePath, GetCurrentProcessId());
+    if (!CreateProcessW(exePath, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        Log("CreateProcessW BallShell failed (err=%d)", GetLastError());
+        return false;
+    }
+
+    CloseHandle(pi.hThread);
+    g_ballShellProcess = pi.hProcess;
+    g_ballShellActive = true;
+    AssignChildToJob(g_ballShellProcess, "BallShell");
+    Log("Launched CommitBall-BallShell.exe (pid=%d)", pi.dwProcessId);
+    WaitForInputIdle(pi.hProcess, 3000);
+    return IsBallShellRunning();
+}
+
+void PushBallShellState() {
+    if (!IsBallShellEnabled()) return;
+    std::string mode = g_state == RECORDING ? "recording" : "idle";
+    std::string json = "STATE {\"Mode\":\"";
+    json += mode;
+    json += "\",\"EyeEnabled\":";
+    json += g_eyeModeEnabled ? "true" : "false";
+    json += ",\"IsMouseIdle\":false,\"NoAdmin\":";
+    json += g_noAdmin ? "true" : "false";
+    json += "}";
+    SendBallShellLine(json);
+}
+
+void PushBallShellStatus() {
+    if (!IsBallShellEnabled()) return;
+    std::string json = "STATUS {\"Recording\":\"";
+    json += JsonWide(GetStatusText());
+    json += "\",\"Db\":\"";
+    json += JsonWide(GetDbInfoText());
+    json += "\",\"Bar\":\"";
+    json += JsonWide(GetBarStatusText());
+    json += "\",\"Agent\":\"";
+    json += JsonWide(GetAgentStatusText());
+    json += "\"}";
+    SendBallShellLine(json);
+}
+
+void SendBallShellBubble(const wchar_t* text) {
+    if (!text || !text[0] || !IsBallShellEnabled()) return;
+    std::wstring safeText = SanitizeBubbleText(text);
+    if (safeText.empty()) safeText = L"...";
+    std::string json = "BUBBLE {\"Text\":\"";
+    json += JsonWide(safeText);
+    json += "\"}";
+    SendBallShellLine(json);
+}
+
+void ShutdownBallShellProcess() {
+    if (!g_ballShellProcess) return;
+    if (IsBallShellEnabled()) {
+        SendBallShellLine("SHUTDOWN {}");
+    }
+    DWORD wait = WaitForSingleObject(g_ballShellProcess, 600);
+    if (wait == WAIT_TIMEOUT) {
+        DWORD exitCode = 0;
+        if (GetExitCodeProcess(g_ballShellProcess, &exitCode) && exitCode == STILL_ACTIVE) {
+            Log("BallShell shutdown: timeout, terminating");
+            TerminateProcess(g_ballShellProcess, 0);
+            WaitForSingleObject(g_ballShellProcess, 300);
+        }
+    }
+    CloseHandle(g_ballShellProcess);
+    g_ballShellProcess = nullptr;
+    g_ballShellActive = false;
+}
+
+void SaveBallShellWindowState(const char* json) {
+    if (!json || !json[0]) return;
+    EnsureDir("data");
+    FILE* f = fopen("data\\ball-shell-state.json", "wb");
+    if (!f) {
+        Log("BallShell window state save failed");
+        return;
+    }
+    fwrite(json, 1, strlen(json), f);
+    fclose(f);
+    Log("BallShell window state saved");
+}
+
+void EnsureBallShellStarted() {
+    if (!ShouldUseBallShell()) return;
+    if (!IsBallShellRunning() && !LaunchBallShell()) return;
+    if (g_hWnd) ShowWindow(g_hWnd, SW_HIDE);
+    PushBallShellState();
+    PushBallShellStatus();
+}
+
+void CheckBallShellHealth() {
+    if (!g_running) return;
+    if (ShouldUseBallShell()) {
+        if (!IsBallShellRunning()) {
+            Log("BallShell not running, restarting");
+            EnsureBallShellStarted();
+        } else {
+            PushBallShellState();
+            PushBallShellStatus();
+        }
+    } else if (g_ballShellProcess) {
+        Log("BallShell disabled by config, shutting down");
+        ShutdownBallShellProcess();
+        if (g_hWnd) {
+            ShowWindow(g_hWnd, SW_SHOWNOACTIVATE);
+            RedrawBall();
+        }
+    }
+}
+
+void OpenDataDirectory() {
+    char dataPath[MAX_PATH];
+    GetModuleFileNameA(NULL, dataPath, MAX_PATH);
+    char* lastSlash = strrchr(dataPath, '\\');
+    if (lastSlash) {
+        strcpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - dataPath), "data");
+        ShellExecuteA(NULL, "open", dataPath, NULL, NULL, SW_SHOWNORMAL);
+    }
+}
+
+void OpenLiveText() {
+    FlushLiveBuffer();
+    char livePath[MAX_PATH];
+    GetModuleFileNameA(NULL, livePath, MAX_PATH);
+    char* lastSlash = strrchr(livePath, '\\');
+    if (lastSlash) {
+        strcpy_s(lastSlash + 1, MAX_PATH - (lastSlash + 1 - livePath), LIVE_TXT);
+        HINSTANCE hr = ShellExecuteA(NULL, "open", "notepad", livePath, NULL, SW_SHOWNORMAL);
+        if ((uintptr_t)hr <= 32) {
+            ShellExecuteA(NULL, NULL, livePath, NULL, NULL, SW_SHOWNORMAL);
+        }
+    }
+}
+
+void HandleBallUiCommand(const char* command) {
+    if (!command || !command[0]) return;
+    Log("Ball UI command: %s", command);
+    if (strcmp(command, "open_data_directory") == 0) OpenDataDirectory();
+    else if (strcmp(command, "open_live_text") == 0) OpenLiveText();
+    else if (strcmp(command, "open_bar_locked") == 0) SendShowLockedToBar();
+    else if (strcmp(command, "open_agent") == 0) SendShowToAgent();
+    else if (strcmp(command, "invoke_agent_analysis") == 0) InvokeAgentAnalyse();
+    else if (strcmp(command, "exit_commitball") == 0) FastCommitBallExit();
+}
+
 static std::string DataRelativePath(const std::string& path) {
     std::string p = path;
     std::replace(p.begin(), p.end(), '\\', '/');
@@ -516,8 +754,8 @@ void RequestCommitBallExit() {
 }
 
 void FastCommitBallExit() {
-    ExitLog("FastCommitBallExit entered g_hWnd=%p g_pipe=%p g_directPipe=%p job=%p bar=%p agent=%p",
-        g_hWnd, g_pipe, g_directPipe, g_childJob, g_barProcess, g_agentProcess);
+    ExitLog("FastCommitBallExit entered g_hWnd=%p g_pipe=%p g_directPipe=%p job=%p ballShell=%p bar=%p agent=%p",
+        g_hWnd, g_pipe, g_directPipe, g_childJob, g_ballShellProcess, g_barProcess, g_agentProcess);
     g_running = false;
     if (g_hWnd) {
         BOOL showOk = ShowWindow(g_hWnd, SW_HIDE);
@@ -555,6 +793,10 @@ void FastCommitBallExit() {
         BOOL closeOk = CloseHandle(g_childJob);
         ExitLog("CloseHandle(g_childJob) ok=%d err=%lu", closeOk, GetLastError());
         g_childJob = nullptr;
+    }
+    if (g_ballShellProcess) {
+        BOOL termOk = TerminateProcess(g_ballShellProcess, 0);
+        ExitLog("TerminateProcess(ballShell) ok=%d err=%lu", termOk, GetLastError());
     }
     if (g_barProcess) {
         BOOL termOk = TerminateProcess(g_barProcess, 0);
@@ -617,6 +859,8 @@ void OnStateChanged() {
     }
     SetTimer(g_hWnd, IDT_COLOR_ANIM, 16, NULL);
     RedrawBall();
+    PushBallShellState();
+    PushBallShellStatus();
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
@@ -648,6 +892,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         g_curPenR = 255; g_curPenG = 255; g_curPenB = 255;
         g_tgtPenR = 255; g_tgtPenG = 255; g_tgtPenB = 255;
         RedrawBall();
+        EnsureBallShellStarted();
         CreateThread(NULL, 0, [](LPVOID) -> DWORD {
             Sleep(30000);
             ExitProcess(0);
@@ -679,6 +924,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     SetTimer(g_hWnd, IDT_OUTPUT, 400, NULL);
 
     LaunchBar();
+    EnsureBallShellStarted();
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
@@ -689,6 +935,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     g_running = false;
     if (g_pipe != INVALID_HANDLE_VALUE) { CloseHandle(g_pipe); g_pipe = INVALID_HANDLE_VALUE; }
     if (g_directPipe != INVALID_HANDLE_VALUE) { CloseHandle(g_directPipe); g_directPipe = INVALID_HANDLE_VALUE; }
+    ShutdownBallShellProcess();
     ShutdownChildProcess(g_barProcess, L"\\\\.\\pipe\\CommitBall-bar", "Bar");
     ShutdownChildProcess(g_agentProcess, L"\\\\.\\pipe\\CommitBall-Agent", "Agent");
     WaitForSingleObject(hPipeThread, 2000);

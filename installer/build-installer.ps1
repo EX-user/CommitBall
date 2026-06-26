@@ -73,6 +73,10 @@ if (!(Test-Path "$root\commitball\CommitBall.exe")) {
 # === Publish CommitBall-Bar ===
 Write-Host "Publishing CommitBall-Bar..."
 dotnet publish "$root\commitball-bar\commitball-bar\commitball-bar.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\commitball-bar\publish"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "CommitBall-Bar publish command failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
 if (!(Test-Path "$root\commitball-bar\publish\CommitBall-Bar.exe")) {
     Write-Error "CommitBall-Bar publish failed."
     exit 1
@@ -81,8 +85,36 @@ if (!(Test-Path "$root\commitball-bar\publish\CommitBall-Bar.exe")) {
 # === Publish CommitBall-Agent ===
 Write-Host "Publishing CommitBall-Agent..."
 dotnet publish "$root\commitball-agent\commitball-agent\commitball-agent.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\publish\agent"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "CommitBall-Agent publish command failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
 if (!(Test-Path "$root\publish\agent\CommitBall-Agent.exe")) {
     Write-Error "CommitBall-Agent publish failed."
+    exit 1
+}
+
+# === Publish CommitBall-BallShell ===
+Write-Host "Publishing CommitBall-BallShell..."
+dotnet publish "$root\commitball-ball-shell\commitball-ball-shell.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\publish\ball-shell"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "CommitBall-BallShell publish command failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
+if (!(Test-Path "$root\publish\ball-shell\CommitBall-BallShell.exe")) {
+    Write-Error "CommitBall-BallShell publish failed."
+    exit 1
+}
+$ballShellAssetSource = "$root\commitball-ball-shell\Assets"
+$ballShellAssetTarget = "$root\publish\ball-shell\Assets"
+if (!(Test-Path "$ballShellAssetSource\Skins\eye-of-commit\body.png")) {
+    Write-Error "CommitBall-BallShell assets missing: $ballShellAssetSource"
+    exit 1
+}
+New-Item -ItemType Directory -Path $ballShellAssetTarget -Force | Out-Null
+Copy-Item "$ballShellAssetSource\*" $ballShellAssetTarget -Recurse -Force
+if (!(Test-Path "$ballShellAssetTarget\Skins\eye-of-commit\body.png")) {
+    Write-Error "CommitBall-BallShell asset copy failed."
     exit 1
 }
 

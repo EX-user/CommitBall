@@ -444,6 +444,12 @@ inline void RedrawBall() {
 
 inline void ShowBallBubble(const wchar_t* text) {
     if (!g_hWnd || !text || !text[0]) return;
+    extern bool IsBallShellEnabled();
+    extern void SendBallShellBubble(const wchar_t* text);
+    if (IsBallShellEnabled()) {
+        SendBallShellBubble(text);
+        return;
+    }
     std::wstring safeText = SanitizeBubbleText(text);
     if (safeText.empty()) safeText = L"...";
     if (g_bubbleWnd) {
@@ -779,7 +785,7 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         PostQuitMessage(0);
         return 0;
 
-    // WM_PIPE_MSG: lParam=0 keyboard msg(std::wstring*), 1 direct-input(std::string*), 2 bubble(std::wstring*), 3 refresh ball state
+    // WM_PIPE_MSG: lParam=0 keyboard msg(std::wstring*), 1 direct-input(std::string*), 2 bubble(std::wstring*), 3 refresh ball state, 4 refresh BallShell
     case WM_PIPE_MSG: {
         if (lParam == 1) {
             std::string* pText = (std::string*)wParam;
@@ -792,6 +798,9 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         } else if (lParam == 3) {
             extern void OnStateChanged();
             OnStateChanged();
+        } else if (lParam == 4) {
+            extern void CheckBallShellHealth();
+            CheckBallShellHealth();
         } else {
             std::wstring* pMsg = (std::wstring*)wParam;
             ProcessMessage(*pMsg);
@@ -812,6 +821,12 @@ inline LRESULT CALLBACK BallWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             CheckSessionTimeout();
             extern void CheckAutoAnalyse();
             CheckAutoAnalyse();
+            static DWORD lastBallShellStatusAt = 0;
+            if (GetTickCount() - lastBallShellStatusAt >= 2000) {
+                extern void CheckBallShellHealth();
+                CheckBallShellHealth();
+                lastBallShellStatusAt = GetTickCount();
+            }
         } else if (wParam == IDT_COLOR_ANIM) {
             AnimateColor();
         } else if (wParam == IDT_BLINK) {
