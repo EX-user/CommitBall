@@ -1,6 +1,7 @@
 #include "recorder.hpp"
 #include "click.hpp"
 #include "ball.hpp"
+#include "core_window.hpp"
 #include <shellscalingapi.h>
 #include <cstdarg>
 #pragma comment(lib, "shcore.lib")
@@ -19,6 +20,7 @@ void PushBallShellState();
 void PushBallShellStatus();
 void SendBallShellBubble(const wchar_t* text);
 void CheckBallShellHealth();
+bool IsCoreWindowOnly();
 
 void ExitLog(const char* fmt, ...) {
     CreateDirectoryA("data", NULL);
@@ -378,6 +380,7 @@ void InvokeAgentText(const char* text) {
 }
 
 bool g_ballShellActive = false;
+bool g_coreWindowOnly = false;
 
 bool ShouldUseBallShell() {
     char env[8] = {};
@@ -410,6 +413,10 @@ bool IsBallShellRunning() {
 
 bool IsBallShellEnabled() {
     return g_ballShellActive && IsBallShellRunning();
+}
+
+bool IsCoreWindowOnly() {
+    return g_coreWindowOnly;
 }
 
 bool SendBallShellLine(const std::string& line) {
@@ -549,7 +556,7 @@ void SaveBallShellWindowState(const char* json) {
 void EnsureBallShellStarted() {
     if (!ShouldUseBallShell()) return;
     if (!IsBallShellRunning() && !LaunchBallShell()) return;
-    if (g_hWnd) ShowWindow(g_hWnd, SW_HIDE);
+    if (g_hWnd && !IsCoreWindowOnly()) ShowWindow(g_hWnd, SW_HIDE);
     PushBallShellState();
     PushBallShellStatus();
 }
@@ -567,6 +574,10 @@ void CheckBallShellHealth() {
     } else if (g_ballShellProcess) {
         Log("BallShell disabled by config, shutting down");
         ShutdownBallShellProcess();
+        if (IsCoreWindowOnly()) {
+            Log("BallShell disabled while CoreWindow-only mode is active; legacy UI will be restored after restart");
+            return;
+        }
         if (g_hWnd) {
             ShowWindow(g_hWnd, SW_SHOWNOACTIVATE);
             RedrawBall();
@@ -820,6 +831,12 @@ void FastCommitBallExit() {
 }
 
 void OnStateChanged() {
+    if (IsCoreWindowOnly()) {
+        PushBallShellState();
+        PushBallShellStatus();
+        return;
+    }
+
     if (g_state == RECORDING) {
         UnsnapForRecording();
         g_tgtR = 239; g_tgtG = 68; g_tgtB = 68;
@@ -879,7 +896,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     }
     InitChildJob();
 
-    if (!BallInit(hInstance)) {
+    g_coreWindowOnly = ShouldUseBallShell();
+    bool uiInitOk = g_coreWindowOnly ? CoreWindowInit(hInstance) : BallInit(hInstance);
+    if (!uiInitOk) {
         RecorderCleanup();
         if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
         return 1;
@@ -891,7 +910,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         g_tgtR = 128; g_tgtG = 128; g_tgtB = 128;
         g_curPenR = 255; g_curPenG = 255; g_curPenB = 255;
         g_tgtPenR = 255; g_tgtPenG = 255; g_tgtPenB = 255;
-        RedrawBall();
+        if (!IsCoreWindowOnly()) RedrawBall();
         EnsureBallShellStarted();
         CreateThread(NULL, 0, [](LPVOID) -> DWORD {
             Sleep(30000);
@@ -945,7 +964,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     UnhookWindowsHookEx(hook);
     UnhookWindowsHookEx(mouseHook);
-    BallShutdown();
+    if (IsCoreWindowOnly()) CoreWindowShutdown();
+    else BallShutdown();
     RecorderCleanup();
 
     if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
