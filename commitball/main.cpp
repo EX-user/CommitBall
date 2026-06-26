@@ -837,45 +837,7 @@ void OnStateChanged() {
         return;
     }
 
-    if (g_state == RECORDING) {
-        UnsnapForRecording();
-        g_tgtR = 239; g_tgtG = 68; g_tgtB = 68;
-        g_tgtPenR = 180; g_tgtPenG = 30; g_tgtPenB = 30;
-        g_lastEyeTick = GetTickCount();
-        g_lastMouseMoveAt = g_lastEyeTick;
-        g_nextIdleLookAt = 0;
-        g_hasLastCursor = false;
-        g_pupilTargetAngle = 0.0f;
-        g_eyeTargetYaw = 0.0f;
-        g_eyeTargetPitch = 0.0f;
-        if (g_eyeModeEnabled) {
-            ScheduleNextBlink(g_lastEyeTick);
-            SetTimer(g_hWnd, IDT_BLINK, 33, NULL);
-        } else {
-            KillTimer(g_hWnd, IDT_BLINK);
-            g_eyelidProgress = 0.0f;
-            g_blinkActive = false;
-        }
-    } else {
-        ApplySnappedEdge();
-        g_tgtR = 59; g_tgtG = 130; g_tgtB = 246;
-        g_tgtPenR = 255; g_tgtPenG = 255; g_tgtPenB = 255;
-        KillTimer(g_hWnd, IDT_BLINK);
-        g_blinkDim = false;
-        g_eyelidProgress = 0.0f;
-        g_blinkActive = false;
-        g_pupilAngle = 0.0f;
-        g_pupilTargetAngle = 0.0f;
-        g_eyeYaw = 0.0f;
-        g_eyePitch = 0.0f;
-        g_eyeTargetYaw = 0.0f;
-        g_eyeTargetPitch = 0.0f;
-        g_lastMouseMoveAt = 0;
-        g_nextIdleLookAt = 0;
-        g_hasLastCursor = false;
-    }
-    SetTimer(g_hWnd, IDT_COLOR_ANIM, 16, NULL);
-    RedrawBall();
+    ApplyLegacyBallStateChange();
     PushBallShellState();
     PushBallShellStatus();
 }
