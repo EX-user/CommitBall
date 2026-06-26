@@ -1,4 +1,5 @@
 #pragma once
+#include "ball_shared.hpp"
 #include <windows.h>
 #include <string>
 
