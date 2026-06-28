@@ -134,7 +134,7 @@ namespace CommitBallAgent
 
             if (!Config.IsConfigured)
             {
-                AppendOutput("CommitBall Agent Terminal v0.2.0\n\n", "#FFFFFF");
+                AppendOutput("CommitBall Agent Terminal v0.2.1\n\n", "#FFFFFF");
                 AppendOutput("未检测到 API 配置。请使用 /vendor 命令配置：\n\n", "#E8915A");
                 AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
                 AppendOutput("常用提供商：\n");
@@ -261,7 +261,7 @@ namespace CommitBallAgent
 
         private void RenderSession(AgentTabState tab)
         {
-            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.0\n");
+            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.1\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
             foreach (var msg in tab.Session.Messages)
             {
@@ -309,7 +309,7 @@ namespace CommitBallAgent
                 });
             }
             var tab = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
-            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.0\n");
+            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.1\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
             return Task.FromResult(tab);
         }
@@ -331,7 +331,7 @@ namespace CommitBallAgent
             if (_tabs.Count == 0)
             {
                 var newTab = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
-                AppendOutput(newTab, $"CommitBall Agent Terminal v0.2.0\n");
+                AppendOutput(newTab, $"CommitBall Agent Terminal v0.2.1\n");
                 AppendOutput(newTab, FormatSessionHeader(newTab.Session));
             }
             else if (_activeTab == tab)
@@ -1242,7 +1242,7 @@ namespace CommitBallAgent
                 return continuation;
 
             continuation = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
-            AppendOutput(continuation, $"CommitBall Agent Terminal v0.2.0\n");
+            AppendOutput(continuation, $"CommitBall Agent Terminal v0.2.1\n");
             AppendOutput(continuation, FormatSessionHeader(continuation.Session));
             AppendOutput(continuation, $"[上一会话上下文已满，未执行的队列指令已转入此新会话]\n\n", "#E8915A");
             source.QueueContinuationTab = continuation;
@@ -1433,7 +1433,7 @@ namespace CommitBallAgent
             if (target == null)
             {
                 target = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
-                AppendOutput(target, $"CommitBall Agent Terminal v0.2.0\n");
+                AppendOutput(target, $"CommitBall Agent Terminal v0.2.1\n");
                 AppendOutput(target, FormatSessionHeader(target.Session));
             }
             else
