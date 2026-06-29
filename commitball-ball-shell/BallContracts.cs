@@ -6,8 +6,7 @@ namespace CommitBall_BallUiLab;
 public enum BallMode
 {
     Idle,
-    Recording,
-    NoAdmin
+    Recording
 }
 
 public enum BallEdge

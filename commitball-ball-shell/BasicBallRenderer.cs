@@ -18,7 +18,6 @@ public static class BasicBallRenderer
         var color = state.Mode switch
         {
             BallMode.Recording => Color.FromRgb(239, 68, 68),
-            BallMode.NoAdmin => Color.FromRgb(128, 128, 128),
             _ => Color.FromRgb(59, 130, 246)
         };
 
@@ -35,7 +34,7 @@ public static class BasicBallRenderer
             return;
         }
 
-        RenderTextSymbol(dc, center, state.Mode == BallMode.NoAdmin ? "?" : "▶", radius * 0.72);
+        RenderTextSymbol(dc, center, "▶", radius * 0.72);
     }
 
     private static void RenderPauseSymbol(DrawingContext dc, Point center, double radius)

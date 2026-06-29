@@ -179,10 +179,9 @@ public sealed class PipeBallBackend : IDisposable
             return;
         }
 
-        var mode = msg.NoAdmin ? BallMode.NoAdmin : msg.Mode switch
+        var mode = msg.Mode switch
         {
             "recording" => BallMode.Recording,
-            "noadmin" => BallMode.NoAdmin,
             _ => BallMode.Idle
         };
         State = new BallRuntimeState(mode, msg.EyeEnabled, msg.IsMouseIdle, State.BubbleText);
@@ -197,7 +196,7 @@ public sealed class PipeBallBackend : IDisposable
             State = State with { BubbleText = msg.Text };
             _ = Task.Run(async () =>
             {
-                await Task.Delay(2600).ConfigureAwait(false);
+                await Task.Delay(10000).ConfigureAwait(false);
                 Application.Current.Dispatcher.Invoke(() =>
                 {
                     if (_bubbleVersion == version)
@@ -233,7 +232,7 @@ public sealed class PipeBallBackend : IDisposable
         }
     }
 
-    private sealed record StateMessage(string Mode, bool EyeEnabled, bool IsMouseIdle, bool NoAdmin);
+    private sealed record StateMessage(string Mode, bool EyeEnabled, bool IsMouseIdle);
     private sealed record BubbleMessage(string Text);
     private sealed record StatusMessage(string? Recording, string? Db, string? Bar, string? Agent);
 

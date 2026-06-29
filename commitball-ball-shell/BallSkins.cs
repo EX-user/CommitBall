@@ -38,11 +38,6 @@ public sealed class SoftEyeSkin : IBallSkin
                 Color.FromArgb(128, 255, 142, 154),
                 Colors.White,
                 11.0),
-            BallMode.NoAdmin => new BallBubbleStyle(
-                Color.FromRgb(37, 39, 46),
-                Color.FromArgb(112, 190, 194, 206),
-                Color.FromRgb(246, 247, 250),
-                11.0),
             _ => new BallBubbleStyle(
                 Color.FromRgb(22, 38, 66),
                 Color.FromArgb(120, 134, 185, 255),
@@ -61,11 +56,10 @@ public sealed class SoftEyeSkin : IBallSkin
         var fill = state.Mode switch
         {
             BallMode.Recording => Color.FromRgb(237, 74, 84),
-            BallMode.NoAdmin => Color.FromRgb(125, 128, 138),
             _ => Color.FromRgb(55, 132, 236)
         };
 
-        var glow = state.Mode == BallMode.NoAdmin ? 0.22 : 0.42 + pulse * 0.58;
+        var glow = 0.42 + pulse * 0.58;
         var shadowBrush = new RadialGradientBrush(
             Color.FromArgb((byte)(95 * glow), fill.R, fill.G, fill.B),
             Colors.Transparent)
@@ -158,11 +152,6 @@ public sealed class HaloEyeSkin : IBallSkin
                 Color.FromArgb(132, 255, 112, 156),
                 Color.FromRgb(255, 248, 252),
                 14.0),
-            BallMode.NoAdmin => new BallBubbleStyle(
-                Color.FromRgb(35, 37, 45),
-                Color.FromArgb(110, 165, 171, 188),
-                Color.FromRgb(246, 247, 250),
-                14.0),
             _ => new BallBubbleStyle(
                 Color.FromRgb(24, 32, 56),
                 Color.FromArgb(125, 115, 178, 255),
@@ -178,7 +167,6 @@ public sealed class HaloEyeSkin : IBallSkin
         var radius = Math.Min(bounds.Width, bounds.Height) * 0.35;
         var baseColor = state.Mode switch
         {
-            BallMode.NoAdmin => Color.FromRgb(129, 133, 144),
             BallMode.Idle => Color.FromRgb(77, 144, 234),
             _ => Color.FromRgb(238, 70, 87)
         };
@@ -249,11 +237,6 @@ public sealed class EyeOfCommitSkin : IBallSkin
                 Color.FromRgb(43, 20, 25),
                 Color.FromArgb(136, 203, 63, 72),
                 Color.FromRgb(255, 242, 238),
-                10.0),
-            BallMode.NoAdmin => new BallBubbleStyle(
-                Color.FromRgb(37, 34, 38),
-                Color.FromArgb(112, 154, 145, 148),
-                Color.FromRgb(240, 237, 238),
                 10.0),
             _ => new BallBubbleStyle(
                 Color.FromRgb(32, 28, 38),
@@ -329,16 +312,7 @@ public sealed class EyeOfCommitSkin : IBallSkin
             pupilScaleX,
             pupilScaleY);
 
-        if (state.Mode == BallMode.NoAdmin)
-        {
-            dc.DrawEllipse(
-                new SolidColorBrush(Color.FromArgb(118, 70, 72, 78)),
-                null,
-                center,
-                radius * 0.92,
-                radius * 0.80);
-        }
-        else if (state.Mode == BallMode.Idle)
+        if (state.Mode == BallMode.Idle)
         {
             dc.DrawEllipse(
                 new SolidColorBrush(Color.FromArgb(44, 50, 28, 42)),
@@ -583,11 +557,6 @@ public sealed class ClassicSkin : IBallSkin
                 Color.FromArgb(92, 255, 255, 255),
                 Colors.White,
                 9.0),
-            BallMode.NoAdmin => new BallBubbleStyle(
-                Color.FromRgb(38, 40, 45),
-                Color.FromArgb(86, 255, 255, 255),
-                Colors.White,
-                9.0),
             _ => BasicBallRenderer.DefaultBubbleStyle
         };
     }
@@ -602,7 +571,6 @@ public sealed class ClassicSkin : IBallSkin
         var color = state.Mode switch
         {
             BallMode.Recording => Color.FromRgb(239, 68, 68),
-            BallMode.NoAdmin => Color.FromRgb(128, 128, 128),
             _ => Color.FromRgb(59, 130, 246)
         };
 

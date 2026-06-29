@@ -29,7 +29,6 @@
 当前 Core 状态和命令主要集中在 `commitball/main.cpp` 与 `commitball/recorder.hpp`：
 
 - `g_state`：记录/停止。
-- `g_noAdmin`：权限状态。
 - `g_eyeModeEnabled`：眼睛模式。
 - `GetDbInfoText`、`GetBarStatusText`、`GetAgentStatusText`：菜单状态。
 - `SendShowLockedToBar`、`SendShowToAgent`、`InvokeAgentAnalyse`、`FastCommitBallExit`：菜单命令。
@@ -137,11 +136,11 @@ WINDOW_STATE {"x":1280,"y":860,"edge":"right","visible":true}
    - BallShell 实现 `NamedPipeBallBackend`，接收状态并更新窗口。
    - BallShell 菜单通过 pipe 发回 `COMMAND`。
 
-4. 做旁路运行开关。
-   - 第一版保留 C++ GDI 悬浮球。
-   - 加一个编译开关或配置 `use_ball_shell`。
-   - 开启时隐藏或不创建 C++ 悬浮球窗口，只启动 BallShell。
-   - 关闭时维持当前逻辑，便于回退。
+4. 固定 BallShell 为默认 UI 路径。
+   - 正常启动时只创建 Core 隐藏窗口和 `CommitBall-BallShell.exe`。
+   - 不再通过 `use_ball_shell` 配置或运行时指令切换 UI 实现。
+   - 仅保留 `data/disable-ball-shell.flag` 作为开发排错逃生开关。
+   - 逃生开关启用时才回到旧 C++ GDI 悬浮球。
 
 5. 转移 UI 行为。
    - 右键菜单迁到 BallShell。
@@ -165,7 +164,7 @@ WINDOW_STATE {"x":1280,"y":860,"edge":"right","visible":true}
 - SQLite、live.txt、session split、exports、meta 生成。
 - Agent/Bar 启动和真实命令执行。
 - 退出前 flush、checkpoint、job object 和兜底 taskkill。
-- 管理员权限判断。
+- 管理员权限由 manifest 的 `requireAdministrator` 负责；拒绝 UAC 时进程不进入正常 UI。
 
 ## 第一阶段验收标准
 
@@ -177,7 +176,7 @@ WINDOW_STATE {"x":1280,"y":860,"edge":"right","visible":true}
 - 右键菜单命令能打开数据目录、live 文本、Bar、Agent，并能触发 Agent 分析和退出。
 - Agent `show_ball_bubble` 触发的气泡显示在 C# 球旁边，且不越出屏幕。
 - 退出 CommitBall 后 BallShell、Bar、Agent 都退出。
-- 关闭 `use_ball_shell` 后能回到当前 C++ 悬浮球，便于排错。
+- 创建 `data/disable-ball-shell.flag` 后能回到旧 C++ 悬浮球，便于排错。
 
 ## 风险点
 
@@ -190,12 +189,9 @@ WINDOW_STATE {"x":1280,"y":860,"edge":"right","visible":true}
 
 ## 建议下一步
 
-下一步先做“旁路 BallShell”：
+下一步清理旧 UI 代码：
 
-1. 新建 `CommitBall/commitball-ball-shell` 项目。
-2. 从实验项目复制 UI 层代码和素材。
-3. 实现一个最小 pipe 后端，只支持 `STATE`、`BUBBLE`、`COMMAND`。
-4. Core 启动 BallShell，但默认仍保留 C++ 球。
-5. 用配置或编译开关切换到 BallShell。
-
-这样可以先验证窗口、pipe、菜单和退出链路，再决定是否删除 C++ GDI 悬浮球代码。
+1. 先用安装包验证默认启动、拒绝 UAC 时不进入正常运行、退出、BallShell 崩溃重启和 `disable-ball-shell.flag` fallback。
+2. 验证稳定后删除 `ball_legacy.hpp` 中不再使用的 GDI 绘制、旧气泡、旧菜单和旧动画。
+3. 将 `ball.hpp` 改为只暴露必要的 Core/UI 边界，或者直接移除旧 UI 头文件依赖。
+4. 保留 `core_window.hpp` 作为 Core 消息泵和 timer 宿主。
