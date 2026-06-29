@@ -39,7 +39,7 @@ namespace CommitBallAgent
             var renameSessionDef = "{\"type\":\"function\",\"function\":{\"name\":\"rename_session\",\"description\":\"Rename the current Agent conversation tab/session when the topic is clear or has changed. Use a concise title around 20 Chinese characters or 80 English characters.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\",\"description\":\"Concise session title\"}},\"required\":[\"title\"]}}}";
             var setBarTriggerDef = "{\"type\":\"function\",\"function\":{\"name\":\"set_bar_trigger\",\"description\":\"Set the CommitBall Bar wake trigger sequence. Equivalent to the old Bar /trigger command. Use only when the user asks to change the Bar wake sequence.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"trigger\":{\"type\":\"string\",\"description\":\"Wake sequence, length 1-10, ASCII letters/digits or one of \\\\ ; / ` [ ] - = , .\"}},\"required\":[\"trigger\"]}}}";
             var setEyeModeDef = "{\"type\":\"function\",\"function\":{\"name\":\"set_eye_mode\",\"description\":\"Turn CommitBall Ball eye mode on, off, or toggle it. Equivalent to the old Bar /eye command.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"mode\":{\"type\":\"string\",\"enum\":[\"on\",\"off\",\"toggle\"],\"description\":\"Desired eye mode\"}},\"required\":[\"mode\"]}}}";
-            var repairArchivesDef = "{\"type\":\"function\",\"function\":{\"name\":\"repair_archives\",\"description\":\"Repair archive data in the current Agent session: scan data/sessions, export missing txt files, regenerate missing/stale meta and focus cluster files, then queue missing archive agent analysis tasks in this same session. Does not create new tabs.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
+            var repairArchivesDef = "{\"type\":\"function\",\"function\":{\"name\":\"repair_archives\",\"description\":\"Run machine-only archive repair: scan data/sessions, export missing txt files, and generate missing meta/cluster files. Existing meta.json files are never regenerated or modified. This tool does not perform model analysis and does not queue tasks.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
             var showBallBubbleDef = "{\"type\":\"function\",\"function\":{\"name\":\"show_ball_bubble\",\"description\":\"Show a short plain-text message bubble from the CommitBall floating ball. Use it to notify the user about results of commands, especially commands received from CommitBall Bar's 指令 mode. Avoid emoji and decorative symbols because the bubble renderer is optimized for plain text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\",\"description\":\"Short plain-text user-facing message, preferably under 40 Chinese characters or 100 English characters, without emoji\"}},\"required\":[\"message\"]}}}";
             var pwdDef = "{\"type\":\"function\",\"function\":{\"name\":\"pwd\",\"description\":\"Returns the directory where CommitBall-Agent.exe is located.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
             var subtaskDef = "{\"type\":\"function\",\"function\":{\"name\":\"subtask\",\"description\":\"Launch a sub-task session to accomplish a complex goal. The sub-task has its own conversation and can use list/read/write tools. Returns the final result.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"The task description for the sub-task to accomplish\"}},\"required\":[\"prompt\"]}}}";
@@ -63,7 +63,7 @@ namespace CommitBallAgent
                    "Use the list tool to explore available files before reading them. " +
                    "All file operations are scoped to data/. " +
                    "When the conversation topic becomes clear, or when the user's topic changes materially, call rename_session to keep the current Agent tab title accurate. Use a concise human-readable title around 20 Chinese characters or 80 English characters. " +
-                   "Users may send natural-language control commands from CommitBall Bar's 指令 mode. For Bar/Ball controls, use the dedicated tools instead of asking the user to type slash commands: set_bar_trigger for wake sequence changes, set_eye_mode for eye mode, and repair_archives for archive repair. repair_archives scans data/sessions, fills missing txt/meta/cluster files, and queues missing agent analysis in the current tab. If a request came from CommitBall Bar's 指令 mode, call show_ball_bubble with a short plain-text result message without emoji so the user gets feedback from the floating ball. " +
+                   "Users may send natural-language control commands from CommitBall Bar's 指令 mode. For Bar/Ball controls, use the dedicated tools instead of asking the user to type slash commands: set_bar_trigger for wake sequence changes, set_eye_mode for eye mode, and repair_archives for machine-only archive file repair. repair_archives scans data/sessions, exports missing txt files, and creates missing meta/cluster files without modifying existing meta.json files. If a request came from CommitBall Bar's 指令 mode, call show_ball_bubble with a short plain-text result message without emoji so the user gets feedback from the floating ball. " +
                    "Keep data/agent-out organized: keep panel.html and panel-template.html at the root; use display_panel to update panel.html; maintain long-term memory only in memory/summary_task_exp_decay_memory.md; treat root summary_task_exp_decay_memory.md as legacy read-only compatibility data; write new reports to reports/YYYY-MM/, extracted persistent notes to extracts/YYYY-MM/, reminders to reminders/YYYY-MM/, user-facing replies to responses/YYYY-MM/, analysis artifacts to analysis/YYYY-MM/, temporary files to scratch/YYYY-MM/, and auxiliary memory files to memory/. " +
                    "If data/agent-out/memory/summary_task_exp_decay_memory.md exists, read it for background context on the user's recent activities. " +
                    "If it doesn't exist but data/agent-out/summary_task_exp_decay_memory.md exists, you may read the root file once as legacy context and then write any updated memory to memory/summary_task_exp_decay_memory.md. " +
@@ -129,7 +129,15 @@ namespace CommitBallAgent
 
         private static string ExecuteRepairArchives()
         {
-            return "Error: repair_archives must run inside the current Agent window session";
+            try
+            {
+                return ArchiveRepair.RepairFiles().ToString();
+            }
+            catch (Exception ex)
+            {
+                AgentWindow.Log("repair_archives failed: " + ex);
+                return "Error: repair_archives failed: " + ex.Message;
+            }
         }
 
         private static string ExecuteShowBallBubble(JsonObject args)

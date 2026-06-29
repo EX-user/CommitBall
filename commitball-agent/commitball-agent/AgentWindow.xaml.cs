@@ -488,8 +488,7 @@ namespace CommitBallAgent
                     AppendOutput(tab, "  /session   List and switch sessions\n");
                     AppendOutput(tab, "  /analyse          Analyse live.txt work log (subtask mode)\n");
                     AppendOutput(tab, "  /summary_to_panel Analyse + panel in one pass (single task)\n");
-                    AppendOutput(tab, "  /name_archive     Improve one archive .meta.json title/tags/summary\n");
-                    AppendOutput(tab, "  /repair_archives  Complete missing archive txt/meta/agent analysis\n");
+                    AppendOutput(tab, "  /repair_archives  Repair archive files and guide meta analysis\n");
                     AppendOutput(tab, "  /organize_agent_out Organize agent-out files and rebuild index.json\n");
                     AppendOutput(tab, "  /vendor           Show or update API config\n");
                     AppendOutput(tab, "\n");
@@ -605,7 +604,7 @@ namespace CommitBallAgent
                 if (text.Length > "/analyse".Length)
                     prompt += "\n\n" + text.Substring("/analyse".Length).Trim();
 
-                AppendOutput(tab, $"> /analyse\n", "#FFFFFF");
+                AppendPromptInput(tab, prompt);
                 _ = RunChatAsync(tab, prompt);
                 return;
             }
@@ -622,7 +621,7 @@ namespace CommitBallAgent
                 if (text.Length > "/analyse_st".Length)
                     prompt += "\n\n" + text.Substring("/analyse_st".Length).Trim();
 
-                AppendOutput(tab, $"> /analyse_st\n", "#FFFFFF");
+                AppendPromptInput(tab, prompt);
                 _ = RunChatAsync(tab, prompt);
                 return;
             }
@@ -636,49 +635,35 @@ namespace CommitBallAgent
                 else
                     prompt = "Error: summary_to_panel-prompt.md not found";
 
-                AppendOutput(tab, $"> /summary_to_panel\n", "#FFFFFF");
+                AppendPromptInput(tab, prompt);
                 _ = RunChatAsync(tab, prompt);
                 return;
             }
 
             if (text == "/repair_archives")
             {
-                RepairArchiveAnalysis(tab);
-                return;
-            }
-
-            if (text.StartsWith("/name_archive ", StringComparison.OrdinalIgnoreCase))
-            {
-                var args = text.Substring("/name_archive ".Length)
-                    .Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
-                if (args.Length < 2)
-                {
-                    AppendOutput(tab, "\nUsage: /name_archive exports/YYYY-MM/file.txt exports/YYYY-MM/file.meta.json\n\n", "#E8915A");
-                    return;
-                }
-
-                var txtFile = args[0].Replace('\\', '/');
-                var metaFile = args[1].Replace('\\', '/');
                 var prompt =
-                    "你正在为 CommitBall 归档 session 生成更准确的标题、工作维度标签、整体摘要和按应用聚类的独立总结。\n" +
+                    "现在开始 CommitBall 归档修复和 meta 模型分析任务。\n" +
                     "请严格按以下步骤执行：\n" +
-                    $"1. 使用 read 工具读取 `{metaFile}`，了解现有字段，尤其是 cluster_dir 和 clusters 数组；rule_summary 只是规则摘录，不要直接当成最终摘要。\n" +
-                    $"2. 使用 read 工具读取 `{txtFile}`，必要时分段读取，重点关注 direct 输入、focus 窗口、timer 分段和实际工作内容。\n" +
-                    "3. 对 meta.clusters 中每个重要 cluster，使用 read 工具读取它的 txt_path。每个 cluster 表示同一应用/process 下按时间顺序归并的操作。\n" +
-                    "4. 为每个 cluster 生成独立总结：用户在这个应用里做了什么、可能想做什么、需要提醒用户什么。必须基于 cluster 文件内容，不要猜测不存在的事实。\n" +
-                    "5. 生成一个不超过 30 个中文字符或 80 个英文字符的 title。\n" +
-                    "6. 生成 3-6 个 work_tags，标签应体现工作维度，而不是泛泛的软件名；可包含项目名、任务类型、文档/代码/测试/调试等维度。\n" +
-                    "7. 生成 1-3 句话 summary，必须由你阅读导出文本和 cluster 后总结，忠实于内容，不要猜测不存在的工作。\n" +
-                    $"8. 调用 update_meta 工具更新 `{metaFile}`，参数必须包含 title、work_tags、summary；如果读取了 cluster，还要传入 cluster_summaries 数组，cluster_id 使用 meta 中的 id。\n" +
-                    "9. 不要使用 write 工具覆盖 meta。最后简短说明已更新的 title、tags 和 cluster 数量。\n";
+                    "1. 先调用 repair_archives 工具。这个工具只做机器修复：扫描 data/sessions，导出缺失 txt，生成缺失 meta/cluster；如果对应 meta.json 已存在，工具不会修改它。\n" +
+                    "2. 使用 list 工具查看 exports/，递归定位所有 *.meta.json；必要时按 YYYY-MM 子目录逐个 list。\n" +
+                    "3. 逐个检查 meta 是否已经有模型总结信息。判定为已完成的条件是：summary_source 为 agent，summary 非空；如果 clusters 存在，重要 cluster 也应有 summary_source=agent 且 agent_summary 非空。\n" +
+                    "4. 对没有完成模型总结的 meta，调用 subtask。每个 subtask 负责一个 meta 文件：读取该 meta，读取 txt_path 指向的导出文本，读取 clusters 中重要 cluster 的 txt_path，然后调用 update_meta 更新 title、work_tags、summary 和必要的 cluster_summaries。\n" +
+                    "5. subtask 必须基于 read 读到的内容总结，不要猜测不存在的事实；不要用 write 覆盖 meta，只能用 update_meta。\n" +
+                    "6. 所有待处理 meta 都完成后，给出简短结果：机器修复结果、检查了多少 meta、更新了多少 meta、跳过了多少已完成 meta。\n";
 
-                AppendOutput(tab, $"> /name_archive {txtFile} {metaFile}\n", "#FFFFFF");
+                AppendPromptInput(tab, prompt);
                 _ = RunChatAsync(tab, prompt);
                 return;
             }
 
             AppendOutput(tab, $"> {text}\n", "#FFFFFF");
             _ = RunChatAsync(tab, text);
+        }
+
+        private void AppendPromptInput(AgentTabState tab, string prompt)
+        {
+            AppendOutput(tab, $"> {prompt}\n", "#FFFFFF");
         }
 
         private void OrganizeAgentOut(AgentTabState tab)
@@ -864,127 +849,6 @@ namespace CommitBallAgent
             return category;
         }
 
-        private string RepairArchiveAnalysis(AgentTabState tab)
-        {
-            ArchiveRepairResult repairResult;
-            try
-            {
-                repairResult = ArchiveRepair.RepairFiles();
-                AppendOutput(tab, "\n" + repairResult + "\n", "#6ECF6E");
-                foreach (var error in repairResult.Errors.Take(5))
-                    AppendOutput(tab, $"Archive file repair error: {error}\n", "#E8915A");
-                if (repairResult.Errors.Count > 5)
-                    AppendOutput(tab, $"... {repairResult.Errors.Count - 5} more archive repair errors omitted\n", "#E8915A");
-            }
-            catch (Exception ex)
-            {
-                AppendOutput(tab, $"\nArchive file repair failed: {ex.Message}\n", "#E8915A");
-            }
-
-            var exportDir = Path.Combine(Config.DataDir, "exports");
-            if (!Directory.Exists(exportDir))
-            {
-                AppendOutput(tab, "\nNo exports directory found.\n\n", "#E8915A");
-                return "No exports directory found";
-            }
-
-            var pending = new List<string>();
-            foreach (var metaPath in Directory.GetFiles(exportDir, "*.meta.json", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    if (IsArchiveAgentComplete(metaPath)) continue;
-                    var metaRel = ToDataRelativePath(metaPath);
-                    var txtRel = GetArchiveTxtPath(metaPath);
-                    if (string.IsNullOrWhiteSpace(txtRel))
-                    {
-                        AppendOutput(tab, $"Archive missing txt_path: {metaRel}\n", "#E8915A");
-                        continue;
-                    }
-                    pending.Add($"/name_archive {txtRel} {metaRel}");
-                }
-                catch (Exception ex)
-                {
-                    AppendOutput(tab, $"Archive scan error: {Path.GetFileName(metaPath)} {ex.Message}\n", "#E8915A");
-                }
-            }
-
-            if (pending.Count == 0)
-            {
-                AppendOutput(tab, "\nArchives already have agent analysis.\n\n", "#6ECF6E");
-                return "Archives already have agent analysis";
-            }
-
-            EnqueueInvokeForTab(tab, pending);
-            AppendOutput(tab, $"\nQueued archive agent analysis in current session: {pending.Count}\n\n", "#6ECF6E");
-            return $"Queued archive agent analysis in current session: {pending.Count}";
-        }
-
-        private static bool IsArchiveAgentComplete(string metaPath)
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(metaPath));
-            var root = doc.RootElement;
-            var sourceOk = root.TryGetProperty("source", out var source) && source.GetString() == "agent";
-            var summaryOk = root.TryGetProperty("summary_source", out var summarySource) && summarySource.GetString() == "agent" &&
-                root.TryGetProperty("summary", out var summary) && !string.IsNullOrWhiteSpace(summary.GetString());
-            if (!sourceOk || !summaryOk) return false;
-
-            if (root.TryGetProperty("clusters", out var clusters) && clusters.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var cluster in clusters.EnumerateArray())
-                {
-                    var eventCount = cluster.TryGetProperty("event_count", out var count) && count.ValueKind == JsonValueKind.Number
-                        ? count.GetInt32()
-                        : 0;
-                    if (eventCount <= 0) continue;
-                    var hasSummary = cluster.TryGetProperty("summary_source", out var clusterSource) && clusterSource.GetString() == "agent" &&
-                        cluster.TryGetProperty("agent_summary", out var agentSummary) && !string.IsNullOrWhiteSpace(agentSummary.GetString());
-                    if (!hasSummary) return false;
-                }
-            }
-            return true;
-        }
-
-        private static string GetArchiveTxtPath(string metaPath)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(File.ReadAllText(metaPath));
-                var root = doc.RootElement;
-                if (root.TryGetProperty("txt_path", out var txtPath))
-                {
-                    var rel = NormalizeDataRelativePath(txtPath.GetString() ?? "");
-                    if (!string.IsNullOrWhiteSpace(rel)) return rel;
-                }
-            }
-            catch { }
-
-            var filename = Path.GetFileName(metaPath);
-            if (filename.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
-            {
-                var txt = metaPath[..^".meta.json".Length] + ".txt";
-                return ToDataRelativePath(txt);
-            }
-            return "";
-        }
-
-        private static string ToDataRelativePath(string path)
-        {
-            var full = Path.GetFullPath(path);
-            var baseDir = Path.GetFullPath(Config.DataDir);
-            if (full.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase))
-                return full[baseDir.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
-            return NormalizeDataRelativePath(path);
-        }
-
-        private static string NormalizeDataRelativePath(string path)
-        {
-            var rel = path.Replace('\\', '/').TrimStart('/');
-            if (rel.StartsWith("data/", StringComparison.OrdinalIgnoreCase))
-                rel = rel[5..];
-            return rel;
-        }
-
         private void EnterSessionMenu(AgentTabState tab)
         {
             tab.IsInSessionMenu = true;
@@ -1132,15 +996,6 @@ namespace CommitBallAgent
                         var used = promptTokens + completionTokens;
                         if (used > maxContextTokens)
                             maxContextTokens = used;
-                    },
-                    onRepairArchives: () =>
-                    {
-                        var result = "";
-                        if (Dispatcher.CheckAccess())
-                            result = RepairArchiveAnalysis(tab);
-                        else
-                            Dispatcher.Invoke(() => result = RepairArchiveAnalysis(tab));
-                        return result;
                     });
             }
             catch (OperationCanceledException)

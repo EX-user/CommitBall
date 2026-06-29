@@ -19,8 +19,7 @@ namespace CommitBallAgent
             Action<string?> onSubtaskProgress,
             CancellationToken ct,
             bool isSubtask = false,
-            Action<int, int>? onUsage = null,
-            Func<string>? onRepairArchives = null)
+            Action<int, int>? onUsage = null)
         {
             session.Messages.Add(new Message { Role = "user", Content = userInput });
 
@@ -146,10 +145,7 @@ namespace CommitBallAgent
                         try
                         {
                             var args = JsonNode.Parse(argsStr)?.AsObject() ?? new JsonObject();
-                            if (tc.Name == "repair_archives" && onRepairArchives != null)
-                                result = onRepairArchives();
-                            else
-                                result = Tools.Execute(tc.Name, args, session);
+                            result = Tools.Execute(tc.Name, args, session);
                             isError = result.StartsWith("Error") || result.StartsWith("File not found") ||
                                       result.StartsWith("Cannot read") || result.StartsWith("Unknown tool") ||
                                       result.StartsWith("Directory not found") ||
@@ -229,6 +225,17 @@ namespace CommitBallAgent
                     return $"rename_session({Truncate(title, 40)})";
                 }
                 catch { }
+            }
+            if (name == "display_panel")
+            {
+                try
+                {
+                    var args = JsonNode.Parse(argsStr)?.AsObject();
+                    var html = args?["html"]?.GetValue<string>() ?? "";
+                    var lines = string.IsNullOrEmpty(html) ? 0 : html.Split('\n').Length;
+                    return $"display_panel({lines} lines, {html.Length} chars)";
+                }
+                catch { return "display_panel()"; }
             }
             if (name == "set_bar_trigger" || name == "set_eye_mode" || name == "repair_archives" || name == "show_ball_bubble")
             {

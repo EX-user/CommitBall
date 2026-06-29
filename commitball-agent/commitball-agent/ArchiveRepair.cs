@@ -93,19 +93,12 @@ namespace CommitBallAgent
                 AgentWindow.Log("Archive repair exported txt: " + txtPath);
             }
 
-            var needMeta = !File.Exists(metaPath) ||
-                !Directory.Exists(clusterDir) ||
-                !Directory.EnumerateFiles(clusterDir).Any() ||
-                !TextFileContains(metaPath, "\"clusters\"") ||
-                !TextFileContains(metaPath, "\"cluster_strategy\": \"process\"") ||
-                TextFileContains(metaPath, "\"event_counts\"");
-
-            if (needMeta)
+            if (!File.Exists(metaPath))
             {
                 GenerateSessionMetadata(sessionId, dbPath, txtPath, metaPath);
                 result.MetaFixed++;
                 result.ClusterFixed++;
-                AgentWindow.Log("Archive repair regenerated meta/clusters: " + metaPath);
+                AgentWindow.Log("Archive repair generated missing meta/clusters: " + metaPath);
             }
         }
 
