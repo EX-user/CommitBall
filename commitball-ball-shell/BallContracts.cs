@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 
-namespace CommitBall_BallUiLab;
+namespace CommitBallBallShell;
 
 public enum BallMode
 {

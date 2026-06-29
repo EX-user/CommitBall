@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Windows;
 
-namespace CommitBall_BallUiLab;
+namespace CommitBallBallShell;
 
 public sealed class PipeBallBackend : IDisposable
 {

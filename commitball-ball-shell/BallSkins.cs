@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-namespace CommitBall_BallUiLab;
+namespace CommitBallBallShell;
 
 public sealed class BallSkinCatalog : IBallSkinCatalog
 {

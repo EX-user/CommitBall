@@ -1,10 +1,17 @@
 using System.Windows;
 using System.Windows.Media;
 
-namespace CommitBall_BallUiLab;
+namespace CommitBallBallShell;
 
 public static class BasicBallRenderer
 {
+    private const double BubbleMargin = 8.0;
+    private const double BubbleGap = 10.0;
+    private const double BubblePaddingX = 12.0;
+    private const double BubblePaddingY = 11.0;
+    private const double BubbleMinWidth = 120.0;
+    private const double BubbleMaxWidth = 360.0;
+
     public static readonly BallBubbleStyle DefaultBubbleStyle = new(
         Color.FromRgb(30, 37, 50),
         Color.FromArgb(80, 255, 255, 255),
@@ -72,30 +79,38 @@ public static class BasicBallRenderer
 
     public static Rect CalculateBubbleBounds(Rect viewport, Rect anchor, double progress)
     {
+        return CalculateBubbleBounds(viewport, anchor, progress, "", DefaultBubbleStyle);
+    }
+
+    public static Rect CalculateBubbleBounds(Rect viewport, Rect anchor, double progress, string text, BallBubbleStyle style)
+    {
         progress = Math.Clamp(progress, 0.0, 1.0);
-        const double margin = 8.0;
-        const double gap = 10.0;
-        if (viewport.Width <= margin * 2 + 24.0 || viewport.Height <= margin * 2 + 24.0)
+        if (viewport.Width <= BubbleMargin * 2 + 24.0 || viewport.Height <= BubbleMargin * 2 + 24.0)
         {
             return Rect.Empty;
         }
 
-        var availableWidth = Math.Max(24.0, viewport.Width - margin * 2);
-        var width = Math.Min(230.0, availableWidth);
-        const double height = 46.0;
-        if (viewport.Height <= height + margin * 2)
+        var availableWidth = Math.Max(24.0, viewport.Width - BubbleMargin * 2);
+        var maxTextWidth = Math.Max(24.0, Math.Min(BubbleMaxWidth, availableWidth) - BubblePaddingX * 2);
+        var measured = MeasureBubbleText(text, maxTextWidth, style);
+        var width = Math.Clamp(measured.Width + BubblePaddingX * 2, BubbleMinWidth, Math.Min(BubbleMaxWidth, availableWidth));
+        var finalTextWidth = Math.Max(24.0, width - BubblePaddingX * 2);
+        measured = MeasureBubbleText(text, finalTextWidth, style);
+        var height = measured.Height + BubblePaddingY * 2;
+        var maxHeight = Math.Max(24.0, viewport.Height - BubbleMargin * 2);
+        if (height > maxHeight)
         {
-            return Rect.Empty;
+            height = maxHeight;
         }
 
-        var rightX = anchor.Right + gap;
-        var leftX = anchor.Left - gap - width;
+        var rightX = anchor.Right + BubbleGap;
+        var leftX = anchor.Left - BubbleGap - width;
         double x;
-        if (rightX + width <= viewport.Right - margin)
+        if (rightX + width <= viewport.Right - BubbleMargin)
         {
             x = rightX;
         }
-        else if (leftX >= viewport.Left + margin)
+        else if (leftX >= viewport.Left + BubbleMargin)
         {
             x = leftX;
         }
@@ -107,15 +122,15 @@ public static class BasicBallRenderer
         }
 
         var y = anchor.Top + 16 - (1.0 - progress) * 6;
-        x = ClampToRange(x, viewport.Left + margin, viewport.Right - margin - width);
-        y = ClampToRange(y, viewport.Top + margin, viewport.Bottom - margin - height);
+        x = ClampToRange(x, viewport.Left + BubbleMargin, viewport.Right - BubbleMargin - width);
+        y = ClampToRange(y, viewport.Top + BubbleMargin, viewport.Bottom - BubbleMargin - height);
         return new Rect(x, y, width, height);
     }
 
     public static void RenderBubble(DrawingContext dc, Rect viewport, Rect anchor, string text, double progress, BallBubbleStyle style)
     {
         progress = Math.Clamp(progress, 0.0, 1.0);
-        var box = CalculateBubbleBounds(viewport, anchor, progress);
+        var box = CalculateBubbleBounds(viewport, anchor, progress, text, style);
         if (box.IsEmpty || box.Width <= 0 || box.Height <= 0)
         {
             return;
@@ -155,11 +170,28 @@ public static class BasicBallRenderer
             textBrush,
             1.25)
         {
-            MaxTextWidth = box.Width - 24,
-            MaxTextHeight = box.Height - 12,
-            Trimming = TextTrimming.CharacterEllipsis
+            MaxTextWidth = Math.Max(24.0, box.Width - BubblePaddingX * 2),
+            MaxTextHeight = Math.Max(12.0, box.Height - BubblePaddingY * 2),
+            Trimming = TextTrimming.None
         };
-        dc.DrawText(ft, new Point(box.Left + 12, box.Top + 13));
+        dc.DrawText(ft, new Point(box.Left + BubblePaddingX, box.Top + BubblePaddingY));
+    }
+
+    private static FormattedText MeasureBubbleText(string text, double maxTextWidth, BallBubbleStyle style)
+    {
+        var ft = new FormattedText(
+            string.IsNullOrEmpty(text) ? " " : text,
+            System.Globalization.CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface(new FontFamily("Microsoft YaHei UI"), FontStyles.Normal, FontWeights.Medium, FontStretches.Normal),
+            13,
+            new SolidColorBrush(style.Text),
+            1.25)
+        {
+            MaxTextWidth = Math.Max(24.0, maxTextWidth),
+            Trimming = TextTrimming.None
+        };
+        return ft;
     }
 
     private static Color WithProgressAlpha(Color color, byte fallbackAlpha, double progress)

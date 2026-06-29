@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace CommitBall_BallUiLab;
+namespace CommitBallBallShell;
 
 public sealed class SpringBallAnimator : IBallAnimator
 {

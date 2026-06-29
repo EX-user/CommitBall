@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace CommitBall_BallUiLab;
+namespace CommitBallBallShell;
 
 public partial class App : Application
 {

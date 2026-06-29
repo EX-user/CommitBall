@@ -7,16 +7,18 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 
-namespace CommitBall_BallUiLab;
+namespace CommitBallBallShell;
 
 public sealed class BallWindow : Window
 {
     private const double BallSize = 86.0;
-    private const double WindowWidth = 344.0;
+    private const double WindowWidth = 124.0;
     private const double WindowHeight = 124.0;
     private readonly BallSurface _surface;
     private readonly PipeBallBackend _backend;
     private readonly DispatcherTimer _topmostTimer;
+    private readonly DispatcherTimer _bubbleTimer;
+    private BubbleWindow? _bubbleWindow;
     private BallEdge _snappedEdge = BallEdge.None;
     private ContextMenu? _openMenu;
 
@@ -42,6 +44,11 @@ public sealed class BallWindow : Window
             Interval = TimeSpan.FromSeconds(2)
         };
         _topmostTimer.Tick += (_, _) => EnsureTopmost();
+        _bubbleTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+        _bubbleTimer.Tick += (_, _) => UpdateBubbleWindow();
 
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) =>
@@ -49,12 +56,31 @@ public sealed class BallWindow : Window
             RestoreInitialPosition();
             EnsureTopmost();
             _topmostTimer.Start();
+            _bubbleTimer.Start();
+            UpdateBubbleWindow();
         };
-        Unloaded += (_, _) => _topmostTimer.Stop();
+        Unloaded += (_, _) =>
+        {
+            _topmostTimer.Stop();
+            _bubbleTimer.Stop();
+            CloseBubbleWindow();
+        };
         Deactivated += (_, _) => EnsureTopmost();
-        LocationChanged += (_, _) => UpdateVisibleViewport();
-        SizeChanged += (_, _) => UpdateVisibleViewport();
-        Closed += (_, _) => _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft());
+        LocationChanged += (_, _) =>
+        {
+            UpdateVisibleViewport();
+            UpdateBubbleWindow();
+        };
+        SizeChanged += (_, _) =>
+        {
+            UpdateVisibleViewport();
+            UpdateBubbleWindow();
+        };
+        Closed += (_, _) =>
+        {
+            CloseBubbleWindow();
+            _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft());
+        };
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -168,8 +194,27 @@ public sealed class BallWindow : Window
     private void SnapToNearestEdge()
     {
         var work = GetPrimaryWorkArea();
+        if (TryGetCursorPointDip(out var cursor))
+        {
+            var cursorThreshold = DeviceDistanceToDip(96);
+            var cursorDistances = new[]
+            {
+                (Edge: BallEdge.Left, Distance: Math.Abs(cursor.X - work.Left)),
+                (Edge: BallEdge.Right, Distance: Math.Abs(work.Right - cursor.X)),
+                (Edge: BallEdge.Top, Distance: Math.Abs(cursor.Y - work.Top)),
+                (Edge: BallEdge.Bottom, Distance: Math.Abs(work.Bottom - cursor.Y))
+            };
+            var cursorBest = cursorDistances.OrderBy(x => x.Distance).First();
+            if (cursorBest.Distance <= cursorThreshold)
+            {
+                SetSnappedEdge(cursorBest.Edge);
+                PositionWindowForSnappedBall(work);
+                return;
+            }
+        }
+
         var ball = GetScreenBallBounds();
-        var threshold = DeviceDistanceToDip(20);
+        var threshold = DeviceDistanceToDip(32);
         var distances = new[]
         {
             (Edge: BallEdge.Left, Distance: Math.Abs(ball.Left - work.Left)),
@@ -180,8 +225,7 @@ public sealed class BallWindow : Window
         var best = distances.OrderBy(x => x.Distance).First();
         if (best.Distance > threshold)
         {
-            SetSnappedEdge(BallEdge.None);
-            ClampWindowInsideWorkArea();
+            UnsnapPreservingBallPosition();
             return;
         }
 
@@ -211,6 +255,34 @@ public sealed class BallWindow : Window
                 Left = Math.Clamp(Left, work.Left, work.Right - Width);
                 break;
         }
+        UpdateVisibleViewport();
+    }
+
+    private void UnsnapPreservingBallPosition()
+    {
+        var screenBall = GetScreenBallBounds();
+        var ballTopLeft = new Point(screenBall.Left, screenBall.Top);
+        SetSnappedEdge(BallEdge.None);
+        PositionFromLegacyBallTopLeft(ballTopLeft);
+        ClampBallInsideWorkArea();
+    }
+
+    private void ClampBallInsideWorkArea()
+    {
+        var work = GetPrimaryWorkArea();
+        var ball = GetScreenBallBounds();
+        var dx = 0.0;
+        var dy = 0.0;
+        if (ball.Left < work.Left)
+            dx = work.Left - ball.Left;
+        else if (ball.Right > work.Right)
+            dx = work.Right - ball.Right;
+        if (ball.Top < work.Top)
+            dy = work.Top - ball.Top;
+        else if (ball.Bottom > work.Bottom)
+            dy = work.Bottom - ball.Bottom;
+        Left += dx;
+        Top += dy;
         UpdateVisibleViewport();
     }
 
@@ -253,6 +325,36 @@ public sealed class BallWindow : Window
         }
 
         _surface.VisibleViewport = new Rect(left, top, right - left, bottom - top);
+    }
+
+    private void UpdateBubbleWindow()
+    {
+        var text = _backend.State.BubbleText;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            CloseBubbleWindow();
+            return;
+        }
+
+        var work = GetPrimaryWorkArea();
+        var anchor = GetScreenBallBounds();
+        _bubbleWindow ??= new BubbleWindow();
+        if (!_bubbleWindow.IsVisible)
+        {
+            _bubbleWindow.Show();
+        }
+        _bubbleWindow.UpdateBubble(work, anchor, text, _surface.GetBubbleStyle(_backend.State));
+    }
+
+    private void CloseBubbleWindow()
+    {
+        if (_bubbleWindow is null)
+        {
+            return;
+        }
+
+        _bubbleWindow.Close();
+        _bubbleWindow = null;
     }
 
     private void PositionFromLegacyBallTopLeft(Point ballTopLeft)
@@ -443,6 +545,21 @@ public sealed class BallWindow : Window
         return source?.CompositionTarget?.TransformFromDevice.M11 * value ?? value;
     }
 
+    private bool TryGetCursorPointDip(out Point point)
+    {
+        if (GetCursorPos(out var nativePoint))
+        {
+            point = DevicePointToDip(new Point(nativePoint.X, nativePoint.Y));
+            return true;
+        }
+
+        point = default;
+        return false;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out NativePoint point);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect
     {
@@ -450,6 +567,116 @@ public sealed class BallWindow : Window
         public int Top;
         public int Right;
         public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+}
+
+public sealed class BubbleWindow : Window
+{
+    private readonly BubbleSurface _surface = new();
+
+    public BubbleWindow()
+    {
+        WindowStyle = WindowStyle.None;
+        AllowsTransparency = true;
+        Background = Brushes.Transparent;
+        ResizeMode = ResizeMode.NoResize;
+        ShowInTaskbar = false;
+        ShowActivated = false;
+        Topmost = true;
+        Focusable = false;
+        IsHitTestVisible = false;
+        Title = "CommitBall-Bubble";
+        Content = _surface;
+        SourceInitialized += OnSourceInitialized;
+    }
+
+    public void UpdateBubble(Rect work, Rect anchor, string text, BallBubbleStyle style)
+    {
+        Left = work.Left;
+        Top = work.Top;
+        Width = work.Width;
+        Height = work.Height;
+        _surface.Update(new Rect(0, 0, work.Width, work.Height), Offset(anchor, -work.Left, -work.Top), text, style);
+    }
+
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var exStyle = GetWindowLong(hwnd, GwlExstyle);
+        SetWindowLong(hwnd, GwlExstyle, exStyle | WsExToolWindow | WsExNoActivate | WsExTransparent);
+        HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
+        SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+    }
+
+    private static Rect Offset(Rect rect, double dx, double dy)
+    {
+        return new Rect(rect.Left + dx, rect.Top + dy, rect.Width, rect.Height);
+    }
+
+    private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WmNchittest)
+        {
+            handled = true;
+            return new IntPtr(Httransparent);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private const int GwlExstyle = -20;
+    private const int WsExToolWindow = 0x00000080;
+    private const int WsExTransparent = 0x00000020;
+    private const int WsExNoActivate = 0x08000000;
+    private const int WmNchittest = 0x0084;
+    private const int Httransparent = -1;
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoOwnerZOrder = 0x0200;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter, int x, int y, int cx, int cy, uint flags);
+}
+
+public sealed class BubbleSurface : FrameworkElement
+{
+    private Rect _viewport;
+    private Rect _anchor;
+    private string _text = "";
+    private BallBubbleStyle _style = BasicBallRenderer.DefaultBubbleStyle;
+
+    public void Update(Rect viewport, Rect anchor, string text, BallBubbleStyle style)
+    {
+        _viewport = viewport;
+        _anchor = anchor;
+        _text = text;
+        _style = style;
+        InvalidateVisual();
+    }
+
+    protected override void OnRender(DrawingContext dc)
+    {
+        if (string.IsNullOrWhiteSpace(_text))
+        {
+            return;
+        }
+
+        BasicBallRenderer.RenderBubble(dc, _viewport, _anchor, _text, 1.0, _style);
     }
 }
 
@@ -538,6 +765,11 @@ public sealed class BallSurface : FrameworkElement
         InvalidateVisual();
     }
 
+    public BallBubbleStyle GetBubbleStyle(BallRuntimeState state)
+    {
+        return _skin.GetBubbleStyle(state);
+    }
+
     public bool IsPointInsideBall(Point point)
     {
         var ball = BallBounds();
@@ -557,10 +789,6 @@ public sealed class BallSurface : FrameworkElement
         {
             _skin.Render(dc, ball, state, ShouldAnimate(state) ? _frame : StaticFrame);
 
-            if (!string.IsNullOrWhiteSpace(state.BubbleText))
-            {
-                BasicBallRenderer.RenderBubble(dc, viewport, ball, state.BubbleText!, 1.0, _skin.GetBubbleStyle(state));
-            }
         }
         catch
         {

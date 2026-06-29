@@ -1,5 +1,5 @@
 {
-  "TentacleScale": 3.18,
+  "TentacleScale": 4.0,
   "TentacleOffsetX": 0.0,
   "TentacleOffsetY": 0.0,
   "BodyScaleX": 2.46,
@@ -18,7 +18,7 @@
   "PupilScaleX": 0.54,
   "PupilScaleY": 0.54,
   "PupilOffsetX": 0.012,
-  "PupilOffsetY": -0.018,
+  "PupilOffsetY": 0.02,
   "PupilProjectionStrength": 1.0,
   "PupilMorphScaleX": 0.20,
   "PupilMorphScaleY": 0.76,
