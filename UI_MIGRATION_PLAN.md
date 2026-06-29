@@ -139,8 +139,7 @@ WINDOW_STATE {"x":1280,"y":860,"edge":"right","visible":true}
 4. 固定 BallShell 为默认 UI 路径。
    - 正常启动时只创建 Core 隐藏窗口和 `CommitBall-BallShell.exe`。
    - 不再通过 `use_ball_shell` 配置或运行时指令切换 UI 实现。
-   - 仅保留 `data/disable-ball-shell.flag` 作为开发排错逃生开关。
-   - 逃生开关启用时才回到旧 C++ GDI 悬浮球。
+   - 旧 C++ GDI 悬浮球和 `disable-ball-shell.flag` fallback 已移除。
 
 5. 转移 UI 行为。
    - 右键菜单迁到 BallShell。
@@ -176,7 +175,6 @@ WINDOW_STATE {"x":1280,"y":860,"edge":"right","visible":true}
 - 右键菜单命令能打开数据目录、live 文本、Bar、Agent，并能触发 Agent 分析和退出。
 - Agent `show_ball_bubble` 触发的气泡显示在 C# 球旁边，且不越出屏幕。
 - 退出 CommitBall 后 BallShell、Bar、Agent 都退出。
-- 创建 `data/disable-ball-shell.flag` 后能回到旧 C++ 悬浮球，便于排错。
 
 ## 风险点
 
@@ -189,9 +187,9 @@ WINDOW_STATE {"x":1280,"y":860,"edge":"right","visible":true}
 
 ## 建议下一步
 
-下一步清理旧 UI 代码：
+旧 UI 代码已经拆除，后续工作集中在稳定性和皮肤扩展：
 
-1. 先用安装包验证默认启动、拒绝 UAC 时不进入正常运行、退出、BallShell 崩溃重启和 `disable-ball-shell.flag` fallback。
-2. 验证稳定后删除 `ball_legacy.hpp` 中不再使用的 GDI 绘制、旧气泡、旧菜单和旧动画。
-3. 将 `ball.hpp` 改为只暴露必要的 Core/UI 边界，或者直接移除旧 UI 头文件依赖。
-4. 保留 `core_window.hpp` 作为 Core 消息泵和 timer 宿主。
+1. 继续用安装包验证默认启动、拒绝 UAC 时不进入正常运行、退出和 BallShell 崩溃重启。
+2. 保持 Core 与 UI 之间只通过 pipe 和 `ball_shared.hpp` 中定义的数据结构交互。
+3. 保留 `core_window.hpp` 作为 Core 消息泵和 timer 宿主。
+4. 后续新增皮肤时只修改 BallShell 资源和渲染层，不把 UI 状态逻辑放回 Core。

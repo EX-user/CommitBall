@@ -7,4 +7,4 @@ if (!(Test-Path $vcvarsall)) {
     exit 1
 }
 
-cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $PSScriptRoot\commitball && rc /fo commitball.res commitball.rc && cl /EHsc /std:c++17 /Fe:CommitBall.exe main.cpp sqlite3.c commitball.res /link user32.lib gdi32.lib gdiplus.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"
+cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $PSScriptRoot\commitball && if not exist publish mkdir publish && if not exist obj mkdir obj && rc /fo obj\commitball.res commitball.rc && cl /EHsc /std:c++17 /Fepublish\CommitBall.exe /Foobj\ main.cpp sqlite3.c obj\commitball.res /link user32.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"

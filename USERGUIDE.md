@@ -174,7 +174,6 @@ CommitBall 包含三个组件，启动后自动运行：
 | `/vendor {"base_url":"...","model":"...","api_key":"..."}` | 设置并验证 API 配置。验证成功后保存到 `data/agent-config.json` |
 | `/new` | 创建新的空会话 |
 | `/session` | 进入会话列表菜单，可选择已有会话或创建新会话 |
-| `/analyse [附加说明]` | 使用 subtask 模式分析 live.txt 工作日志，输出报告到 `data/agent-out/` |
 | `/summary_to_panel` | 一步完成分析 + 面板生成：分析 live.txt 并生成 report、extract 和 panel.html |
 | 任意其他文字 | 作为对话内容发送给模型 |
 
@@ -219,18 +218,7 @@ Enter session id to switch, /new for new. Esc to cancel.
 
 `*` 标记当前所在会话。
 
-### 3.6 `/analyse` vs `/summary_to_panel`
-
-| | `/analyse` | `/summary_to_panel` |
-|---|---|---|
-| 模式 | 分发Subtask | 单次任务（更快速） |
-| 输出 | `YYMMDD_HHMM-report.md` + `YYMMDD_HHMM-extract.md` | 同左 + `panel.html` |
-| 面板 | 不生成面板 | 自动生成面板 |
-| 用途 | 仅生成报告 | 报告 + 面板一步到位 |
-
-主程序的"启动 Agent 分析"和自动分析均使用 `/summary_to_panel`。
-
-### 3.7 数据目录
+### 3.6 数据目录
 
 Agent 相关文件位于 `data/` 目录下：
 
@@ -246,7 +234,7 @@ Agent 相关文件位于 `data/` 目录下：
 | `data/agent-out/YYMMDD_HHMM-extract.md` | 提取摘要 |
 | `data/log/agent.log` | Agent 运行日志 |
 
-### 3.8 Tool 调用
+### 3.7 Tool 调用
 
 Agent 使用以下工具与文件系统交互（仅限 `data/` 目录）：
 
@@ -254,7 +242,9 @@ Agent 使用以下工具与文件系统交互（仅限 `data/` 目录）：
 |------|------|
 | `list` | 列出目录内容 |
 | `read` | 读取文件内容 |
-| `write` | 写入文件 |
+| `write` | 在 `data/agent-out/` 下写入完整文件 |
+| `edit` | 在 `data/agent-out/` 下精确替换已有文本文件片段 |
+| `now` | 获取当前本地时间、UTC 时间和时区 |
 | `pwd` | 显示当前目录 |
 | `subtask` | 启动子任务（仅在非 subtask 模式下可用，不可嵌套） |
 
@@ -288,6 +278,6 @@ Agent 的 tool 调用无硬性上限。当连续调用超过 20 次时，系统�
 
 ## 5. 安装与卸载
 
-- 安装：运行 `CommitBall-0.1.3.0-installer.exe`，以管理员权限安装到 `C:\Program Files\CommitBall`
+- 安装：运行 `CommitBall-0.2.1.0-installer.exe`，以管理员权限安装到 `C:\Program Files\CommitBall`
 - 卸载：运行 `C:\Program Files\CommitBall\uninstall.exe`
 - 数据保留：卸载不会删除 `data/` 目录下的用户数据

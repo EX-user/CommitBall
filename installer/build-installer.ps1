@@ -64,15 +64,15 @@ Copy-Item $prismBin staging\build\ -Force
 
 # === Build CommitBall ===
 Write-Host "Building CommitBall..."
-cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $root\commitball && rc /fo commitball.res commitball.rc && cl /EHsc /std:c++17 /Fe:CommitBall.exe main.cpp sqlite3.c commitball.res /link user32.lib gdi32.lib gdiplus.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"
-if (!(Test-Path "$root\commitball\CommitBall.exe")) {
+cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $root\commitball && if not exist publish mkdir publish && if not exist obj mkdir obj && rc /fo obj\commitball.res commitball.rc && cl /EHsc /std:c++17 /Fepublish\CommitBall.exe /Foobj\ main.cpp sqlite3.c obj\commitball.res /link user32.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"
+if (!(Test-Path "$root\commitball\publish\CommitBall.exe")) {
     Write-Error "CommitBall.exe build failed. Check compiler errors above."
     exit 1
 }
 
 # === Publish CommitBall-Bar ===
 Write-Host "Publishing CommitBall-Bar..."
-dotnet publish "$root\commitball-bar\commitball-bar\commitball-bar.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\commitball-bar\publish"
+dotnet publish "$root\commitball-bar\commitball-bar.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\commitball-bar\publish"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "CommitBall-Bar publish command failed with exit code $LASTEXITCODE."
     exit $LASTEXITCODE
@@ -84,37 +84,30 @@ if (!(Test-Path "$root\commitball-bar\publish\CommitBall-Bar.exe")) {
 
 # === Publish CommitBall-Agent ===
 Write-Host "Publishing CommitBall-Agent..."
-dotnet publish "$root\commitball-agent\commitball-agent\commitball-agent.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\publish\agent"
+dotnet publish "$root\commitball-agent\commitball-agent.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\commitball-agent\publish"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "CommitBall-Agent publish command failed with exit code $LASTEXITCODE."
     exit $LASTEXITCODE
 }
-if (!(Test-Path "$root\publish\agent\CommitBall-Agent.exe")) {
+if (!(Test-Path "$root\commitball-agent\publish\CommitBall-Agent.exe")) {
     Write-Error "CommitBall-Agent publish failed."
     exit 1
 }
 
 # === Publish CommitBall-BallShell ===
 Write-Host "Publishing CommitBall-BallShell..."
-dotnet publish "$root\commitball-ball-shell\commitball-ball-shell.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\publish\ball-shell"
+dotnet publish "$root\commitball-ball-shell\commitball-ball-shell.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\commitball-ball-shell\publish"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "CommitBall-BallShell publish command failed with exit code $LASTEXITCODE."
     exit $LASTEXITCODE
 }
-if (!(Test-Path "$root\publish\ball-shell\CommitBall-BallShell.exe")) {
+if (!(Test-Path "$root\commitball-ball-shell\publish\CommitBall-BallShell.exe")) {
     Write-Error "CommitBall-BallShell publish failed."
     exit 1
 }
-$ballShellAssetSource = "$root\commitball-ball-shell\Assets"
-$ballShellAssetTarget = "$root\publish\ball-shell\Assets"
-if (!(Test-Path "$ballShellAssetSource\Skins\eye-of-commit\body.png")) {
-    Write-Error "CommitBall-BallShell assets missing: $ballShellAssetSource"
-    exit 1
-}
-New-Item -ItemType Directory -Path $ballShellAssetTarget -Force | Out-Null
-Copy-Item "$ballShellAssetSource\*" $ballShellAssetTarget -Recurse -Force
+$ballShellAssetTarget = "$root\commitball-ball-shell\publish\Assets"
 if (!(Test-Path "$ballShellAssetTarget\Skins\eye-of-commit\body.png")) {
-    Write-Error "CommitBall-BallShell asset copy failed."
+    Write-Error "CommitBall-BallShell runtime assets missing from publish output."
     exit 1
 }
 

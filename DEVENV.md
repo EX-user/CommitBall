@@ -120,10 +120,12 @@ cmd /c "mklink `"$target`" `"$link`""
 
 6. `.\build-commitball.ps1`
 
-7. Publish CommitBall-Bar: `cd commitball-bar\commitball-bar && dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ..\..\commitball-bar\publish`
+7. Publish CommitBall-Bar: `dotnet publish commitball-bar\commitball-bar.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o commitball-bar\publish`
 
-8. Publish CommitBall-Agent: `cd commitball-agent\commitball-agent && dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ..\..\publish\agent`
+8. Publish CommitBall-Agent: `dotnet publish commitball-agent\commitball-agent.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o commitball-agent\publish`
 
-9. 打包：`cd installer && .\build-installer.ps1`
+9. Publish CommitBall-BallShell: `dotnet publish commitball-ball-shell\commitball-ball-shell.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o commitball-ball-shell\publish`
+
+10. 打包：`cd installer && .\build-installer.ps1`
 
    > 必须从 `installer/` 目录运行，脚本内 makensis 使用相对路径。

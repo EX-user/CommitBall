@@ -48,7 +48,7 @@ cd commit-ball
 .\build-commitball.ps1
 
 # 6. 运行
-.\commitball\CommitBall.exe
+.\commitball\publish\CommitBall.exe
 ```
 
 ### 使用

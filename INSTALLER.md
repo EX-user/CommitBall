@@ -42,20 +42,23 @@ powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
 脚本会依次：
 1. 检查所有必需文件（缺失时报错并提示修复方法）
 2. 复制词表到 `staging/build/`
-3. 编译 CommitBall.exe
+3. 编译 `commitball/publish/CommitBall.exe`
 4. 调用 NSIS 构建安装包
 
-产物：`installer/archives/CommitBall-0.1.3.0-installer.exe`
+产物：`installer/archives/CommitBall-0.2.1.0-installer.exe`
 
 ## 安装包内容
 
 ```
 $INSTDIR/                              (默认 C:\Program Files\CommitBall)
   CommitBall.exe                       # 悬浮球应用（顶层）
+  CommitBall-BallShell.exe             # C# 悬浮球 UI
   CommitBall-Bar.exe                   # 快捷输入条（.NET 8 self-contained）
   CommitBall-Agent.exe                 # AI 终端（.NET 8 self-contained）
-  analyse-prompt.md                    # Agent 分析提示词
+  summary_to_panel-prompt.md           # Agent 汇总提示词
   uninstall.exe                        # 卸载程序
+  Assets/
+    Skins/eye-of-commit/               # BallShell 运行时皮肤资源
   cb-weasel/                           # 输入法子目录
     cb-weaselx64.dll                   # TSF DLL
     WeaselServer.exe                   # 算法服务
@@ -74,8 +77,8 @@ C:\Windows\System32\
 
 ## 安装行为
 
-1. 停止旧版 WeaselServer / CommitBall / CommitBall-Bar / CommitBall-Agent
-2. 复制 CommitBall.exe、CommitBall-Bar.exe、CommitBall-Agent.exe、analyse-prompt.md 到 `$INSTDIR`
+1. 停止旧版 WeaselServer / CommitBall / CommitBall-BallShell / CommitBall-Bar / CommitBall-Agent
+2. 复制 CommitBall.exe、CommitBall-Bar.exe、CommitBall-Agent.exe、CommitBall-BallShell.exe、summary_to_panel-prompt.md 到 `$INSTDIR`
 3. 复制 cb-weasel 文件到 `$INSTDIR\cb-weasel\`
 4. 复制 DLL 到 System32
 5. 注册 TSF（regsvr32）
@@ -85,17 +88,18 @@ C:\Windows\System32\
 
 ## 卸载行为
 
-1. 停止 WeaselServer / CommitBall / CommitBall-Bar / CommitBall-Agent
+1. 停止 WeaselServer / CommitBall / CommitBall-BallShell / CommitBall-Bar / CommitBall-Agent
 2. 取消注册 TSF
 3. 删除 System32 DLL
 4. 清理注册表（Rime\CBWeasel、Autorun、Uninstall、TIP CLSID）
-5. 删除 `$INSTDIR\cb-weasel\`、CommitBall.exe、CommitBall-Bar.exe、CommitBall-Agent.exe、analyse-prompt.md
+5. 删除 `$INSTDIR\cb-weasel\`、CommitBall.exe、CommitBall-Bar.exe、CommitBall-Agent.exe、CommitBall-BallShell.exe、summary_to_panel-prompt.md
 
 用户数据 `%APPDATA%\Rime` 不删除（需手动清理）。
 
 ## 注意事项
 
-- `dotnet publish` 不会将 `Content` 标记的文件（如 `analyse-prompt.md`）复制到 publish 输出目录，只复制到 `bin/`。NSIS 中需要从源码目录取这些文件，而非 publish 目录。
+- .NET 组件统一发布到各自项目目录下的 `publish/`：`commitball-bar/publish/`、`commitball-agent/publish/`、`commitball-ball-shell/publish/`。
+- C++ Core 统一输出到 `commitball/publish/CommitBall.exe`，中间文件输出到 `commitball/obj/`。
 - CommitBall-Agent.exe 约 154MB（self-contained），LZMA 压缩后安装包约 96MB。
 
 ## 目录结构

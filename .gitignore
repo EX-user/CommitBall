@@ -4,6 +4,9 @@ commitball/CommitBall.exp
 commitball/CommitBall.lib
 commitball/CommitBall.pdb
 commitball/*.obj
+commitball/*.res
+commitball/obj/
+commitball/publish/
 commitball/RCa*
 commitball/RDa*
 $null
@@ -24,14 +27,13 @@ weasel_old/
 
 # CommitBall-Bar build/publish artifacts
 commitball-bar/publish/
-commitball-bar/commitball-bar/bin/
-commitball-bar/commitball-bar/obj/
-commit-bar/commitball-bar/obj/
+commitball-bar/bin/
+commitball-bar/obj/
 commitball-bar/data/
 
 # CommitBall-Agent build/publish artifacts
-commitball-agent/commitball-agent/bin/
-commitball-agent/commitball-agent/obj/
+commitball-agent/bin/
+commitball-agent/obj/
 publish/
 
 # CommitBall-BallShell build artifacts

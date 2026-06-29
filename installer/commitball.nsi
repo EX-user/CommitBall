@@ -64,26 +64,24 @@ Section "CB-Weasel 输入法" SecMain
   SetOutPath "$INSTDIR"
 
   ; CommitBall
-  File "..\commitball\CommitBall.exe"
+  File "..\commitball\publish\CommitBall.exe"
 
   ; CommitBall-Bar
   File "..\commitball-bar\publish\CommitBall-Bar.exe"
 
   ; CommitBall-Agent
-  File "..\publish\agent\CommitBall-Agent.exe"
-  File "..\commitball-agent\commitball-agent\analyse-prompt.md"
-  File "..\commitball-agent\commitball-agent\analyse-prompt-st.md"
-  File "..\commitball-agent\commitball-agent\summary_to_panel-prompt.md"
+  File "..\commitball-agent\publish\CommitBall-Agent.exe"
+  File "..\commitball-agent\summary_to_panel-prompt.md"
 
   ; CommitBall-BallShell
-  File "..\publish\ball-shell\CommitBall-BallShell.exe"
+  File "..\commitball-ball-shell\publish\CommitBall-BallShell.exe"
 
   SetOutPath "$INSTDIR\Assets\Skins\eye-of-commit"
-  File "..\publish\ball-shell\Assets\Skins\eye-of-commit\*.*"
+  File "..\commitball-ball-shell\publish\Assets\Skins\eye-of-commit\*.*"
 
   SetOutPath "$INSTDIR\data\agent-out"
-  File "..\commitball-agent\commitball-agent\panel-template.html"
-  File "..\commitball-agent\commitball-agent\summary_task_exp_decay_memory_template.md"
+  File "..\commitball-agent\panel-template.html"
+  File "..\commitball-agent\summary_task_exp_decay_memory_template.md"
 
   ; Release old DLL if locked
   DetailPrint "检查旧版本 DLL..."
@@ -203,8 +201,6 @@ Section "Uninstall"
   Delete "$INSTDIR\CommitBall-BallShell.exe"
   Delete "$INSTDIR\CommitBall-Bar.exe"
   Delete "$INSTDIR\CommitBall-Agent.exe"
-  Delete "$INSTDIR\analyse-prompt.md"
-  Delete "$INSTDIR\analyse-prompt-st.md"
   Delete "$INSTDIR\summary_to_panel-prompt.md"
   Delete "$INSTDIR\uninstall.exe"
   Delete "$DESKTOP\CommitBall.lnk"
