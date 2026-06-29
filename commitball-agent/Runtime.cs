@@ -83,10 +83,13 @@ namespace CommitBallAgent
                                     var errMsg = "Error: subtask 'prompt' is required";
                                     onToolError(errMsg);
                                     session.Messages.Add(new Message { Role = "tool", Content = errMsg, ToolCallId = tc.Id });
+                                    AddDisplay(session, "tool_error_detail", errMsg);
                                     continue;
                                 }
 
-                                onToolStart($"subtask(\"{Truncate(prompt, 60)}...\")");
+                                var startText = $"subtask(\"{Truncate(prompt, 60)}...\")";
+                                AddDisplay(session, "tool_start", startText);
+                                onToolStart(startText);
                                 onSubtaskProgress(null);
                                 onSubtaskProgress("...");
 
@@ -119,7 +122,7 @@ namespace CommitBallAgent
                                     session.Messages.Add(new Message { Role = "tool", Content = lastAssistant, ToolCallId = tc.Id });
                                     var tail = Truncate(lastAssistant.Replace("\n", " ").Replace("\r", "").Replace("\t", " ").Trim(), 40);
                                     var doneText = $"subtask(\"{Truncate(prompt, 40)}...\") → {tail}";
-                                    session.Messages.Add(new Message { Role = "display", Content = doneText });
+                                    AddDisplay(session, "tool_done", doneText);
                                     onToolDone(doneText);
                                 }
                                 catch (OperationCanceledException) { throw; }
@@ -128,6 +131,7 @@ namespace CommitBallAgent
                                     var errMsg = $"Subtask error: {ex.Message}";
                                     onToolError(errMsg);
                                     session.Messages.Add(new Message { Role = "tool", Content = errMsg, ToolCallId = tc.Id });
+                                    AddDisplay(session, "tool_error_detail", errMsg);
                                 }
                             }
                             else
@@ -135,11 +139,15 @@ namespace CommitBallAgent
                                 var errMsg = "Error: subtask cannot be nested";
                                 onToolError(errMsg);
                                 session.Messages.Add(new Message { Role = "tool", Content = errMsg, ToolCallId = tc.Id });
+                                AddDisplay(session, "tool_error_detail", errMsg);
                             }
                             continue;
                         }
 
                         AgentWindow.Log($"[{session.Id}] Tool exec: {tc.Name}({Truncate(argsStr, 120)})");
+                        var toolStartText = $"{tc.Name}({Truncate(argsStr, 120)})";
+                        AddDisplay(session, "tool_start", toolStartText);
+                        onToolStart(toolStartText);
                         string result;
                         bool isError = false;
                         try
@@ -165,9 +173,13 @@ namespace CommitBallAgent
                             ToolCallId = tc.Id
                         });
                         var displayText = isError ? $"{tc.Name}({argsStr}) ✗" : FormatToolDisplay(tc.Name, argsStr, result);
-                        session.Messages.Add(new Message { Role = "display", Content = displayText });
+                        AddDisplay(session, "tool_done", displayText);
                         onToolDone(displayText);
-                        if (isError) onToolError(result);
+                        if (isError)
+                        {
+                            AddDisplay(session, "tool_error_detail", result);
+                            onToolError(result);
+                        }
                     }
                 }
                 else
@@ -179,7 +191,9 @@ namespace CommitBallAgent
                     else if (resp.ToolCalls.Count == 0)
                     {
                         AgentWindow.Log($"Runtime: empty response from LLM (content=null, toolCalls=0)");
-                        onOutput("[模型返回空响应]\n");
+                        var emptyMsg = "[模型返回空响应]\n";
+                        AddDisplay(session, "notice", emptyMsg);
+                        onOutput(emptyMsg);
                     }
                     break;
                 }
@@ -188,11 +202,22 @@ namespace CommitBallAgent
                 {
                     var msg = "提示：已连续调用较多次tool，请注意控制调用次数。";
                     session.Messages.Add(new Message { Role = "user", Content = msg });
+                    AddDisplay(session, "notice", msg + "\n");
                     onOutput(msg + "\n");
                 }
             }
 
             Memory.Save(session);
+        }
+
+        private static void AddDisplay(Session session, string type, string content)
+        {
+            session.Messages.Add(new Message
+            {
+                Role = "display",
+                DisplayType = type,
+                Content = content
+            });
         }
 
         private static string Truncate(string? s, int maxLen)
@@ -216,6 +241,20 @@ namespace CommitBallAgent
                 }
                 catch { }
             }
+            if (name == "edit")
+            {
+                try
+                {
+                    var args = JsonNode.Parse(argsStr)?.AsObject();
+                    var filename = args?["filename"]?.GetValue<string>() ?? "?";
+                    var category = args?["category"]?.GetValue<string>() ?? "";
+                    var displayName = string.IsNullOrWhiteSpace(category) ? filename : $"{category}/{filename}";
+                    var oldText = args?["oldText"]?.GetValue<string>() ?? "";
+                    var newText = args?["newText"]?.GetValue<string>() ?? "";
+                    return $"edit({displayName}, {oldText.Length}->{newText.Length} chars)";
+                }
+                catch { return "edit()"; }
+            }
             if (name == "rename_session")
             {
                 try
@@ -236,6 +275,10 @@ namespace CommitBallAgent
                     return $"display_panel({lines} lines, {html.Length} chars)";
                 }
                 catch { return "display_panel()"; }
+            }
+            if (name == "now")
+            {
+                return $"now() → {result}";
             }
             if (name == "set_bar_trigger" || name == "set_eye_mode" || name == "repair_archives" || name == "show_ball_bubble")
             {

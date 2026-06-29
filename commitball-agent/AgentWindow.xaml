@@ -91,6 +91,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" x:Name="PromptSymbol" Text=">" Foreground="#E8915A" FontSize="14"
                        FontFamily="Cascadia Code, Consolas, Courier New"
@@ -108,6 +109,11 @@
                            Foreground="#6A6A8A" VerticalAlignment="Center"
                            Visibility="Collapsed" IsHitTestVisible="False"/>
             </Grid>
+            <TextBlock Grid.Column="2" x:Name="ContextUsageText"
+                       FontSize="12" FontFamily="Cascadia Code, Consolas, Courier New"
+                       Foreground="#8E96B5" VerticalAlignment="Center"
+                       Margin="8,0,10,0" MinWidth="92" TextAlignment="Right"
+                       Text="上下文 --"/>
         </Grid>
     </Grid>
 </Window>

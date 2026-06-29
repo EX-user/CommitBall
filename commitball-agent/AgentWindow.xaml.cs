@@ -89,6 +89,7 @@ namespace CommitBallAgent
             public bool HasUnread { get; set; }
             public bool HasError { get; set; }
             public int LastContextTokens { get; set; }
+            public bool LastContextTokensAreActual { get; set; }
             public string InputDraft { get; set; } = "";
             public string SubtaskTail { get; set; } = "";
             public Run? SubtaskRun { get; set; }
@@ -205,7 +206,7 @@ namespace CommitBallAgent
             var prefix = (tab.IsBusy || tab.IsContextFull) ? "● " : (tab.HasUnread ? "• " : "");
             tab.TabButton.Content = prefix + title;
             var state = tab.IsContextFull ? "context full" : (tab.IsBusy ? "busy" : "idle");
-            tab.TabButton.ToolTip = $"{tab.Session.Id}\n{tab.Session.Title}\n{state}\n右键关闭标签";
+            tab.TabButton.ToolTip = $"{tab.Session.Id}\n{tab.Session.Title}\n{state}\n{FormatContextUsage(tab)}\n右键关闭标签";
             var active = tab == _activeTab;
             tab.TabButton.Background = (Brush)new BrushConverter().ConvertFromString(active ? "#3D4058" : "#2C2F3A");
             tab.TabButton.Foreground = (Brush)new BrushConverter().ConvertFromString(tab.HasError ? "#E8915A" : active ? "#FFFFFF" : "#AAB1C8");
@@ -230,6 +231,7 @@ namespace CommitBallAgent
             InputBox.Text = tab.InputDraft;
             _escCount = 0;
             UpdateInputState(tab);
+            RefreshContextUsage(tab);
             RefreshAllTabs();
             InputBox.Focus();
             OutputBox.ScrollToEnd();
@@ -263,18 +265,25 @@ namespace CommitBallAgent
         {
             AppendOutput(tab, $"CommitBall Agent Terminal v0.2.1\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
-            foreach (var msg in tab.Session.Messages)
+            for (int i = 0; i < tab.Session.Messages.Count; i++)
             {
+                var msg = tab.Session.Messages[i];
                 if (msg.Role == "user")
                     AppendOutput(tab, $"> {msg.Content}\n", "#FFFFFF");
                 else if (msg.Role == "display")
                 {
-                    Log($"Loading display: {msg.Content}");
-                    AppendToolDone(tab, msg.Content);
+                    Log($"Loading display: {msg.DisplayType ?? "tool_done"} {msg.Content}");
+                    RenderDisplayMessage(tab, msg);
                 }
                 else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.Content))
-                    AppendOutput(tab, $"{msg.Content}\n\n");
+                {
+                    var nextIsTurnEnd = i + 1 < tab.Session.Messages.Count &&
+                        tab.Session.Messages[i + 1].Role == "display" &&
+                        tab.Session.Messages[i + 1].DisplayType == "turn_end";
+                    AppendOutput(tab, nextIsTurnEnd ? msg.Content : $"{msg.Content}\n\n");
+                }
             }
+            RefreshContextUsage(tab, forceEstimate: true);
         }
 
         private void TabButton_Click(object sender, RoutedEventArgs e)
@@ -486,7 +495,6 @@ namespace CommitBallAgent
                     AppendOutput(tab, "  /help      Show this help\n");
                     AppendOutput(tab, "  /new       Create a new session\n");
                     AppendOutput(tab, "  /session   List and switch sessions\n");
-                    AppendOutput(tab, "  /analyse          Analyse live.txt work log (subtask mode)\n");
                     AppendOutput(tab, "  /summary_to_panel Analyse + panel in one pass (single task)\n");
                     AppendOutput(tab, "  /repair_archives  Repair archive files and guide meta analysis\n");
                     AppendOutput(tab, "  /organize_agent_out Organize agent-out files and rebuild index.json\n");
@@ -592,40 +600,6 @@ namespace CommitBallAgent
                 return;
             }
 
-            if (text == "/analyse" || text.StartsWith("/analyse "))
-            {
-                var promptFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "analyse-prompt.md");
-                string prompt;
-                if (File.Exists(promptFile))
-                    prompt = File.ReadAllText(promptFile);
-                else
-                    prompt = "Error: analyse-prompt.md not found";
-
-                if (text.Length > "/analyse".Length)
-                    prompt += "\n\n" + text.Substring("/analyse".Length).Trim();
-
-                AppendPromptInput(tab, prompt);
-                _ = RunChatAsync(tab, prompt);
-                return;
-            }
-
-            if (text == "/analyse_st" || text.StartsWith("/analyse_st "))
-            {
-                var promptFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "analyse-prompt-st.md");
-                string prompt;
-                if (File.Exists(promptFile))
-                    prompt = File.ReadAllText(promptFile);
-                else
-                    prompt = "Error: analyse-prompt-st.md not found";
-
-                if (text.Length > "/analyse_st".Length)
-                    prompt += "\n\n" + text.Substring("/analyse_st".Length).Trim();
-
-                AppendPromptInput(tab, prompt);
-                _ = RunChatAsync(tab, prompt);
-                return;
-            }
-
             if (text == "/summary_to_panel")
             {
                 var promptFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "summary_to_panel-prompt.md");
@@ -676,7 +650,6 @@ namespace CommitBallAgent
             }
 
             var moved = 0;
-            var copied = 0;
             var skipped = 0;
             var errors = 0;
             foreach (var file in Directory.GetFiles(outDir, "*", SearchOption.TopDirectoryOnly))
@@ -714,31 +687,10 @@ namespace CommitBallAgent
                 }
             }
 
-            var memoryRoot = Path.Combine(outDir, "summary_task_exp_decay_memory.md");
-            if (File.Exists(memoryRoot))
-            {
-                try
-                {
-                    var memoryDir = Path.Combine(outDir, "memory");
-                    Directory.CreateDirectory(memoryDir);
-                    var memoryCopy = Path.Combine(memoryDir, "summary_task_exp_decay_memory.md");
-                    if (!File.Exists(memoryCopy) || File.GetLastWriteTime(memoryRoot) > File.GetLastWriteTime(memoryCopy))
-                    {
-                        File.Copy(memoryRoot, memoryCopy, true);
-                        copied++;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    errors++;
-                    Log($"OrganizeAgentOut memory copy failed: {ex.Message}");
-                }
-            }
-
             try
             {
                 var indexed = WriteAgentOutIndex(outDir);
-                AppendOutput(tab, $"\nagent-out organized. moved={moved}, copied={copied}, skipped={skipped}, indexed={indexed}, errors={errors}\n\n", errors == 0 ? "#6ECF6E" : "#E8915A");
+                AppendOutput(tab, $"\nagent-out organized. moved={moved}, skipped={skipped}, indexed={indexed}, errors={errors}\n\n", errors == 0 ? "#6ECF6E" : "#E8915A");
             }
             catch (Exception ex)
             {
@@ -751,7 +703,6 @@ namespace CommitBallAgent
         {
             return name.Equals("panel.html", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("panel-template.html", StringComparison.OrdinalIgnoreCase) ||
-                   name.Equals("summary_task_exp_decay_memory.md", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("summary_task_exp_decay_memory_template.md", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("index.json", StringComparison.OrdinalIgnoreCase);
         }
@@ -759,6 +710,7 @@ namespace CommitBallAgent
         private static string ClassifyAgentOutFile(string name)
         {
             var lower = name.ToLowerInvariant();
+            if (lower == "summary_task_exp_decay_memory.md") return "memory";
             if (lower.EndsWith("-report.md")) return "reports";
             if (lower.EndsWith("-extract.md")) return "extracts";
             if (lower.Contains("reminder") && lower.EndsWith(".md")) return "reminders";
@@ -817,8 +769,8 @@ namespace CommitBallAgent
                 {
                     "panel.html",
                     "panel-template.html",
-                    "summary_task_exp_decay_memory.md",
-                    "summary_task_exp_decay_memory_template.md"
+                    "summary_task_exp_decay_memory_template.md",
+                    "index.json"
                 },
                 files
             };
@@ -843,7 +795,7 @@ namespace CommitBallAgent
             var name = Path.GetFileName(rel).ToLowerInvariant();
             if (name == "panel.html") return "bar-panel";
             if (name == "panel-template.html") return "bar-panel-template";
-            if (name == "summary_task_exp_decay_memory.md") return category == "memory" ? "memory-copy" : "memory-root";
+            if (name == "summary_task_exp_decay_memory.md") return category == "memory" ? "memory-main" : category;
             if (name == "summary_task_exp_decay_memory_template.md") return "memory-template";
             if (name == "index.json") return "agent-out-index";
             return category;
@@ -969,6 +921,7 @@ namespace CommitBallAgent
                 UpdateInputState(tab);
             }
             ResetSubtaskTail(tab);
+            RefreshContextUsage(tab, forceEstimate: true);
             RefreshAllTabs();
 
             var maxContextTokens = 0;
@@ -982,12 +935,14 @@ namespace CommitBallAgent
                     onToolDone: info => Dispatcher.BeginInvoke(() =>
                     {
                         AppendToolDone(tab, info);
+                        RefreshContextUsage(tab, forceEstimate: true);
                         RefreshTabButton(tab);
                     }),
                     onToolError: err => Dispatcher.BeginInvoke(() =>
                     {
                         tab.HasError = true;
                         AppendOutput(tab, $"  ✗ {err}\n", "#E8915A");
+                        RefreshContextUsage(tab, forceEstimate: true);
                     }),
                     onSubtaskProgress: chunk => Dispatcher.BeginInvoke(() => AppendSubtaskProgress(tab, chunk)),
                     ct: tab.Cts.Token,
@@ -996,18 +951,29 @@ namespace CommitBallAgent
                         var used = promptTokens + completionTokens;
                         if (used > maxContextTokens)
                             maxContextTokens = used;
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            tab.LastContextTokens = used;
+                            tab.LastContextTokensAreActual = true;
+                            RefreshContextUsageDisplay(tab);
+                            RefreshTabButton(tab);
+                        });
                     });
             }
             catch (OperationCanceledException)
             {
                 FixIncompleteToolCalls(tab.Session);
+                AddDisplay(tab.Session, "cancelled", "\n[cancelled]\n");
                 Memory.Save(tab.Session);
                 Dispatcher.BeginInvoke(() => AppendOutput(tab, "\n[cancelled]\n"));
             }
             catch (Exception ex)
             {
                 tab.HasError = true;
-                Dispatcher.BeginInvoke(() => AppendOutput(tab, $"\n[error] {ex.Message}\n", "#E8915A"));
+                var errorText = $"\n[error] {ex.Message}\n";
+                AddDisplay(tab.Session, "error", errorText);
+                Memory.Save(tab.Session);
+                Dispatcher.BeginInvoke(() => AppendOutput(tab, errorText, "#E8915A"));
             }
             finally
             {
@@ -1021,8 +987,11 @@ namespace CommitBallAgent
             {
                 var contextTokens = maxContextTokens > 0 ? maxContextTokens : EstimateSessionTokens(tab.Session);
                 tab.LastContextTokens = contextTokens;
+                tab.LastContextTokensAreActual = maxContextTokens > 0;
                 if (IsContextFull(tab, contextTokens))
                     MarkContextFull(tab, appendMessage: false);
+                AddDisplay(tab.Session, "turn_end", "\n\n");
+                Memory.Save(tab.Session);
                 AppendOutput(tab, "\n\n");
                 tab.IsBusy = false;
                 _escCount = 0;
@@ -1046,6 +1015,42 @@ namespace CommitBallAgent
             if (model.Contains("qwen3") || model.Contains("qwen2.5"))
                 return 32768;
             return 32768;
+        }
+
+        private static double ContextUsageRatio(AgentTabState tab)
+        {
+            var limit = Math.Max(1, ContextLimitTokens());
+            var used = tab.LastContextTokens > 0 ? tab.LastContextTokens : EstimateSessionTokens(tab.Session);
+            return Math.Clamp((double)used / limit, 0.0, 9.99);
+        }
+
+        private static string FormatContextUsage(AgentTabState tab)
+        {
+            var limit = Math.Max(1, ContextLimitTokens());
+            var used = tab.LastContextTokens > 0 ? tab.LastContextTokens : EstimateSessionTokens(tab.Session);
+            var pct = Math.Clamp((int)Math.Round(used * 100.0 / limit), 0, 999);
+            var kind = tab.LastContextTokensAreActual ? "实际" : "估算";
+            return $"上下文 {pct}% ({kind}, {used:n0}/{limit:n0})";
+        }
+
+        private void RefreshContextUsage(AgentTabState tab, bool forceEstimate = false)
+        {
+            if (forceEstimate || tab.LastContextTokens <= 0)
+            {
+                tab.LastContextTokens = EstimateSessionTokens(tab.Session);
+                tab.LastContextTokensAreActual = false;
+            }
+            RefreshContextUsageDisplay(tab);
+            RefreshTabButton(tab);
+        }
+
+        private void RefreshContextUsageDisplay(AgentTabState tab)
+        {
+            if (tab != _activeTab) return;
+            ContextUsageText.Text = FormatContextUsage(tab);
+            var ratio = ContextUsageRatio(tab);
+            var color = ratio >= 0.9 ? "#E8915A" : (ratio >= 0.75 ? "#E6C56E" : "#8E96B5");
+            ContextUsageText.Foreground = (Brush)new BrushConverter().ConvertFromString(color);
         }
 
         private static int EstimateSessionTokens(Session session)
@@ -1204,6 +1209,7 @@ namespace CommitBallAgent
             para.Inlines.Add(run);
             doc.Blocks.Add(para);
             MarkTabOutputChanged(tab);
+            RefreshContextUsage(tab, forceEstimate: true);
         }
 
         private void AppendToolDone(string info)
@@ -1222,6 +1228,53 @@ namespace CommitBallAgent
             para.Inlines.Add(run);
             doc.Blocks.Add(para);
             MarkTabOutputChanged(tab);
+            RefreshContextUsage(tab, forceEstimate: true);
+        }
+
+        private void RenderDisplayMessage(AgentTabState tab, Message msg)
+        {
+            var type = string.IsNullOrWhiteSpace(msg.DisplayType) ? "tool_done" : msg.DisplayType;
+            switch (type)
+            {
+                case "tool_start":
+                    AppendToolStart(tab, msg.Content);
+                    break;
+                case "tool_done":
+                    AppendToolDone(tab, msg.Content);
+                    break;
+                case "tool_error_detail":
+                    AppendOutput(tab, $"  ✗ {msg.Content}\n", "#E8915A");
+                    break;
+                case "subtask_progress_start":
+                    AppendSubtaskProgress(tab, null);
+                    break;
+                case "subtask_progress":
+                    AppendSubtaskProgress(tab, msg.Content);
+                    break;
+                case "cancelled":
+                    AppendOutput(tab, msg.Content, "#AAAAAE");
+                    break;
+                case "error":
+                    AppendOutput(tab, msg.Content, "#E8915A");
+                    break;
+                case "notice":
+                case "turn_end":
+                    AppendOutput(tab, msg.Content);
+                    break;
+                default:
+                    AppendToolDone(tab, msg.Content);
+                    break;
+            }
+        }
+
+        private static void AddDisplay(Session session, string type, string content)
+        {
+            session.Messages.Add(new Message
+            {
+                Role = "display",
+                DisplayType = type,
+                Content = content
+            });
         }
 
         public void AppendOutputLine(string text, string? color = null)
