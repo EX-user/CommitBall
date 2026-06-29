@@ -834,10 +834,6 @@ inline void CheckSessionSplit() {
 
     ExportSessionDb(sessionPath, exportPath);
     GenerateSessionMetadata(sessionTs, sessionPath, exportPath, metaPath);
-    {
-        extern void InvokeAgentNameArchive(const char* txtPath, const char* metaPath);
-        InvokeAgentNameArchive(exportPath.c_str(), metaPath.c_str());
-    }
 
     OpenDb(CURRENT_DB);
 
@@ -887,6 +883,10 @@ inline void CheckSessionSplit() {
     }
 
     Log("Session split done: new current.db with tail rows, record_id=%d", g_recordId);
+    {
+        extern void InvokeAgentRepairArchives();
+        InvokeAgentRepairArchives();
+    }
 }
 
 inline void ProcessDirectCommand(const std::string& cmd) {
@@ -943,27 +943,6 @@ inline void ProcessDirectCommand(const std::string& cmd) {
         std::wstring* bubble = new std::wstring(enabled
             ? L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5F00\x542F"
             : L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5173\x95ED");
-        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
-        return;
-    }
-    const std::string ballShellPrefix = "SET_BALL_SHELL ";
-    if (cmd.rfind(ballShellPrefix, 0) == 0) {
-        std::string mode = cmd.substr(ballShellPrefix.size());
-        bool enabled = GetConfigBool("use_ball_shell");
-        if (mode == "ON") enabled = true;
-        else if (mode == "OFF") enabled = false;
-        else if (mode == "TOGGLE") enabled = !enabled;
-        else {
-            Log("Invalid BallShell mode command: %s", mode.c_str());
-            return;
-        }
-
-        SetConfigBool("use_ball_shell", enabled);
-        Log("BallShell default %s", enabled ? "enabled" : "disabled");
-        PostMessage(g_hWnd, WM_PIPE_MSG, 0, 4);
-        std::wstring* bubble = new std::wstring(enabled
-            ? L"BallShell \x5DF2\x8BBE\x4E3A\x9ED8\x8BA4\x5F00\x542F"
-            : L"BallShell \x5DF2\x8BBE\x4E3A\x9ED8\x8BA4\x5173\x95ED");
         PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
         return;
     }

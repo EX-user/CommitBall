@@ -370,6 +370,15 @@ void InvokeAgentAnalyse() {
     SendInvokeToAgent(json.c_str());
 }
 
+void InvokeAgentRepairArchives() {
+    const char* command = "/repair_archives";
+    std::string json = "[\"";
+    json += JsonEscape(command);
+    json += "\"]";
+    Log("InvokeAgentRepairArchives: %s", json.c_str());
+    SendInvokeToAgent(json.c_str());
+}
+
 void InvokeAgentText(const char* text) {
     if (!text || !text[0]) return;
     std::string json = "[\"";
@@ -383,19 +392,9 @@ bool g_ballShellActive = false;
 bool g_coreWindowOnly = false;
 
 bool ShouldUseBallShell() {
-    char env[8] = {};
-    DWORD len = GetEnvironmentVariableA("COMMITBALL_USE_BALL_SHELL", env, sizeof(env));
-    if (len > 0) {
-        if (env[0] == '0' || env[0] == 'f' || env[0] == 'F' || env[0] == 'n' || env[0] == 'N')
-            return false;
-        if (env[0] == '1' || env[0] == 't' || env[0] == 'T' || env[0] == 'y' || env[0] == 'Y')
-            return true;
-    }
     if (GetFileAttributesA("data\\disable-ball-shell.flag") != INVALID_FILE_ATTRIBUTES)
         return false;
-    if (GetFileAttributesA("data\\use-ball-shell.flag") != INVALID_FILE_ATTRIBUTES)
-        return true;
-    return GetConfigBool("use_ball_shell");
+    return true;
 }
 
 bool IsBallShellRunning() {
@@ -491,8 +490,7 @@ void PushBallShellState() {
     json += mode;
     json += "\",\"EyeEnabled\":";
     json += g_eyeModeEnabled ? "true" : "false";
-    json += ",\"IsMouseIdle\":false,\"NoAdmin\":";
-    json += g_noAdmin ? "true" : "false";
+    json += ",\"IsMouseIdle\":false";
     json += "}";
     SendBallShellLine(json);
 }
@@ -620,31 +618,6 @@ void HandleBallUiCommand(const char* command) {
     else if (strcmp(command, "exit_commitball") == 0) FastCommitBallExit();
 }
 
-static std::string DataRelativePath(const std::string& path) {
-    std::string p = path;
-    std::replace(p.begin(), p.end(), '\\', '/');
-    const std::string prefix = "data/";
-    if (p.rfind(prefix, 0) == 0)
-        return p.substr(prefix.size());
-    return p;
-}
-
-void InvokeAgentNameArchive(const char* txtPath, const char* metaPath) {
-    if (!txtPath || !metaPath) return;
-    std::string txtRel = DataRelativePath(txtPath);
-    std::string metaRel = DataRelativePath(metaPath);
-    std::string command = "/name_archive ";
-    command += txtRel;
-    command += " ";
-    command += metaRel;
-
-    std::string json = "[\"";
-    json += JsonEscape(command);
-    json += "\"]";
-    Log("InvokeAgentNameArchive: %s", json.c_str());
-    SendInvokeToAgent(json.c_str());
-}
-
 DWORD g_lastAutoCheckTime = 0;
 
 void CheckAutoAnalyse() {
@@ -672,18 +645,6 @@ void CheckAutoAnalyse() {
             InvokeAgentAnalyse();
         }
     }
-}
-
-bool IsRunAsAdmin() {
-    BOOL isAdmin = FALSE;
-    PSID adminGroup = NULL;
-    SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
-    if (AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
-        DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup)) {
-        CheckTokenMembership(NULL, adminGroup, &isAdmin);
-        FreeSid(adminGroup);
-    }
-    return isAdmin != FALSE;
 }
 
 bool SendQuitToPipe(const wchar_t* pipeName, const char* label) {
@@ -864,28 +825,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         RecorderCleanup();
         if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
         return 1;
-    }
-
-    if (!IsRunAsAdmin()) {
-        g_noAdmin = true;
-        g_curR = 128; g_curG = 128; g_curB = 128;
-        g_tgtR = 128; g_tgtG = 128; g_tgtB = 128;
-        g_curPenR = 255; g_curPenG = 255; g_curPenB = 255;
-        g_tgtPenR = 255; g_tgtPenG = 255; g_tgtPenB = 255;
-        if (!IsCoreWindowOnly()) RedrawBall();
-        EnsureBallShellStarted();
-        CreateThread(NULL, 0, [](LPVOID) -> DWORD {
-            Sleep(30000);
-            ExitProcess(0);
-            return 0;
-        }, NULL, 0, NULL);
-        MSG msg;
-        while (GetMessage(&msg, NULL, 0, 0)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-        if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
-        return 0;
     }
 
     HHOOK hook = SetWindowsHookEx(WH_KEYBOARD_LL, LLKeyboardProc, NULL, 0);

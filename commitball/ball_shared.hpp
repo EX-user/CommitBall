@@ -6,10 +6,7 @@
 
 #define IDT_OUTPUT 1
 
-inline bool g_noAdmin = false;
-
 inline const wchar_t* GetStatusText() {
-    if (g_noAdmin) return L"\x72B6\x6001: \x65E0\x6743\x9650, \x7A0D\x540E\x9000\x51FA...";
     extern State g_state;
     return (g_state == RECORDING)
         ? L"\x72B6\x6001: \x8BB0\x5F55"

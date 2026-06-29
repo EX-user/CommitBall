@@ -290,7 +290,7 @@ inline void RedrawBall() {
         BALL_CX - BALL_RADIUS + 1, BALL_CY - BALL_RADIUS + 1,
         (BALL_RADIUS - 1) * 2, (BALL_RADIUS - 1) * 2);
 
-    const wchar_t* symbol = g_noAdmin ? L"?" : (g_state == RECORDING) ? L"\x25B6" : L"\x23F8";
+    const wchar_t* symbol = (g_state == RECORDING) ? L"\x25B6" : L"\x23F8";
 
     Gdiplus::FontFamily fontFamily(L"Segoe UI Symbol");
     if (fontFamily.IsAvailable()) {
@@ -305,7 +305,7 @@ inline void RedrawBall() {
             (float)(BALL_CX - BALL_RADIUS) + (eyeModeActive ? 4.0f : 0.0f),
             (float)(BALL_CY - BALL_RADIUS),
             (float)(BALL_RADIUS * 2), (float)(BALL_RADIUS * 2));
-        if (eyeModeActive && !g_noAdmin) {
+        if (eyeModeActive) {
             float yaw = ClampFloat(g_eyeYaw, -0.78f, 0.78f);
             float pitch = ClampFloat(g_eyePitch, -0.58f, 0.58f);
             float eyeX = sinf(yaw) * 16.0f;
@@ -536,7 +536,7 @@ inline void ShowBallBubble(const wchar_t* text) {
     ReleaseDC(NULL, hdcScreen);
 
     ShowWindow(g_bubbleWnd, SW_SHOWNOACTIVATE);
-    SetTimer(g_hWnd, IDT_BUBBLE_HIDE, 2600, NULL);
+    SetTimer(g_hWnd, IDT_BUBBLE_HIDE, 10000, NULL);
 }
 
 inline void SavePosition() {
