@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <tuple>
+#include <map>
+#include <algorithm>
 #include <ctime>
 #include <cstdarg>
 #include <cstdio>
@@ -19,11 +21,14 @@ enum State { STOPPED, RECORDING };
 extern State g_state;
 extern int g_recordId;
 extern HANDLE g_pipe;
+extern HANDLE g_directPipe;
 extern sqlite3* g_db;
 extern sqlite3_stmt* g_insertStmt;
 extern DWORD g_lastOutputTime;
 extern DWORD g_lastTimerEvent;
+extern DWORD g_lastUserInputTime;
 extern DWORD g_recordingStartTime;
+extern bool g_awayLogged;
 extern bool g_running;
 extern HWND g_hWnd;
 extern HWND g_lastFocusHwnd;
@@ -31,6 +36,7 @@ extern int g_focusNoChangeCount;
 extern IUIAutomation* g_pUIAutomation;
 
 const int FLUSH_INTERVAL = 30000;
+const DWORD USER_AWAY_INTERVAL = 10 * 60 * 1000;
 const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
 const int FOCUS_TITLE_MAX = 128;
 #define WM_PIPE_MSG (WM_USER + 1)
@@ -57,6 +63,28 @@ int g_barTriggerLen = 4;
 char g_barSeq[16] = {};
 int g_barSeqLen = 0;
 DWORD g_barSeqTime = 0;
+inline bool g_eyeModeEnabled = true;
+
+inline void Log(const char* fmt, ...);
+inline void CheckSessionSplit();
+inline std::string GetTimestamp();
+
+inline void MarkUserInputActivity() {
+    DWORD now = GetTickCount();
+    if (g_state == RECORDING && g_awayLogged && g_insertStmt && g_db) {
+        std::string ts = GetTimestamp();
+        sqlite3_reset(g_insertStmt);
+        sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+        sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(g_insertStmt, 3, "back", -1, SQLITE_STATIC);
+        sqlite3_bind_text(g_insertStmt, 4, "keyboard/mouse input resumed", -1, SQLITE_STATIC);
+        sqlite3_step(g_insertStmt);
+        Log("Back event recorded: keyboard/mouse input resumed");
+        CheckSessionSplit();
+    }
+    g_lastUserInputTime = now;
+    g_awayLogged = false;
+}
 
 inline bool CheckBarTrigger(UINT vk) {
     char c = 0;
@@ -179,6 +207,81 @@ inline void LoadBarTriggerConfig() {
         sqlite3_finalize(stmt);
     }
     sqlite3_close(cfgDb);
+}
+
+inline bool IsAllowedBarTriggerChar(char c) {
+    if (c >= 'a' && c <= 'z') return true;
+    if (c >= 'A' && c <= 'Z') return true;
+    if (c >= '0' && c <= '9') return true;
+    switch (c) {
+        case '\\': case ';': case '/': case '`': case '[': case ']':
+        case '-': case '=': case ',': case '.':
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline bool IsValidBarTrigger(const std::string& trigger) {
+    if (trigger.empty() || trigger.size() > BAR_TRIGGER_MAX_LEN) return false;
+    for (char c : trigger) {
+        if (!IsAllowedBarTriggerChar(c)) return false;
+    }
+    return true;
+}
+
+inline bool SetBarTriggerConfig(const std::string& trigger) {
+    if (!IsValidBarTrigger(trigger)) return false;
+    sqlite3* cfgDb = nullptr;
+    if (sqlite3_open(CURRENT_DB, &cfgDb) != SQLITE_OK) return false;
+    sqlite3_exec(cfgDb, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    bool ok = false;
+    if (sqlite3_prepare_v2(cfgDb, "INSERT OR REPLACE INTO config (key, value) VALUES ('bar_trigger', ?)", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, trigger.c_str(), -1, SQLITE_TRANSIENT);
+        ok = sqlite3_step(stmt) == SQLITE_DONE;
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(cfgDb);
+    if (ok) {
+        memcpy(g_barTrigger, trigger.c_str(), trigger.size() + 1);
+        g_barTriggerLen = (int)trigger.size();
+        g_barSeqLen = 0;
+        g_barSeq[0] = '\0';
+        Log("Bar trigger updated: %s", g_barTrigger);
+    }
+    return ok;
+}
+
+inline void LoadEyeModeConfig() {
+    sqlite3* cfgDb = nullptr;
+    g_eyeModeEnabled = true;
+    if (sqlite3_open(CURRENT_DB, &cfgDb) != SQLITE_OK) return;
+    sqlite3_exec(cfgDb, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(cfgDb, "SELECT value FROM config WHERE key='eye_mode'", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* val = (const char*)sqlite3_column_text(stmt, 0);
+            g_eyeModeEnabled = !(val && val[0] == '0');
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(cfgDb);
+}
+
+inline void SetEyeModeConfig(bool enabled) {
+    SetConfigBool("eye_mode", enabled);
+    g_eyeModeEnabled = enabled;
+    Log("Eye mode %s", enabled ? "enabled" : "disabled");
+}
+
+inline void ReloadBarTriggerConfig() {
+    strcpy_s(g_barTrigger, BAR_TRIGGER_DEFAULT);
+    g_barTriggerLen = (int)strlen(BAR_TRIGGER_DEFAULT);
+    g_barSeqLen = 0;
+    g_barSeq[0] = '\0';
+    LoadBarTriggerConfig();
+    Log("Bar trigger reloaded: %s", g_barTrigger);
 }
 
 inline std::string WideToUtf8(const std::wstring& wide) {
@@ -308,6 +411,7 @@ inline bool RecorderInit() {
     EnsureDirs();
     if (!OpenDb(CURRENT_DB)) return false;
     LoadBarTriggerConfig();
+    LoadEyeModeConfig();
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     CoCreateInstance(CLSID_CUIAutomation, NULL, CLSCTX_INPROC_SERVER,
         IID_IUIAutomation, (void**)&g_pUIAutomation);
@@ -319,6 +423,7 @@ inline void RecorderCleanup() {
     if (g_insertStmt) sqlite3_finalize(g_insertStmt);
     if (g_db) sqlite3_close(g_db);
     if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
+    if (g_directPipe != INVALID_HANDLE_VALUE) CloseHandle(g_directPipe);
     if (g_pUIAutomation) g_pUIAutomation->Release();
     CoUninitialize();
 }
@@ -344,13 +449,354 @@ inline void ExportSessionDb(const std::string& dbPath, const std::string& txtPat
     }
 }
 
+inline std::string JsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if ((unsigned char)c < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    return out;
+}
+
+inline std::string TrimCopy(const std::string& s) {
+    size_t start = 0;
+    while (start < s.size() && (unsigned char)s[start] <= 32) start++;
+    size_t end = s.size();
+    while (end > start && (unsigned char)s[end - 1] <= 32) end--;
+    return s.substr(start, end - start);
+}
+
+inline std::string Shorten(const std::string& s, size_t maxLen) {
+    if (s.size() <= maxLen) return s;
+    return s.substr(0, maxLen);
+}
+
+inline std::string FocusProcessName(const std::string& focus) {
+    size_t bar = focus.rfind('|');
+    std::string proc = (bar != std::string::npos && bar + 1 < focus.size()) ? focus.substr(bar + 1) : focus;
+    return TrimCopy(proc);
+}
+
+inline std::string FocusWindowTitle(const std::string& focus) {
+    size_t bar = focus.rfind('|');
+    std::string title = (bar != std::string::npos) ? focus.substr(0, bar) : focus;
+    return TrimCopy(title);
+}
+
+inline void AddUniqueLimited(std::vector<std::string>& items, const std::string& value, size_t maxItems, size_t maxLen) {
+    std::string clean = Shorten(TrimCopy(value), maxLen);
+    if (clean.empty()) return;
+    if (std::find(items.begin(), items.end(), clean) != items.end()) return;
+    if (items.size() < maxItems) items.push_back(clean);
+}
+
+inline void DeleteFilesInDirA(const std::string& path) {
+    WIN32_FIND_DATAA fd;
+    std::string pattern = path + "\\*";
+    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        std::string file = path + "\\" + fd.cFileName;
+        DeleteFileA(file.c_str());
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+}
+
+inline std::string SafeFileStem(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        unsigned char uc = (unsigned char)c;
+        if ((uc >= 'a' && uc <= 'z') || (uc >= 'A' && uc <= 'Z') || (uc >= '0' && uc <= '9')) out += c;
+        else if (c == '-' || c == '_') out += c;
+        else if (out.empty() || out.back() != '_') out += '_';
+        if (out.size() >= 40) break;
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out.empty() ? "focus" : out;
+}
+
+inline std::string ArchiveDataRelativePath(const std::string& path) {
+    std::string rel = path;
+    for (char& c : rel) if (c == '\\') c = '/';
+    const std::string prefix = "data/";
+    if (rel.rfind(prefix, 0) == 0) rel = rel.substr(prefix.size());
+    return rel;
+}
+
+struct ArchiveClusterInfo {
+    int id = 0;
+    std::string key;
+    std::string window;
+    std::string process;
+    std::string path;
+    std::string relPath;
+    std::vector<std::string> windowSamples;
+    std::vector<std::string> commitSamples;
+    int eventCount = 0;
+    int directInputCount = 0;
+};
+
+inline std::string ClusterRuleSummary(const ArchiveClusterInfo& cluster) {
+    std::string summary = "Process: ";
+    summary += cluster.process.empty() ? "(unknown)" : cluster.process;
+    summary += ", events=" + std::to_string(cluster.eventCount);
+    if (!cluster.windowSamples.empty()) {
+        summary += ", windows: ";
+        for (size_t i = 0; i < cluster.windowSamples.size(); ++i) {
+            if (i) summary += " / ";
+            summary += cluster.windowSamples[i];
+        }
+    }
+    if (!cluster.commitSamples.empty()) {
+        summary += ", commit notes: ";
+        for (size_t i = 0; i < cluster.commitSamples.size(); ++i) {
+            if (i) summary += " / ";
+            summary += cluster.commitSamples[i];
+        }
+    }
+    return Shorten(summary, 500);
+}
+
+inline void WriteArchiveClusters(sqlite3* db, const std::string& clusterDir, std::vector<ArchiveClusterInfo>& clusters) {
+    if (!db) return;
+    EnsureDir(clusterDir.c_str());
+    DeleteFilesInDirA(clusterDir);
+
+    std::map<std::string, size_t> clusterIndex;
+    std::string currentFocus = "unknown|unknown";
+
+    auto ensureCluster = [&](const std::string& focus) -> ArchiveClusterInfo& {
+        std::string process = FocusProcessName(focus);
+        if (process.empty()) process = "unknown";
+        std::string key = process;
+        auto it = clusterIndex.find(key);
+        if (it != clusterIndex.end()) return clusters[it->second];
+
+        ArchiveClusterInfo info;
+        info.id = (int)clusters.size() + 1;
+        info.key = key;
+        info.window = FocusWindowTitle(focus);
+        info.process = process;
+        AddUniqueLimited(info.windowSamples, info.window, 5, 100);
+        std::string stem = SafeFileStem(info.process.empty() ? info.window : info.process);
+        char filename[128];
+        snprintf(filename, sizeof(filename), "cluster_%02d_%s.txt", info.id, stem.c_str());
+        info.path = clusterDir + "\\" + filename;
+        info.relPath = ArchiveDataRelativePath(info.path);
+        clusters.push_back(info);
+        clusterIndex[key] = clusters.size() - 1;
+        return clusters.back();
+    };
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT ts, type, content FROM log ORDER BY id", -1, &stmt, nullptr) != SQLITE_OK)
+        return;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* ts = (const char*)sqlite3_column_text(stmt, 0);
+        const char* type = (const char*)sqlite3_column_text(stmt, 1);
+        const char* content = (const char*)sqlite3_column_text(stmt, 2);
+        std::string typeStr = type ? type : "";
+        std::string contentStr = content ? content : "";
+        if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+            currentFocus = contentStr;
+        }
+
+        ArchiveClusterInfo& cluster = ensureCluster(currentFocus);
+        if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+            std::string window = FocusWindowTitle(contentStr);
+            AddUniqueLimited(cluster.windowSamples, window, 5, 100);
+            if (cluster.window.empty()) cluster.window = window;
+        }
+        cluster.eventCount++;
+        if (type && strcmp(type, "direct-input") == 0)
+            cluster.directInputCount++;
+        if (type && strcmp(type, "commit") == 0 && !contentStr.empty())
+            AddUniqueLimited(cluster.commitSamples, contentStr, 5, 180);
+
+        FILE* f = fopen(cluster.path.c_str(), "a");
+        if (f) {
+            fprintf(f, "[%s] [%s] %s\n", ts ? ts : "", type ? type : "", content ? content : "");
+            fclose(f);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    std::sort(clusters.begin(), clusters.end(), [](const auto& a, const auto& b) {
+        return a.eventCount > b.eventCount;
+    });
+}
+
+inline void GenerateSessionMetadata(const std::string& sessionId, const std::string& dbPath, const std::string& txtPath, const std::string& metaPath) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) return;
+
+    std::string startedAt, endedAt, firstDirect;
+    std::map<std::string, int> focusCounts;
+    std::map<std::string, int> processCounts;
+    std::vector<std::string> commitSamples;
+    int totalRows = 0;
+    int directInputCount = 0;
+    std::string clusterDir = metaPath;
+    size_t dot = clusterDir.rfind(".meta.json");
+    if (dot != std::string::npos) clusterDir = clusterDir.substr(0, dot);
+    clusterDir += "_clusters";
+    std::vector<ArchiveClusterInfo> clusters;
+    WriteArchiveClusters(db, clusterDir, clusters);
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT ts, type, content FROM log ORDER BY id", -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* ts = (const char*)sqlite3_column_text(stmt, 0);
+            const char* type = (const char*)sqlite3_column_text(stmt, 1);
+            const char* content = (const char*)sqlite3_column_text(stmt, 2);
+            totalRows++;
+            if (ts && startedAt.empty()) startedAt = ts;
+            if (ts) endedAt = ts;
+            std::string typeStr = type ? type : "";
+            std::string contentStr = content ? content : "";
+            if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+                focusCounts[contentStr]++;
+                std::string proc = FocusProcessName(contentStr);
+                if (!proc.empty()) processCounts[proc]++;
+            } else if (type && strcmp(type, "direct-input") == 0 && !contentStr.empty()) {
+                directInputCount++;
+                if (firstDirect.empty()) firstDirect = contentStr;
+            } else if (type && strcmp(type, "commit") == 0 && !contentStr.empty()) {
+                AddUniqueLimited(commitSamples, contentStr, 5, 180);
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(db);
+
+    std::vector<std::pair<std::string, int>> ranked(focusCounts.begin(), focusCounts.end());
+    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+    std::vector<std::pair<std::string, int>> rankedProc(processCounts.begin(), processCounts.end());
+    std::sort(rankedProc.begin(), rankedProc.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+
+    std::string title = "CommitBall session";
+    if (!firstDirect.empty()) {
+        title = Shorten(firstDirect, 80);
+    } else if (!ranked.empty()) {
+        std::string windowTitle = FocusWindowTitle(ranked[0].first);
+        title = Shorten(windowTitle.empty() ? ranked[0].first : windowTitle, 80);
+    }
+
+    std::vector<std::string> tags;
+    for (size_t i = 0; i < rankedProc.size() && tags.size() < 4; ++i) {
+        AddUniqueLimited(tags, rankedProc[i].first, 5, 32);
+    }
+    if (!commitSamples.empty()) AddUniqueLimited(tags, "commit", 5, 32);
+
+    std::string ruleSummary;
+    if (!ranked.empty()) {
+        ruleSummary += "Top windows: ";
+        for (size_t i = 0; i < ranked.size() && i < 3; ++i) {
+            if (i) ruleSummary += "; ";
+            std::string titlePart = FocusWindowTitle(ranked[i].first);
+            std::string procPart = FocusProcessName(ranked[i].first);
+            ruleSummary += Shorten(titlePart.empty() ? ranked[i].first : titlePart, 80);
+            if (!procPart.empty()) ruleSummary += " (" + procPart + ")";
+            ruleSummary += " x" + std::to_string(ranked[i].second);
+        }
+        ruleSummary += ". ";
+    }
+    if (!commitSamples.empty()) {
+        ruleSummary += "Commit notes: ";
+        for (size_t i = 0; i < commitSamples.size(); ++i) {
+            if (i) ruleSummary += " / ";
+            ruleSummary += commitSamples[i];
+        }
+        ruleSummary += ". ";
+    }
+    if (ruleSummary.empty()) {
+        ruleSummary = "Recorded " + std::to_string(totalRows) + " events";
+        if (!startedAt.empty() || !endedAt.empty())
+            ruleSummary += ", from " + startedAt + " to " + endedAt;
+        ruleSummary += ".";
+    }
+    ruleSummary = Shorten(ruleSummary, 600);
+
+    FILE* f = fopen(metaPath.c_str(), "w");
+    if (!f) return;
+    fprintf(f, "{\n");
+    fprintf(f, "  \"session_id\": \"%s\",\n", JsonEscape(sessionId).c_str());
+    fprintf(f, "  \"started_at\": \"%s\",\n", JsonEscape(startedAt).c_str());
+    fprintf(f, "  \"ended_at\": \"%s\",\n", JsonEscape(endedAt).c_str());
+    fprintf(f, "  \"txt_path\": \"%s\",\n", JsonEscape(txtPath).c_str());
+    fprintf(f, "  \"db_path\": \"%s\",\n", JsonEscape(dbPath).c_str());
+    fprintf(f, "  \"cluster_strategy\": \"process\",\n");
+    fprintf(f, "  \"cluster_dir\": \"%s\",\n", JsonEscape(ArchiveDataRelativePath(clusterDir)).c_str());
+    fprintf(f, "  \"cluster_count\": %d,\n", (int)clusters.size());
+    fprintf(f, "  \"title\": \"%s\",\n", JsonEscape(title).c_str());
+    fprintf(f, "  \"work_tags\": [");
+    for (size_t i = 0; i < tags.size(); ++i) {
+        if (i) fprintf(f, ", ");
+        fprintf(f, "\"%s\"", JsonEscape(tags[i]).c_str());
+    }
+    fprintf(f, "],\n");
+    fprintf(f, "  \"rule_summary\": \"%s\",\n", JsonEscape(ruleSummary).c_str());
+    fprintf(f, "  \"source\": \"rule\",\n");
+    fprintf(f, "  \"event_count\": %d,\n", totalRows);
+    fprintf(f, "  \"direct_input_count\": %d,\n", directInputCount);
+    fprintf(f, "  \"focus_top\": [");
+    for (size_t i = 0; i < ranked.size() && i < 5; ++i) {
+        if (i) fprintf(f, ", ");
+        fprintf(f, "{\"window\": \"%s\", \"process\": \"%s\", \"count\": %d}",
+            JsonEscape(FocusWindowTitle(ranked[i].first)).c_str(),
+            JsonEscape(FocusProcessName(ranked[i].first)).c_str(),
+            ranked[i].second);
+    }
+    fprintf(f, "],\n");
+    fprintf(f, "  \"clusters\": [");
+    for (size_t i = 0; i < clusters.size(); ++i) {
+        const auto& cluster = clusters[i];
+        if (i) fprintf(f, ", ");
+        fprintf(f, "{");
+        fprintf(f, "\"id\": \"cluster_%02d\", ", cluster.id);
+        fprintf(f, "\"window\": \"%s\", ", JsonEscape(cluster.window).c_str());
+        fprintf(f, "\"process\": \"%s\", ", JsonEscape(cluster.process).c_str());
+        fprintf(f, "\"txt_path\": \"%s\", ", JsonEscape(cluster.relPath).c_str());
+        fprintf(f, "\"event_count\": %d, ", cluster.eventCount);
+        fprintf(f, "\"direct_input_count\": %d, ", cluster.directInputCount);
+        fprintf(f, "\"window_samples\": [");
+        for (size_t j = 0; j < cluster.windowSamples.size(); ++j) {
+            if (j) fprintf(f, ", ");
+            fprintf(f, "\"%s\"", JsonEscape(cluster.windowSamples[j]).c_str());
+        }
+        fprintf(f, "], ");
+        fprintf(f, "\"rule_summary\": \"%s\"", JsonEscape(ClusterRuleSummary(cluster)).c_str());
+        fprintf(f, "}");
+    }
+    fprintf(f, "]\n");
+    fprintf(f, "}\n");
+    fclose(f);
+    Log("Session metadata written: %s", metaPath.c_str());
+}
+
 inline void CheckSessionSplit() {
     if (GetDbSize() >= SESSION_SPLIT_SIZE * 9 / 10) {
         if (!GetConfigBool("auto_analysed")) {
             extern bool IsAgentRunning();
-            extern bool IsAgentBusy();
             extern void InvokeAgentAnalyse();
-            if (IsAgentRunning() && !IsAgentBusy()) {
+            if (IsAgentRunning()) {
                 SetConfigBool("auto_analysed", true);
                 InvokeAgentAnalyse();
             }
@@ -369,6 +815,7 @@ inline void CheckSessionSplit() {
     std::string exportDir = std::string(EXPORTS_DIR) + "\\" + month;
     EnsureDir(exportDir.c_str());
     std::string exportPath = exportDir + "\\commitball_" + sessionTs + ".txt";
+    std::string metaPath = exportDir + "\\commitball_" + sessionTs + ".meta.json";
 
     Log("Session split: size=%lld, exporting...", (long long)GetDbSize());
 
@@ -386,6 +833,7 @@ inline void CheckSessionSplit() {
     rename(CURRENT_DB, sessionPath.c_str());
 
     ExportSessionDb(sessionPath, exportPath);
+    GenerateSessionMetadata(sessionTs, sessionPath, exportPath, metaPath);
 
     OpenDb(CURRENT_DB);
 
@@ -435,6 +883,80 @@ inline void CheckSessionSplit() {
     }
 
     Log("Session split done: new current.db with tail rows, record_id=%d", g_recordId);
+    {
+        extern void InvokeAgentRepairArchives();
+        InvokeAgentRepairArchives();
+    }
+}
+
+inline void ProcessDirectCommand(const std::string& cmd) {
+    Log("Direct command received: %s", cmd.c_str());
+    const std::string agentPrefix = "AGENT_INPUT ";
+    if (cmd.rfind(agentPrefix, 0) == 0) {
+        extern void InvokeAgentText(const char* text);
+        InvokeAgentText(cmd.substr(agentPrefix.size()).c_str());
+        return;
+    }
+    const std::string uiPrefix = "UI_COMMAND ";
+    if (cmd.rfind(uiPrefix, 0) == 0) {
+        extern void HandleBallUiCommand(const char* command);
+        HandleBallUiCommand(cmd.substr(uiPrefix.size()).c_str());
+        return;
+    }
+    const std::string uiWindowPrefix = "UI_WINDOW_STATE ";
+    if (cmd.rfind(uiWindowPrefix, 0) == 0) {
+        std::string payload = cmd.substr(uiWindowPrefix.size());
+        extern void SaveBallShellWindowState(const char* json);
+        SaveBallShellWindowState(payload.c_str());
+        return;
+    }
+    if (cmd == "RELOAD_TRIGGER") {
+        ReloadBarTriggerConfig();
+        return;
+    }
+    const std::string setPrefix = "SET_TRIGGER ";
+    if (cmd.rfind(setPrefix, 0) == 0) {
+        std::string trigger = cmd.substr(setPrefix.size());
+        if (SetBarTriggerConfig(trigger)) {
+            Log("Bar trigger command applied");
+            std::wstring* bubble = new std::wstring(L"Bar \x5524\x9192\x5E8F\x5217\x5DF2\x66F4\x65B0");
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        } else {
+            Log("Invalid bar trigger from Bar: %s", trigger.c_str());
+        }
+        return;
+    }
+    const std::string eyePrefix = "SET_EYE_MODE ";
+    if (cmd.rfind(eyePrefix, 0) == 0) {
+        std::string mode = cmd.substr(eyePrefix.size());
+        bool enabled = g_eyeModeEnabled;
+        if (mode == "ON") enabled = true;
+        else if (mode == "OFF") enabled = false;
+        else if (mode == "TOGGLE") enabled = !g_eyeModeEnabled;
+        else {
+            Log("Invalid eye mode command: %s", mode.c_str());
+            return;
+        }
+
+        SetEyeModeConfig(enabled);
+        PostMessage(g_hWnd, WM_PIPE_MSG, 0, 3);
+        std::wstring* bubble = new std::wstring(enabled
+            ? L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5F00\x542F"
+            : L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5173\x95ED");
+        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        return;
+    }
+    const std::string bubblePrefix = "BUBBLE ";
+    if (cmd.rfind(bubblePrefix, 0) == 0) {
+        std::string text = cmd.substr(bubblePrefix.size());
+        int wideLen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, NULL, 0);
+        if (wideLen > 0) {
+            std::wstring wide(wideLen, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wide[0], wideLen);
+            std::wstring* bubble = new std::wstring(wide.c_str());
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        }
+    }
 }
 
 inline std::wstring GetFocusInfo(std::wstring& outTitle, std::wstring& outProcess, RECT& outRect) {
@@ -556,6 +1078,28 @@ inline void CheckTimerEvent() {
     }
 }
 
+inline void CheckAwayEvent() {
+    if (g_state != RECORDING || g_awayLogged || !g_insertStmt || !g_db) return;
+
+    DWORD now = GetTickCount();
+    if (g_lastUserInputTime == 0) {
+        g_lastUserInputTime = now;
+        return;
+    }
+    if (now - g_lastUserInputTime < USER_AWAY_INTERVAL) return;
+
+    std::string ts = GetTimestamp();
+    sqlite3_reset(g_insertStmt);
+    sqlite3_bind_int(g_insertStmt, 1, g_recordId);
+    sqlite3_bind_text(g_insertStmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(g_insertStmt, 3, "away", -1, SQLITE_STATIC);
+    sqlite3_bind_text(g_insertStmt, 4, "no keyboard/mouse input for 10 minutes", -1, SQLITE_STATIC);
+    sqlite3_step(g_insertStmt);
+    g_awayLogged = true;
+    Log("Away event recorded: no keyboard/mouse input for 10 minutes");
+    CheckSessionSplit();
+}
+
 inline void CheckSessionTimeout() {
     if (g_state != RECORDING) return;
     if (GetTickCount() - g_recordingStartTime < 3600000) return;
@@ -569,6 +1113,8 @@ inline void CheckSessionTimeout() {
     g_recordingStartTime = GetTickCount();
     g_lastTimerEvent = GetTickCount();
     g_lastOutputTime = GetTickCount();
+    g_lastUserInputTime = GetTickCount();
+    g_awayLogged = false;
     g_focusNoChangeCount = 0;
 
     std::wstring title, process;
@@ -603,6 +1149,7 @@ inline const wchar_t* SpecialKeyName(UINT vk) {
 
 inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && wParam == WM_KEYDOWN) {
+        MarkUserInputActivity();
         KBDLLHOOKSTRUCT* p = (KBDLLHOOKSTRUCT*)lParam;
         UINT vk = p->vkCode;
 
@@ -618,6 +1165,8 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
                 g_lastOutputTime = GetTickCount();
                 g_lastTimerEvent = GetTickCount();
                 g_recordingStartTime = GetTickCount();
+                g_lastUserInputTime = GetTickCount();
+                g_awayLogged = false;
                 std::wstring title, process;
                 RECT rect;
                 GetFocusInfo(title, process, rect);
@@ -729,17 +1278,18 @@ inline void CreateBarPipeServer() {
     char readBuf[BUF_SIZE];
 
     while (g_running) {
-        HANDLE hPipe = CreateNamedPipeW(
+        g_directPipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\CommitBall-direct",
             PIPE_ACCESS_INBOUND,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1, BUF_SIZE, 0, 0, NULL);
 
-        if (hPipe == INVALID_HANDLE_VALUE) {
+        if (g_directPipe == INVALID_HANDLE_VALUE) {
             Sleep(1000);
             continue;
         }
 
+        HANDLE hPipe = g_directPipe;
         if (ConnectNamedPipe(hPipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
             std::string acc;
             DWORD bytesRead;
@@ -751,19 +1301,26 @@ inline void CreateBarPipeServer() {
                 while (!text.empty() && (text.back() == '\r' || text.back() == '\n'))
                     text.pop_back();
                 if (!text.empty()) {
-                    std::string* pText = new std::string(std::move(text));
-                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, 1); // lParam=1: direct-input
+                    if (text.rfind("CMD ", 0) == 0) {
+                        ProcessDirectCommand(text.substr(4));
+                    } else {
+                        std::string* pText = new std::string(std::move(text));
+                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, 1); // lParam=1: direct-input
+                    }
                 }
             }
         }
 
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);
+        if (g_directPipe == hPipe)
+            g_directPipe = INVALID_HANDLE_VALUE;
     }
 }
 
 inline void ProcessMessage(const std::wstring& msg) {
     if (g_state != RECORDING) return;
+    MarkUserInputActivity();
 
     std::string timestamp = GetTimestamp();
 

@@ -11,11 +11,12 @@
   !define WEASEL_VERSION "0.17.4"
 !endif
 !ifndef COMMITBALL_VERSION
-  !define COMMITBALL_VERSION "0.1.2"
+  !define COMMITBALL_VERSION "0.2.1"
 !endif
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
 !endif
+!define DOTNET_RUNTIME_INSTALLER "windowsdesktop-runtime-win-x64.exe"
 
 Name "CommitBall ${COMMITBALL_VERSION}"
 OutFile "archives\CommitBall-${PRODUCT_VERSION}-installer.exe"
@@ -23,6 +24,7 @@ InstallDir "$PROGRAMFILES64\CommitBall"
 InstallDirRegKey HKLM "SOFTWARE\Rime\CBWeasel" "InstallDir"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
+AutoCloseWindow true
 
 ; MUI settings
 !define MUI_ICON "..\tools\commitball.ico"
@@ -35,8 +37,6 @@ SetCompressor /SOLID lzma
   !insertmacro MUI_PAGE_COMPONENTS
   !insertmacro MUI_PAGE_INSTFILES
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\CommitBall.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "启动 CommitBall"
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -53,10 +53,45 @@ SetCompressor /SOLID lzma
 Section "CB-Weasel 输入法" SecMain
   SectionIn RO
 
+  ; The C# UI processes are framework-dependent; install the bundled runtime if missing.
+  DetailPrint "检查 .NET 8 Desktop Runtime..."
+  FindFirst $0 $1 "$PROGRAMFILES64\dotnet\shared\Microsoft.WindowsDesktop.App\8.*"
+  StrCmp $1 "" dotnet_runtime_missing dotnet_runtime_ok
+
+  dotnet_runtime_missing:
+    FindClose $0
+    DetailPrint "安装 .NET 8 Desktop Runtime..."
+    SetOutPath "$TEMP\CommitBallRedist"
+    File /oname=${DOTNET_RUNTIME_INSTALLER} "redist\${DOTNET_RUNTIME_INSTALLER}"
+    ExecWait '"$TEMP\CommitBallRedist\${DOTNET_RUNTIME_INSTALLER}" /install /quiet /norestart' $2
+    IntCmp $2 0 dotnet_runtime_recheck 0 0
+    IntCmp $2 3010 dotnet_runtime_recheck 0 0
+    MessageBox MB_ICONSTOP|MB_OK \
+      "Microsoft .NET 8 Desktop Runtime 安装失败，退出码：$2。$\n$\n请手动安装 .NET 8 Desktop Runtime (x64) 后重新运行安装包。"
+    Abort
+
+  dotnet_runtime_recheck:
+    FindFirst $0 $1 "$PROGRAMFILES64\dotnet\shared\Microsoft.WindowsDesktop.App\8.*"
+    StrCmp $1 "" 0 dotnet_runtime_ok_after_install
+      MessageBox MB_ICONSTOP|MB_OK "未检测到 Microsoft .NET 8 Desktop Runtime，安装无法继续。"
+      Abort
+
+  dotnet_runtime_ok_after_install:
+    FindClose $0
+    Delete "$TEMP\CommitBallRedist\${DOTNET_RUNTIME_INSTALLER}"
+    RMDir "$TEMP\CommitBallRedist"
+    Goto dotnet_runtime_done
+
+  dotnet_runtime_ok:
+    FindClose $0
+
+  dotnet_runtime_done:
+
   ; Stop existing processes
   DetailPrint "停止旧进程..."
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-BallShell.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Agent.exe'
   Sleep 1000
@@ -64,19 +99,26 @@ Section "CB-Weasel 输入法" SecMain
   SetOutPath "$INSTDIR"
 
   ; CommitBall
-  File "..\commitball\CommitBall.exe"
+  File "..\commitball\publish\CommitBall.exe"
 
   ; CommitBall-Bar
   File "..\commitball-bar\publish\CommitBall-Bar.exe"
+  File "..\commitball-bar\publish\WebView2Loader.dll"
 
   ; CommitBall-Agent
-  File "..\publish\agent\CommitBall-Agent.exe"
-  File "..\commitball-agent\commitball-agent\analyse-prompt.md"
-  File "..\commitball-agent\commitball-agent\analyse-prompt-st.md"
-  File "..\commitball-agent\commitball-agent\summary_to_panel-prompt.md"
+  File "..\commitball-agent\publish\CommitBall-Agent.exe"
+  File "..\commitball-agent\publish\e_sqlite3.dll"
+  File "..\commitball-agent\summary_to_panel-prompt.md"
+
+  ; CommitBall-BallShell
+  File "..\commitball-ball-shell\publish\CommitBall-BallShell.exe"
+
+  SetOutPath "$INSTDIR\Assets\Skins\eye-of-commit"
+  File "..\commitball-ball-shell\publish\Assets\Skins\eye-of-commit\*.*"
 
   SetOutPath "$INSTDIR\data\agent-out"
-  File "..\commitball-agent\commitball-agent\panel-template.html"
+  File "..\commitball-agent\panel-template.html"
+  File "..\commitball-agent\summary_task_exp_decay_memory_template.md"
 
   ; Release old DLL if locked
   DetailPrint "检查旧版本 DLL..."
@@ -171,6 +213,7 @@ Section "Uninstall"
   ; Stop processes
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
+  nsExec::ExecToLog 'taskkill /F /IM CommitBall-BallShell.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Bar.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Agent.exe'
   Sleep 1000
@@ -192,12 +235,14 @@ Section "Uninstall"
   ; Remove files
   RMDir /r "$INSTDIR\cb-weasel"
   Delete "$INSTDIR\CommitBall.exe"
+  Delete "$INSTDIR\CommitBall-BallShell.exe"
   Delete "$INSTDIR\CommitBall-Bar.exe"
   Delete "$INSTDIR\CommitBall-Agent.exe"
-  Delete "$INSTDIR\analyse-prompt.md"
-  Delete "$INSTDIR\analyse-prompt-st.md"
+  Delete "$INSTDIR\WebView2Loader.dll"
+  Delete "$INSTDIR\e_sqlite3.dll"
   Delete "$INSTDIR\summary_to_panel-prompt.md"
   Delete "$INSTDIR\uninstall.exe"
   Delete "$DESKTOP\CommitBall.lnk"
+  RMDir /r "$INSTDIR\Assets"
   RMDir "$INSTDIR"
 SectionEnd

@@ -1,0 +1,127 @@
+<Window x:Class="CommitBallBar.BarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CommitBall-Bar"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ResizeMode="NoResize"
+        SizeToContent="Height"
+        Visibility="Hidden"
+        Loaded="Window_Loaded">
+    <Border x:Name="RootBorder" 
+            CornerRadius="14" 
+            Background="White" 
+            BorderBrush="#D2D2DC" 
+            BorderThickness="1"
+            Margin="6,6,6,2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="12" Opacity="0.12" ShadowDepth="3" Direction="270" Color="#000000"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid x:Name="DragBarTop" Grid.Row="0" Height="6" Background="Transparent" Cursor="SizeNS" MouseLeftButtonDown="DragBar_MouseLeftButtonDown">
+            </Grid>
+            <Grid Grid.Row="1" Height="40">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid Grid.Column="0">
+                    <TextBox x:Name="InputBox" 
+                             FontSize="14" 
+                             FontFamily="Segoe UI"
+                             Background="Transparent" 
+                             BorderThickness="0"
+                             VerticalAlignment="Center"
+                             VerticalContentAlignment="Center" 
+                             Margin="16,0,0,0"
+                             Foreground="#1E1E1E" 
+                             CaretBrush="#3C3C3C"
+                             PreviewKeyDown="InputBox_PreviewKeyDown"
+                             KeyDown="InputBox_KeyDown"
+                             TextChanged="InputBox_TextChanged"/>
+                    <Border x:Name="PrefixTag"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Background="#EDEDF5"
+                            CornerRadius="4"
+                            Padding="6,2"
+                            Margin="16,0,0,0">
+                        <TextBlock x:Name="PrefixTagText"
+                                   FontSize="14"
+                                   FontFamily="Segoe UI"
+                                   Foreground="#6B6B8A"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                    <Border x:Name="CommandToast"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Background="#EAF2FF"
+                            CornerRadius="8"
+                            Padding="10,4"
+                            Margin="0,0,10,0"
+                            IsHitTestVisible="False">
+                        <TextBlock x:Name="CommandToastText"
+                                   FontSize="13"
+                                   FontFamily="Segoe UI"
+                                   Foreground="#2563EB"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                </Grid>
+                <TextBlock x:Name="HintText"
+                           Grid.Column="0"
+                           Text="Esc 关闭 | 键入后 Enter 提交"
+                           FontSize="14"
+                           FontFamily="Segoe UI"
+                           Foreground="#AAAAAE"
+                           IsHitTestVisible="False"
+                           VerticalAlignment="Center"
+                           Margin="18,0,18,0"
+                           Visibility="Visible"/>
+                <Button x:Name="PanelBtn"
+                        Grid.Column="1"
+                        Click="PanelBtn_Click"
+                        Cursor="Hand"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        VerticalAlignment="Center"
+                        Margin="0,0,4,0"
+                        Padding="6,4"
+                        FontSize="14"
+                        FontFamily="Segoe UI"
+                        Foreground="#3B82F6"
+                        ToolTip="切换面板显示">
+                    📊
+                </Button>
+                <Button x:Name="LockBtn"
+                        Grid.Column="2"
+                        Click="LockBtn_Click"
+                        Cursor="Hand"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        VerticalAlignment="Center"
+                        Margin="0,0,10,0"
+                        Padding="6,4"
+                        FontSize="14"
+                        FontFamily="Segoe UI"
+                        Foreground="#AAAAAE"
+                        ToolTip="锁定后 Enter 不关闭窗口">
+                    🔒
+                </Button>
+            </Grid>
+            <Grid x:Name="DragBar" Grid.Row="2" Height="6" Background="Transparent" Cursor="SizeNS" MouseLeftButtonDown="DragBar_MouseLeftButtonDown">
+                <Rectangle HorizontalAlignment="Center" VerticalAlignment="Center" Width="40" Height="2" RadiusX="1" RadiusY="1" Fill="#C0C0CC"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

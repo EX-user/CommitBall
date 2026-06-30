@@ -17,6 +17,8 @@ if (!(Test-Path $vcvarsall)) {
 
 # === Required file checks ===
 $root = Resolve-Path "$PSScriptRoot\.."
+$runtimeUrl = "https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe"
+$runtimeInstaller = "$PSScriptRoot\redist\windowsdesktop-runtime-win-x64.exe"
 $checks = @(
     @{ Path = "$root\weasel\output\cb-weaselx64.dll";       Hint = "Build cb-weasel first: cd weasel; msbuild weasel.sln /p:Configuration=Release /p:Platform=x64" },
     @{ Path = "$root\weasel\output\WeaselServer.exe";        Hint = "Build cb-weasel first (same as above)" },
@@ -43,6 +45,22 @@ if ($failed) {
     exit 1
 }
 
+# === .NET Desktop Runtime redist ===
+Write-Host "Preparing .NET 8 Desktop Runtime redist..."
+New-Item -ItemType Directory -Path "$PSScriptRoot\redist" -Force | Out-Null
+if (!(Test-Path $runtimeInstaller) -or ((Get-Item $runtimeInstaller).Length -lt 50MB)) {
+    Write-Host "Downloading .NET 8 Desktop Runtime (x64)..."
+    curl.exe -L $runtimeUrl -o $runtimeInstaller
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error ".NET runtime download failed with exit code $LASTEXITCODE."
+        exit $LASTEXITCODE
+    }
+}
+if (!(Test-Path $runtimeInstaller) -or ((Get-Item $runtimeInstaller).Length -lt 50MB)) {
+    Write-Error ".NET runtime redist is missing or too small: $runtimeInstaller"
+    exit 1
+}
+
 # === Stage dictionary files ===
 Write-Host "Staging dictionary files..."
 New-Item -ItemType Directory -Path staging\build -Force | Out-Null
@@ -64,15 +82,27 @@ Copy-Item $prismBin staging\build\ -Force
 
 # === Build CommitBall ===
 Write-Host "Building CommitBall..."
-cmd /c "`"$vcvarsall`" x64 >nul 2>&1 && cd /d $root\commitball && rc /fo commitball.res commitball.rc && cl /EHsc /std:c++17 /Fe:CommitBall.exe main.cpp sqlite3.c commitball.res /link user32.lib gdi32.lib gdiplus.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"
-if (!(Test-Path "$root\commitball\CommitBall.exe")) {
+$coreDir = Join-Path $root "commitball"
+New-Item -ItemType Directory -Path (Join-Path $coreDir "publish") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $coreDir "obj") -Force | Out-Null
+cmd /c "call `"$vcvarsall`" x64 >nul 2>&1 && cd /d `"$coreDir`" && rc /fo obj\commitball.res commitball.rc && cl /EHsc /std:c++17 /Fepublish\CommitBall.exe /Foobj\ main.cpp sqlite3.c obj\commitball.res /link user32.lib shcore.lib advapi32.lib psapi.lib shell32.lib /SUBSYSTEM:WINDOWS"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "CommitBall.exe build failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
+if (!(Test-Path "$root\commitball\publish\CommitBall.exe")) {
     Write-Error "CommitBall.exe build failed. Check compiler errors above."
     exit 1
 }
 
 # === Publish CommitBall-Bar ===
 Write-Host "Publishing CommitBall-Bar..."
-dotnet publish "$root\commitball-bar\commitball-bar\commitball-bar.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\commitball-bar\publish"
+Remove-Item "$root\commitball-bar\publish" -Recurse -Force -ErrorAction SilentlyContinue
+dotnet publish "$root\commitball-bar\commitball-bar.csproj" -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o "$root\commitball-bar\publish"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "CommitBall-Bar publish command failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
 if (!(Test-Path "$root\commitball-bar\publish\CommitBall-Bar.exe")) {
     Write-Error "CommitBall-Bar publish failed."
     exit 1
@@ -80,21 +110,49 @@ if (!(Test-Path "$root\commitball-bar\publish\CommitBall-Bar.exe")) {
 
 # === Publish CommitBall-Agent ===
 Write-Host "Publishing CommitBall-Agent..."
-dotnet publish "$root\commitball-agent\commitball-agent\commitball-agent.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$root\publish\agent"
-if (!(Test-Path "$root\publish\agent\CommitBall-Agent.exe")) {
+Remove-Item "$root\commitball-agent\publish" -Recurse -Force -ErrorAction SilentlyContinue
+dotnet publish "$root\commitball-agent\commitball-agent.csproj" -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o "$root\commitball-agent\publish"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "CommitBall-Agent publish command failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
+if (!(Test-Path "$root\commitball-agent\publish\CommitBall-Agent.exe")) {
     Write-Error "CommitBall-Agent publish failed."
+    exit 1
+}
+
+# === Publish CommitBall-BallShell ===
+Write-Host "Publishing CommitBall-BallShell..."
+Remove-Item "$root\commitball-ball-shell\publish" -Recurse -Force -ErrorAction SilentlyContinue
+dotnet publish "$root\commitball-ball-shell\commitball-ball-shell.csproj" -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o "$root\commitball-ball-shell\publish"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "CommitBall-BallShell publish command failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
+if (!(Test-Path "$root\commitball-ball-shell\publish\CommitBall-BallShell.exe")) {
+    Write-Error "CommitBall-BallShell publish failed."
+    exit 1
+}
+$ballShellAssetTarget = "$root\commitball-ball-shell\publish\Assets"
+if (!(Test-Path "$ballShellAssetTarget\Skins\eye-of-commit\body.png")) {
+    Write-Error "CommitBall-BallShell runtime assets missing from publish output."
     exit 1
 }
 
 # === Build installer ===
 Write-Host "Building installer..."
-New-Item -ItemType Directory -Path archives -Force | Out-Null
-& $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.1.2 commitball.nsi
+Push-Location $PSScriptRoot
+try {
+    New-Item -ItemType Directory -Path archives -Force | Out-Null
+    & $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.2.1 commitball.nsi
+} finally {
+    Pop-Location
+}
 
 if ($LASTEXITCODE -eq 0) {
-    $exe = Get-Item "archives\CommitBall-0.1.2.0-installer.exe"
+    $exe = Get-Item (Join-Path $PSScriptRoot "archives\CommitBall-0.2.1.0-installer.exe")
     $sizeMB = [math]::Round($exe.Length / 1MB, 1)
-    Write-Host "`nDone! archives\CommitBall-0.1.2.0-installer.exe ($sizeMB MB)" -ForegroundColor Green
+    Write-Host "`nDone! $($exe.FullName) ($sizeMB MB)" -ForegroundColor Green
 } else {
     Write-Error "NSIS build failed. Check errors above."
 }

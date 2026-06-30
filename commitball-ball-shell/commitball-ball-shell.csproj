@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>CommitBallBallShell</RootNamespace>
+    <AssemblyName>CommitBall-BallShell</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\Skins\eye-of-commit\body.png" />
+    <None Remove="Assets\Skins\eye-of-commit\iris.png" />
+    <None Remove="Assets\Skins\eye-of-commit\pupil.png" />
+    <None Remove="Assets\Skins\eye-of-commit\tentacles.gif" />
+    <None Remove="Assets\Skins\eye-of-commit\skin.json" />
+    <Resource Remove="Assets\Skins\eye-of-commit\body.png" />
+    <Resource Remove="Assets\Skins\eye-of-commit\iris.png" />
+    <Resource Remove="Assets\Skins\eye-of-commit\pupil.png" />
+    <Resource Remove="Assets\Skins\eye-of-commit\tentacles.gif" />
+    <Resource Remove="Assets\Skins\eye-of-commit\skin.json" />
+    <Content Include="Assets\Skins\eye-of-commit\body.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="Assets\Skins\eye-of-commit\iris.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="Assets\Skins\eye-of-commit\pupil.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="Assets\Skins\eye-of-commit\tentacles.gif" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="Assets\Skins\eye-of-commit\skin.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+</Project>

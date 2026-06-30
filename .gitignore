@@ -4,6 +4,14 @@ commitball/CommitBall.exp
 commitball/CommitBall.lib
 commitball/CommitBall.pdb
 commitball/*.obj
+commitball/*.res
+commitball/obj/
+commitball/publish/
+commitball/RCa*
+commitball/RDa*
+$null
+dist/
+staging/
 
 # CommitBall runtime files
 commitball.db
@@ -19,15 +27,18 @@ weasel_old/
 
 # CommitBall-Bar build/publish artifacts
 commitball-bar/publish/
-commitball-bar/commitball-bar/bin/
-commitball-bar/commitball-bar/obj/
-commit-bar/commitball-bar/obj/
+commitball-bar/bin/
+commitball-bar/obj/
 commitball-bar/data/
 
 # CommitBall-Agent build/publish artifacts
-commitball-agent/commitball-agent/bin/
-commitball-agent/commitball-agent/obj/
+commitball-agent/bin/
+commitball-agent/obj/
 publish/
+
+# CommitBall-BallShell build artifacts
+commitball-ball-shell/bin/
+commitball-ball-shell/obj/
 
 # Installer artifacts
 installer/archives/
