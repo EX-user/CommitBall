@@ -12,6 +12,8 @@ namespace CommitBallAgent
     {
         private static string BaseDir => Path.GetFullPath(Config.DataDir);
         private static readonly object OutputToolLock = new();
+        private static readonly object AgentOutWriteGate = new();
+        private static string? AgentOutWriteOwnerSessionId;
         private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".db", ".sqlite", ".exe", ".dll", ".pdb", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".zip", ".7z"
@@ -80,16 +82,64 @@ namespace CommitBallAgent
 
         public static bool IsSubtask(string toolName) => toolName == "subtask";
 
+        public static IDisposable AcquireAgentOutWriteLease(string ownerSessionId)
+        {
+            lock (AgentOutWriteGate)
+            {
+                while (AgentOutWriteOwnerSessionId != null && AgentOutWriteOwnerSessionId != ownerSessionId)
+                    System.Threading.Monitor.Wait(AgentOutWriteGate);
+                AgentOutWriteOwnerSessionId = ownerSessionId;
+                return new AgentOutWriteLease(ownerSessionId);
+            }
+        }
+
+        private sealed class AgentOutWriteLease : IDisposable
+        {
+            private readonly string _ownerSessionId;
+            private bool _disposed;
+
+            public AgentOutWriteLease(string ownerSessionId)
+            {
+                _ownerSessionId = ownerSessionId;
+            }
+
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                lock (AgentOutWriteGate)
+                {
+                    if (AgentOutWriteOwnerSessionId == _ownerSessionId)
+                    {
+                        AgentOutWriteOwnerSessionId = null;
+                        System.Threading.Monitor.PulseAll(AgentOutWriteGate);
+                    }
+                }
+            }
+        }
+
+        private static string? CheckAgentOutWriteAccess(Session? session)
+        {
+            lock (AgentOutWriteGate)
+            {
+                if (AgentOutWriteOwnerSessionId == null ||
+                    session?.Id == AgentOutWriteOwnerSessionId ||
+                    session?.ParentSessionId == AgentOutWriteOwnerSessionId)
+                    return null;
+                return "Error: agent-out is locked by a running summary_to_panel task; write/edit/display_panel from other sessions is blocked. Try again after summary_to_panel finishes.";
+            }
+        }
+
         public static string Execute(string toolName, JsonObject args, Session? session = null)
         {
             return toolName switch
             {
                 "list" => ExecuteList(args),
                 "read" => ExecuteRead(args),
-                "write" => ExecuteWrite(args),
-                "edit" => ExecuteEdit(args),
+                "write" => ExecuteWrite(args, session),
+                "edit" => ExecuteEdit(args, session),
                 "grep" => ExecuteGrep(args),
-                "display_panel" => ExecuteDisplayPanel(args),
+                "display_panel" => ExecuteDisplayPanel(args, session),
                 "update_meta" => ExecuteUpdateMeta(args),
                 "rename_session" => ExecuteRenameSession(args, session),
                 "set_bar_trigger" => ExecuteSetBarTrigger(args),
@@ -302,7 +352,7 @@ namespace CommitBallAgent
             }
         }
 
-        private static string ExecuteWrite(JsonObject args)
+        private static string ExecuteWrite(JsonObject args, Session? session)
         {
             var filename = args["filename"]?.GetValue<string>() ?? "";
             var category = args["category"]?.GetValue<string>() ?? "";
@@ -319,6 +369,8 @@ namespace CommitBallAgent
             if (!TryResolveAgentOutWritePath(writeName, outDir, out var normalized, out var full, out var error))
                 return error;
 
+            var lockError = CheckAgentOutWriteAccess(session);
+            if (lockError != null) return lockError;
             lock (OutputToolLock)
             {
                 try
@@ -336,7 +388,7 @@ namespace CommitBallAgent
             }
         }
 
-        private static string ExecuteEdit(JsonObject args)
+        private static string ExecuteEdit(JsonObject args, Session? session)
         {
             var filename = args["filename"]?.GetValue<string>() ?? "";
             var category = args["category"]?.GetValue<string>() ?? "";
@@ -361,6 +413,8 @@ namespace CommitBallAgent
             if (BinaryExtensions.Contains(ext))
                 return $"Cannot edit binary file: agent-out/{normalized}";
 
+            var lockError = CheckAgentOutWriteAccess(session);
+            if (lockError != null) return lockError;
             lock (OutputToolLock)
             {
                 try
@@ -559,7 +613,7 @@ namespace CommitBallAgent
             return string.Join("\n", lines);
         }
 
-        private static string ExecuteDisplayPanel(JsonObject args)
+        private static string ExecuteDisplayPanel(JsonObject args, Session? session)
         {
             var html = args["html"]?.GetValue<string>() ?? "";
             if (string.IsNullOrWhiteSpace(html))
@@ -568,6 +622,8 @@ namespace CommitBallAgent
             var outDir = Path.Combine(BaseDir, "agent-out");
             Directory.CreateDirectory(outDir);
             var full = Path.Combine(outDir, "panel.html");
+            var lockError = CheckAgentOutWriteAccess(session);
+            if (lockError != null) return lockError;
             lock (OutputToolLock)
             {
                 try

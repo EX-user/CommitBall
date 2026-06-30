@@ -44,6 +44,11 @@ namespace CommitBallBar
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.RefreshPanel()));
                                 else if (msg == "SHOW_PANEL")
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.ShowPanelFromTool()));
+                                else if (msg != null && msg.StartsWith("NOTICE "))
+                                {
+                                    var text = msg.Substring("NOTICE ".Length);
+                                    _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.ShowAgentNotice(text)));
+                                }
                                 else if (msg == "QUIT")
                                 {
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => Application.Current.Shutdown()));

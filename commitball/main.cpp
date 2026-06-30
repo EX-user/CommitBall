@@ -320,7 +320,7 @@ std::wstring GetAgentStatusText() {
     return L"Agent: \x7a7a\x95f2";
 }
 
-bool SendInvokeToAgent(const char* json) {
+bool SendInvokeToAgent(const char* json, const char* verb) {
     if (!EnsureAgentRunning()) {
         Log("SendInvokeToAgent: agent not running");
         return false;
@@ -342,13 +342,18 @@ bool SendInvokeToAgent(const char* json) {
         Log("SendInvokeToAgent: pipe connect failed (err=%d)", GetLastError());
         return false;
     }
-    std::string msg = "INVOKE ";
+    if (!verb || !verb[0]) {
+        Log("SendInvokeToAgent: missing invoke verb");
+        return false;
+    }
+    std::string msg = verb;
+    msg += " ";
     msg += json;
     msg += "\r\n";
     DWORD written;
     WriteFile(hPipe, msg.c_str(), (DWORD)msg.size(), &written, NULL);
     CloseHandle(hPipe);
-    Log("SendInvokeToAgent: sent %d bytes", (int)msg.size());
+    Log("SendInvokeToAgent: sent %s %d bytes", verb, (int)msg.size());
     return true;
 }
 
@@ -366,7 +371,7 @@ void InvokeAgentAnalyse() {
     json += timeBuf;
     json += "\",\"/summary_to_panel\"]";
     Log("InvokeAgentAnalyse: %s", json.c_str());
-    SendInvokeToAgent(json.c_str());
+    SendInvokeToAgent(json.c_str(), "INVOKE_NEW");
 }
 
 void InvokeAgentRepairArchives() {
@@ -375,7 +380,7 @@ void InvokeAgentRepairArchives() {
     json += JsonEscape(command);
     json += "\"]";
     Log("InvokeAgentRepairArchives: %s", json.c_str());
-    SendInvokeToAgent(json.c_str());
+    SendInvokeToAgent(json.c_str(), "INVOKE_NEW");
 }
 
 void InvokeAgentText(const char* text) {
@@ -384,7 +389,7 @@ void InvokeAgentText(const char* text) {
     json += JsonEscape(text);
     json += "\"]";
     Log("InvokeAgentText: %s", json.c_str());
-    SendInvokeToAgent(json.c_str());
+    SendInvokeToAgent(json.c_str(), "INVOKE_BAR");
 }
 
 bool g_ballShellActive = false;

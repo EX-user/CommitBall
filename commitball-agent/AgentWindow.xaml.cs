@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -80,7 +81,14 @@ namespace CommitBallAgent
 
         private sealed class AgentTabState
         {
+            public enum TabKind
+            {
+                Normal,
+                BarCommand
+            }
+
             public Session Session { get; }
+            public TabKind Kind { get; set; }
             public FlowDocument Document { get; } = CreateOutputDocument();
             public CancellationTokenSource? Cts { get; set; }
             public bool IsBusy { get; set; }
@@ -97,9 +105,10 @@ namespace CommitBallAgent
             public Button? TabButton { get; set; }
             public AgentTabState? QueueContinuationTab { get; set; }
 
-            public AgentTabState(Session session)
+            public AgentTabState(Session session, TabKind kind)
             {
                 Session = session;
+                Kind = kind;
             }
         }
 
@@ -110,10 +119,19 @@ namespace CommitBallAgent
         private long _firstEscTick;
         private sealed class QueuedInvoke
         {
+            public enum InvokeKind
+            {
+                BarCommand,
+                NewSession
+            }
+
             public AgentTabState? Target { get; init; }
             public string Input { get; init; } = "";
+            public InvokeKind Kind { get; init; }
+            public bool LockAgentOutWrites { get; init; }
         }
         private readonly Queue<QueuedInvoke> _invokeQueue = new();
+        private AgentTabState? _barCommandTab;
 
         private AgentTabState CurrentTab => _activeTab ?? throw new InvalidOperationException("No active Agent tab");
 
@@ -125,11 +143,11 @@ namespace CommitBallAgent
             OutputBox.CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy, OnOutputCopy));
 
             Session initialSession;
-            var sessions = Memory.ListSessions();
+            var sessions = Memory.ListSessions(includeBarCommand: false);
             if (sessions.Count > 0)
                 initialSession = Memory.LoadOrCreate(sessions[0].Id);
             else
-                initialSession = Memory.LoadOrCreate();
+                initialSession = Memory.CreateNew();
             var initialTab = CreateTab(initialSession, renderHistory: Config.IsConfigured);
             SwitchToTab(initialTab);
 
@@ -142,6 +160,7 @@ namespace CommitBallAgent
                 AppendOutput("  DeepSeek:    base_url=https://api.deepseek.com   model=deepseek-chat\n");
                 AppendOutput("  OpenAI:      base_url=https://api.openai.com      model=gpt-4o-mini\n");
                 AppendOutput("  SiliconFlow: base_url=https://api.siliconflow.cn   model=Qwen/Qwen3-8B\n\n");
+                AppendOutput("  BigModel:    base_url=https://open.bigmodel.cn/api/paas/v4/   model=glm-5.2\n\n");
                 return;
             }
         }
@@ -157,20 +176,29 @@ namespace CommitBallAgent
             };
         }
 
-        private AgentTabState CreateTab(Session session, bool renderHistory = true, bool switchTo = false)
+        private AgentTabState CreateTab(Session session, bool renderHistory = true, bool switchTo = false, AgentTabState.TabKind kind = AgentTabState.TabKind.Normal)
         {
+            if (Memory.IsBarCommandSession(session))
+                kind = AgentTabState.TabKind.BarCommand;
+            if (kind == AgentTabState.TabKind.BarCommand)
+                session.Purpose = Memory.PurposeBarCommand;
+
             var existing = _tabs.FirstOrDefault(t => t.Session.Id == session.Id);
             if (existing != null)
             {
+                existing.Kind = kind;
+                RebuildTabStrip();
+                RefreshTabButton(existing);
                 if (switchTo) SwitchToTab(existing);
                 return existing;
             }
 
-            var tab = new AgentTabState(session);
+            var tab = new AgentTabState(session, kind);
             _tabs.Add(tab);
             if (renderHistory)
                 RenderSession(tab);
             CreateTabButton(tab);
+            RebuildTabStrip();
             if (switchTo || _activeTab == null)
                 SwitchToTab(tab);
             return tab;
@@ -194,8 +222,50 @@ namespace CommitBallAgent
             btn.Click += TabButton_Click;
             btn.PreviewMouseRightButtonUp += TabButton_RightClick;
             tab.TabButton = btn;
-            TabsPanel.Children.Add(btn);
             RefreshTabButton(tab);
+        }
+
+        private void RebuildTabStrip()
+        {
+            TabsPanel.Children.Clear();
+            var barTabs = _tabs.Where(t => t.Kind == AgentTabState.TabKind.BarCommand).ToList();
+            var normalTabs = _tabs.Where(t => t.Kind == AgentTabState.TabKind.Normal).ToList();
+
+            if (barTabs.Count > 0)
+            {
+                TabsPanel.Children.Add(CreateTabGroupLabel("Bar 指令"));
+                foreach (var tab in barTabs)
+                    if (tab.TabButton != null) TabsPanel.Children.Add(tab.TabButton);
+                TabsPanel.Children.Add(CreateTabSeparator());
+            }
+
+            TabsPanel.Children.Add(CreateTabGroupLabel("会话"));
+            foreach (var tab in normalTabs)
+                if (tab.TabButton != null) TabsPanel.Children.Add(tab.TabButton);
+        }
+
+        private static TextBlock CreateTabGroupLabel(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = (Brush)new BrushConverter().ConvertFromString("#6F7898"),
+                FontSize = 11,
+                FontFamily = new FontFamily("Cascadia Code, Consolas"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 6, 0)
+            };
+        }
+
+        private static Border CreateTabSeparator()
+        {
+            return new Border
+            {
+                Width = 1,
+                Height = 16,
+                Background = (Brush)new BrushConverter().ConvertFromString("#3D4058"),
+                Margin = new Thickness(4, 3, 8, 3)
+            };
         }
 
         private void RefreshTabButton(AgentTabState tab)
@@ -203,10 +273,13 @@ namespace CommitBallAgent
             if (tab.TabButton == null) return;
             var title = !string.IsNullOrWhiteSpace(tab.Session.Title) ? tab.Session.Title! : tab.Session.Id;
             if (title.Length > 16) title = title[..16];
+            if (tab.Kind == AgentTabState.TabKind.BarCommand)
+                title = "指令 " + title;
             var prefix = (tab.IsBusy || tab.IsContextFull) ? "● " : (tab.HasUnread ? "• " : "");
             tab.TabButton.Content = prefix + title;
             var state = tab.IsContextFull ? "context full" : (tab.IsBusy ? "busy" : "idle");
-            tab.TabButton.ToolTip = $"{tab.Session.Id}\n{tab.Session.Title}\n{state}\n{FormatContextUsage(tab)}\n右键关闭标签";
+            var kind = tab.Kind == AgentTabState.TabKind.BarCommand ? "Bar 指令会话" : "普通会话";
+            tab.TabButton.ToolTip = $"{kind}\n{tab.Session.Id}\n{tab.Session.Title}\n{state}\n{FormatContextUsage(tab)}\n右键关闭标签";
             var active = tab == _activeTab;
             tab.TabButton.Background = (Brush)new BrushConverter().ConvertFromString(active ? "#3D4058" : "#2C2F3A");
             tab.TabButton.Foreground = (Brush)new BrushConverter().ConvertFromString(tab.HasError ? "#E8915A" : active ? "#FFFFFF" : "#AAB1C8");
@@ -317,7 +390,7 @@ namespace CommitBallAgent
                     Dispatcher.BeginInvoke(() => RefreshTabButton(previous));
                 });
             }
-            var tab = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
+            var tab = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
             AppendOutput(tab, $"CommitBall Agent Terminal v0.2.1\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
             return Task.FromResult(tab);
@@ -331,15 +404,16 @@ namespace CommitBallAgent
                 FixIncompleteToolCalls(tab.Session);
             }
             Memory.Save(tab.Session);
-            if (tab.TabButton != null)
-                TabsPanel.Children.Remove(tab.TabButton);
             _tabs.Remove(tab);
+            if (_barCommandTab == tab)
+                _barCommandTab = null;
             tab.Cts?.Dispose();
             tab.Cts = null;
+            RebuildTabStrip();
 
             if (_tabs.Count == 0)
             {
-                var newTab = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
+                var newTab = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
                 AppendOutput(newTab, $"CommitBall Agent Terminal v0.2.1\n");
                 AppendOutput(newTab, FormatSessionHeader(newTab.Session));
             }
@@ -485,7 +559,7 @@ namespace CommitBallAgent
             }
         }
 
-        private async void ProcessInput(AgentTabState tab, string text)
+        private async void ProcessInput(AgentTabState tab, string text, bool lockAgentOutWrites = false)
         {
             if (text == "/help" || text == "/vendor" || text.StartsWith("/vendor "))
             {
@@ -610,7 +684,7 @@ namespace CommitBallAgent
                     prompt = "Error: summary_to_panel-prompt.md not found";
 
                 AppendPromptInput(tab, prompt);
-                _ = RunChatAsync(tab, prompt);
+                _ = RunChatAsync(tab, prompt, lockAgentOutWrites: true);
                 return;
             }
 
@@ -627,12 +701,12 @@ namespace CommitBallAgent
                     "6. 所有待处理 meta 都完成后，给出简短结果：机器修复结果、检查了多少 meta、更新了多少 meta、跳过了多少已完成 meta。\n";
 
                 AppendPromptInput(tab, prompt);
-                _ = RunChatAsync(tab, prompt);
+                _ = RunChatAsync(tab, prompt, lockAgentOutWrites: lockAgentOutWrites);
                 return;
             }
 
             AppendOutput(tab, $"> {text}\n", "#FFFFFF");
-            _ = RunChatAsync(tab, text);
+            _ = RunChatAsync(tab, text, lockAgentOutWrites: lockAgentOutWrites);
         }
 
         private void AppendPromptInput(AgentTabState tab, string prompt)
@@ -905,7 +979,7 @@ namespace CommitBallAgent
             MarkTabOutputChanged(tab);
         }
 
-        private async Task RunChatAsync(AgentTabState tab, string input)
+        private async Task RunChatAsync(AgentTabState tab, string input, bool lockAgentOutWrites = false)
         {
             if (!CanAcceptInput(tab)) return;
             if (IsContextFull(tab, EstimateSessionTokens(tab.Session)))
@@ -925,8 +999,15 @@ namespace CommitBallAgent
             RefreshAllTabs();
 
             var maxContextTokens = 0;
+            IDisposable? agentOutWriteLease = null;
             try
             {
+                if (lockAgentOutWrites)
+                {
+                    AppendOutput(tab, "[等待 agent-out 写入锁]\n", "#AAAAAE");
+                    agentOutWriteLease = await Task.Run(() => Tools.AcquireAgentOutWriteLease(tab.Session.Id), tab.Cts.Token);
+                    AppendOutput(tab, "[agent-out 写入锁已获取，summary_to_panel 执行期间其他会话写入会等待]\n", "#AAAAAE");
+                }
                 await Runtime.RunAsync(
                     tab.Session,
                     input,
@@ -977,6 +1058,7 @@ namespace CommitBallAgent
             }
             finally
             {
+                agentOutWriteLease?.Dispose();
                 tab.Cts?.Dispose();
                 tab.Cts = null;
             }
@@ -1101,7 +1183,7 @@ namespace CommitBallAgent
             if (continuation != null && !continuation.IsContextFull)
                 return continuation;
 
-            continuation = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
+            continuation = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
             AppendOutput(continuation, $"CommitBall Agent Terminal v0.2.1\n");
             AppendOutput(continuation, FormatSessionHeader(continuation.Session));
             AppendOutput(continuation, $"[上一会话上下文已满，未执行的队列指令已转入此新会话]\n\n", "#E8915A");
@@ -1312,16 +1394,6 @@ namespace CommitBallAgent
             }
         }
 
-        public void EnqueueInvoke(string[] inputs)
-        {
-            lock (_invokeQueue)
-            {
-                foreach (var input in inputs)
-                    _invokeQueue.Enqueue(new QueuedInvoke { Input = input });
-            }
-            Dispatcher.BeginInvoke((Action)TryDequeueInvoke);
-        }
-
         private void EnqueueInvokeForTab(AgentTabState tab, IEnumerable<string> inputs)
         {
             lock (_invokeQueue)
@@ -1329,36 +1401,89 @@ namespace CommitBallAgent
                 foreach (var input in inputs)
                 {
                     if (string.IsNullOrWhiteSpace(input)) continue;
-                    _invokeQueue.Enqueue(new QueuedInvoke { Target = tab, Input = input });
+                    _invokeQueue.Enqueue(new QueuedInvoke { Target = tab, Input = input, LockAgentOutWrites = input == "/summary_to_panel" });
                 }
             }
             Dispatcher.BeginInvoke((Action)TryDequeueInvoke);
         }
 
-        public void EnqueueExternalInvoke(string[] inputs)
+        public void EnqueueBarInvoke(string[] inputs)
         {
-            var target = _tabs.FirstOrDefault(CanAcceptInput);
-            if (target == null)
-            {
-                target = CreateTab(Memory.LoadOrCreate(), renderHistory: false, switchTo: true);
-                AppendOutput(target, $"CommitBall Agent Terminal v0.2.1\n");
-                AppendOutput(target, FormatSessionHeader(target.Session));
-            }
-            else
-            {
-                SwitchToTab(target);
-            }
+            var normalized = inputs.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+            if (normalized.Count == 0) return;
 
-            var normalized = inputs
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .ToList();
+            var target = GetOrCreateBarCommandTab(switchTo: true);
+            NotifyBar("Agent 指令已排队");
+            lock (_invokeQueue)
+            {
+                foreach (var input in normalized)
+                    _invokeQueue.Enqueue(new QueuedInvoke
+                    {
+                        Target = target,
+                        Input = input,
+                        Kind = QueuedInvoke.InvokeKind.BarCommand,
+                        LockAgentOutWrites = input == "/summary_to_panel"
+                    });
+            }
+            Dispatcher.BeginInvoke((Action)TryDequeueInvoke);
+        }
+
+        public void EnqueueNewSessionInvoke(string[] inputs)
+        {
+            var normalized = inputs.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+            if (normalized.Count == 0) return;
+
+            var target = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
+            AppendOutput(target, $"CommitBall Agent Terminal v0.2.1\n");
+            AppendOutput(target, FormatSessionHeader(target.Session));
+            AppendOutput(target, "[Core 指令新会话]\n\n", "#AAAAAE");
 
             lock (_invokeQueue)
             {
                 foreach (var input in normalized)
-                    _invokeQueue.Enqueue(new QueuedInvoke { Target = target, Input = input });
+                    _invokeQueue.Enqueue(new QueuedInvoke
+                    {
+                        Target = target,
+                        Input = input,
+                        Kind = QueuedInvoke.InvokeKind.NewSession,
+                        LockAgentOutWrites = input == "/summary_to_panel"
+                    });
             }
             Dispatcher.BeginInvoke((Action)TryDequeueInvoke);
+        }
+
+        private AgentTabState GetOrCreateBarCommandTab(bool switchTo)
+        {
+            if (_barCommandTab != null && _tabs.Contains(_barCommandTab) && !_barCommandTab.IsContextFull)
+            {
+                if (switchTo) SwitchToTab(_barCommandTab);
+                return _barCommandTab;
+            }
+
+            if (_barCommandTab != null && _tabs.Contains(_barCommandTab) && _barCommandTab.IsContextFull && !_barCommandTab.IsBusy)
+                CloseTab(_barCommandTab);
+
+            _barCommandTab = CreateTab(Memory.CreateNew(Memory.PurposeBarCommand), renderHistory: false, switchTo: switchTo, kind: AgentTabState.TabKind.BarCommand);
+            AppendOutput(_barCommandTab, $"CommitBall Agent Terminal v0.2.1\n");
+            AppendOutput(_barCommandTab, FormatSessionHeader(_barCommandTab.Session));
+            AppendOutput(_barCommandTab, "[Bar 指令专用会话]\n\n", "#AAAAAE");
+            return _barCommandTab;
+        }
+
+        private static void NotifyBar(string text)
+        {
+            try
+            {
+                using var pipe = new NamedPipeClientStream(".", "CommitBall-bar", PipeDirection.Out);
+                pipe.Connect(250);
+                var safe = text.Replace("\r", " ").Replace("\n", " ").Trim();
+                var bytes = System.Text.Encoding.UTF8.GetBytes("NOTICE " + safe + "\r\n");
+                pipe.Write(bytes, 0, bytes.Length);
+            }
+            catch
+            {
+                // Bar may be hidden or restarting; this is only user feedback.
+            }
         }
 
         private void TryDequeueInvoke()
@@ -1374,8 +1499,15 @@ namespace CommitBallAgent
                     {
                         var candidate = _invokeQueue.Dequeue();
                         var candidateTab = candidate.Target ?? _activeTab;
-                        if (candidateTab != null && ShouldTreatAsContextFull(candidateTab))
+                        if (candidate.Kind == QueuedInvoke.InvokeKind.BarCommand)
+                        {
+                            if (candidateTab == null || candidateTab.IsContextFull || ShouldTreatAsContextFull(candidateTab))
+                                candidateTab = GetOrCreateBarCommandTab(switchTo: false);
+                        }
+                        else if (candidateTab != null && ShouldTreatAsContextFull(candidateTab))
+                        {
                             candidateTab = GetQueueContinuationTab(candidateTab);
+                        }
                         if (candidateTab != null && CanAcceptInput(candidateTab))
                         {
                             item = candidate;
@@ -1388,7 +1520,9 @@ namespace CommitBallAgent
 
                 if (item == null || tab == null) return;
                 Log($"Invoke dequeue: {item.Input.Substring(0, Math.Min(item.Input.Length, 40))}");
-                ProcessInput(tab, item.Input);
+                if (item.Kind == QueuedInvoke.InvokeKind.BarCommand)
+                    NotifyBar("Agent 正在处理指令");
+                ProcessInput(tab, item.Input, item.LockAgentOutWrites);
             }
         }
 

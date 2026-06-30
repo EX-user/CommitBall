@@ -66,6 +66,7 @@ namespace CommitBallAgent
         public DateTime UpdatedAt { get; set; } = DateTime.Now;
         public List<Message> Messages { get; set; } = new();
         public string? ParentSessionId { get; set; }
+        public string? Purpose { get; set; }
         public string? Title { get; set; }
         public string? TitleSource { get; set; }
         public DateTime? NamedAt { get; set; }
@@ -73,6 +74,7 @@ namespace CommitBallAgent
 
     static class Memory
     {
+        public const string PurposeBarCommand = "bar_command";
         private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
         public static string GetPath(string sessionId, bool isSubtask = false)
@@ -102,6 +104,12 @@ namespace CommitBallAgent
             var session = new Session();
             Save(session);
             return session;
+        }
+
+        public static Session CreateNew(string? purpose = null)
+        {
+            Directory.CreateDirectory(Config.MemoryDir);
+            return new Session { Purpose = purpose };
         }
 
         public static void Save(Session session)
@@ -146,7 +154,12 @@ namespace CommitBallAgent
             return $"Session renamed: {session.Title}";
         }
 
-        public static List<(string Id, DateTime UpdatedAt, int MsgCount, string Title)> ListSessions()
+        public static bool IsBarCommandSession(Session session)
+        {
+            return string.Equals(session.Purpose, PurposeBarCommand, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static List<(string Id, DateTime UpdatedAt, int MsgCount, string Title)> ListSessions(bool includeBarCommand = true)
         {
             Directory.CreateDirectory(Config.MemoryDir);
             var result = new List<(string, DateTime, int, string)>();
@@ -157,7 +170,10 @@ namespace CommitBallAgent
                     var json = File.ReadAllText(file);
                     var s = JsonSerializer.Deserialize<Session>(json, JsonOpts);
                     if (s != null && string.IsNullOrEmpty(s.ParentSessionId))
+                    {
+                        if (!includeBarCommand && IsBarCommandSession(s)) continue;
                         result.Add((s.Id, s.UpdatedAt, s.Messages.Count, s.Title ?? ""));
+                    }
                 }
                 catch { }
             }

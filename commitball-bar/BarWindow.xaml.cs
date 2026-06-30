@@ -420,6 +420,12 @@ namespace CommitBallBar
             _toastTimer.Start();
         }
 
+        public void ShowAgentNotice(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            ShowCommandToast(text, true);
+        }
+
         private bool IsDirectCommandMode()
         {
             return _prefixIndex >= 0 &&
