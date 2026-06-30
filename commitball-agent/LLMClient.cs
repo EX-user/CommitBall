@@ -19,6 +19,11 @@ namespace CommitBallAgent
         public long ElapsedMs { get; set; }
     }
 
+    public class LLMException : Exception
+    {
+        public LLMException(string message) : base(message) { }
+    }
+
     static class LLMClient
     {
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
@@ -71,6 +76,7 @@ namespace CommitBallAgent
 
         public static async Task<(bool ok, string msg)> ValidateAsync(string baseUrl, string model, string apiKey)
         {
+            var modelsFailure = "";
             try
             {
                 var url = $"{NormalizeBaseUrl(baseUrl)}/models";
@@ -80,26 +86,122 @@ namespace CommitBallAgent
                 using var resp = await SendNoStreamAsync(req);
                 AgentWindow.Log($"ValidateAsync: status={resp.StatusCode}");
                 if (!resp.IsSuccessStatusCode)
-                    return (false, $"API 返回 {(int)resp.StatusCode}: {await resp.Content.ReadAsStringAsync()}");
-                var body = await resp.Content.ReadAsStringAsync();
-                AgentWindow.Log($"ValidateAsync: body len={body.Length}");
-                using var doc = JsonDocument.Parse(body);
-                if (!doc.RootElement.TryGetProperty("data", out var data))
-                    return (false, "响应中无 data 字段");
-                var found = false;
-                foreach (var item in data.EnumerateArray())
                 {
-                    if (item.TryGetProperty("id", out var id) && id.GetString() == model)
-                    { found = true; break; }
+                    modelsFailure = $"GET /models 返回 {(int)resp.StatusCode}: {CleanErrorBody(await resp.Content.ReadAsStringAsync())}";
                 }
-                if (!found)
-                    return (false, $"模型 '{model}' 不在可用列表中");
-                return (true, "OK");
+                else
+                {
+                    var body = await resp.Content.ReadAsStringAsync();
+                    AgentWindow.Log($"ValidateAsync: body len={body.Length}");
+                    using var doc = JsonDocument.Parse(body);
+                    if (!doc.RootElement.TryGetProperty("data", out var data))
+                    {
+                        modelsFailure = "GET /models 响应中无 data 字段";
+                    }
+                    else
+                    {
+                        var found = false;
+                        foreach (var item in data.EnumerateArray())
+                        {
+                            if (item.TryGetProperty("id", out var id) && id.GetString() == model)
+                            { found = true; break; }
+                        }
+                        if (found)
+                            return (true, "OK");
+                        modelsFailure = $"GET /models 成功，但模型 '{model}' 不在可用列表中";
+                    }
+                }
             }
             catch (Exception ex)
             {
-                return (false, $"连接失败: {ex.Message}");
+                modelsFailure = $"GET /models 失败: {ex.Message}";
             }
+
+            AgentWindow.Log($"ValidateAsync: /models incompatible, fallback to chat. reason={modelsFailure}");
+            try
+            {
+                var url = $"{NormalizeBaseUrl(baseUrl)}/chat/completions";
+                using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                req.Headers.Add("Authorization", $"Bearer {apiKey}");
+                var body = JsonSerializer.Serialize(new
+                {
+                    model,
+                    messages = new object[] { new { role = "user", content = "ping" } },
+                    stream = false,
+                    max_tokens = 1
+                });
+                req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                using var resp = await SendNoStreamAsync(req);
+                var respBody = await resp.Content.ReadAsStringAsync();
+                AgentWindow.Log($"ValidateAsync fallback chat: status={resp.StatusCode}, body len={respBody.Length}");
+                if (!resp.IsSuccessStatusCode)
+                    return (false, $"校验失败。\n  {modelsFailure}\n  POST /chat/completions 返回 {(int)resp.StatusCode}: {CleanErrorBody(respBody)}");
+
+                using var doc = JsonDocument.Parse(respBody);
+                var apiError = ExtractApiError(doc.RootElement);
+                if (!string.IsNullOrWhiteSpace(apiError))
+                    return (false, $"校验失败。\n  {modelsFailure}\n  POST /chat/completions error: {CleanErrorBody(apiError)}");
+                if (!doc.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+                    return (false, $"校验失败。\n  {modelsFailure}\n  POST /chat/completions 响应中无 choices");
+
+                return (true, "OK (chat fallback)");
+            }
+            catch (Exception ex)
+            {
+                return (false, $"校验失败。\n  {modelsFailure}\n  POST /chat/completions 失败: {ex.Message}");
+            }
+        }
+
+        private static string CleanErrorBody(string? body, int maxLen = 1200)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return "(empty response)";
+            var s = body.Replace("\r", " ").Replace("\n", " ").Replace("\t", " ").Trim();
+            while (s.Contains("  ")) s = s.Replace("  ", " ");
+            return Truncate(s, maxLen);
+        }
+
+        private static string ExtractApiError(JsonElement root)
+        {
+            if (!root.TryGetProperty("error", out var err))
+                return "";
+
+            if (err.ValueKind == JsonValueKind.String)
+                return err.GetString() ?? "";
+
+            if (err.ValueKind == JsonValueKind.Object)
+            {
+                var message = err.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : null;
+                var code = err.TryGetProperty("code", out var codeEl) ? codeEl.ToString() : null;
+                var type = err.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+                var parts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(code)) parts.Add($"code={code}");
+                if (!string.IsNullOrWhiteSpace(type)) parts.Add($"type={type}");
+                if (!string.IsNullOrWhiteSpace(message)) parts.Add(message!);
+                return parts.Count > 0 ? string.Join(", ", parts) : err.ToString();
+            }
+
+            return err.ToString();
+        }
+
+        private static void ThrowApiError(int statusCode, string body)
+        {
+            var detail = CleanErrorBody(body);
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                var apiError = ExtractApiError(doc.RootElement);
+                if (!string.IsNullOrWhiteSpace(apiError))
+                    detail = CleanErrorBody(apiError);
+            }
+            catch { }
+            throw new LLMException($"API Error {statusCode}: {detail}");
+        }
+
+        private static void ThrowStreamErrorIfAny(JsonElement root)
+        {
+            var apiError = ExtractApiError(root);
+            if (!string.IsNullOrWhiteSpace(apiError))
+                throw new LLMException($"API Stream Error: {CleanErrorBody(apiError)}");
         }
 
         public static async Task<LLMResponse> ChatAsync(
@@ -141,7 +243,7 @@ namespace CommitBallAgent
             {
                 var errBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 AgentWindow.Log($"ChatAsync: HTTP {(int)resp.StatusCode} - {errBody}");
-                return new LLMResponse { Content = $"[API Error {(int)resp.StatusCode}] {Truncate(errBody, 500)}" };
+                ThrowApiError((int)resp.StatusCode, errBody);
             }
 
             var sw = Stopwatch.StartNew();
@@ -167,6 +269,7 @@ namespace CommitBallAgent
                 {
                     using var doc = JsonDocument.Parse(data);
                     var root = doc.RootElement;
+                    ThrowStreamErrorIfAny(root);
                     if (!root.TryGetProperty("choices", out var choices)) continue;
                     if (choices.GetArrayLength() == 0) continue;
 
@@ -203,6 +306,7 @@ namespace CommitBallAgent
                         }
                     }
                 }
+                catch (LLMException) { throw; }
                 catch (Exception ex) { AgentWindow.Log($"ChatAsync: stream parse error: {ex.Message}"); continue; }
 
                 try

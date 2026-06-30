@@ -47,7 +47,7 @@ namespace CommitBallAgent
                         if (isSubtask) onSubtaskProgress(chunk);
                         else onOutput(chunk);
                     },
-                    ct: ct);
+                    ct: ct).ConfigureAwait(false);
 
                 var toolNames = resp.ToolCalls.Count > 0 ? $" [{string.Join(", ", resp.ToolCalls.ConvertAll(tc => tc.Name))}]" : "";
                 AgentWindow.Log($"[{session.Id}] LLM #{i}: {resp.ElapsedMs}ms, tokens={resp.PromptTokens}+{resp.CompletionTokens}, toolCalls={resp.ToolCalls.Count}{toolNames}, msgs={session.Messages.Count}");
@@ -107,7 +107,7 @@ namespace CommitBallAgent
                                         onToolError: _ => { },
                                         onSubtaskProgress,
                                         ct,
-                                        isSubtask: true);
+                                        isSubtask: true).ConfigureAwait(false);
 
                                     var lastAssistant = "";
                                     for (int j = subSession.Messages.Count - 1; j >= 0; j--)
