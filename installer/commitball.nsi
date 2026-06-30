@@ -16,6 +16,7 @@
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
 !endif
+!define DOTNET_RUNTIME_INSTALLER "windowsdesktop-runtime-win-x64.exe"
 
 Name "CommitBall ${COMMITBALL_VERSION}"
 OutFile "archives\CommitBall-${PRODUCT_VERSION}-installer.exe"
@@ -52,6 +53,40 @@ AutoCloseWindow true
 Section "CB-Weasel 输入法" SecMain
   SectionIn RO
 
+  ; The C# UI processes are framework-dependent; install the bundled runtime if missing.
+  DetailPrint "检查 .NET 8 Desktop Runtime..."
+  FindFirst $0 $1 "$PROGRAMFILES64\dotnet\shared\Microsoft.WindowsDesktop.App\8.*"
+  StrCmp $1 "" dotnet_runtime_missing dotnet_runtime_ok
+
+  dotnet_runtime_missing:
+    FindClose $0
+    DetailPrint "安装 .NET 8 Desktop Runtime..."
+    SetOutPath "$TEMP\CommitBallRedist"
+    File /oname=${DOTNET_RUNTIME_INSTALLER} "redist\${DOTNET_RUNTIME_INSTALLER}"
+    ExecWait '"$TEMP\CommitBallRedist\${DOTNET_RUNTIME_INSTALLER}" /install /quiet /norestart' $2
+    IntCmp $2 0 dotnet_runtime_recheck 0 0
+    IntCmp $2 3010 dotnet_runtime_recheck 0 0
+    MessageBox MB_ICONSTOP|MB_OK \
+      "Microsoft .NET 8 Desktop Runtime 安装失败，退出码：$2。$\n$\n请手动安装 .NET 8 Desktop Runtime (x64) 后重新运行安装包。"
+    Abort
+
+  dotnet_runtime_recheck:
+    FindFirst $0 $1 "$PROGRAMFILES64\dotnet\shared\Microsoft.WindowsDesktop.App\8.*"
+    StrCmp $1 "" 0 dotnet_runtime_ok_after_install
+      MessageBox MB_ICONSTOP|MB_OK "未检测到 Microsoft .NET 8 Desktop Runtime，安装无法继续。"
+      Abort
+
+  dotnet_runtime_ok_after_install:
+    FindClose $0
+    Delete "$TEMP\CommitBallRedist\${DOTNET_RUNTIME_INSTALLER}"
+    RMDir "$TEMP\CommitBallRedist"
+    Goto dotnet_runtime_done
+
+  dotnet_runtime_ok:
+    FindClose $0
+
+  dotnet_runtime_done:
+
   ; Stop existing processes
   DetailPrint "停止旧进程..."
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
@@ -68,9 +103,11 @@ Section "CB-Weasel 输入法" SecMain
 
   ; CommitBall-Bar
   File "..\commitball-bar\publish\CommitBall-Bar.exe"
+  File "..\commitball-bar\publish\WebView2Loader.dll"
 
   ; CommitBall-Agent
   File "..\commitball-agent\publish\CommitBall-Agent.exe"
+  File "..\commitball-agent\publish\e_sqlite3.dll"
   File "..\commitball-agent\summary_to_panel-prompt.md"
 
   ; CommitBall-BallShell
@@ -201,6 +238,8 @@ Section "Uninstall"
   Delete "$INSTDIR\CommitBall-BallShell.exe"
   Delete "$INSTDIR\CommitBall-Bar.exe"
   Delete "$INSTDIR\CommitBall-Agent.exe"
+  Delete "$INSTDIR\WebView2Loader.dll"
+  Delete "$INSTDIR\e_sqlite3.dll"
   Delete "$INSTDIR\summary_to_panel-prompt.md"
   Delete "$INSTDIR\uninstall.exe"
   Delete "$DESKTOP\CommitBall.lnk"

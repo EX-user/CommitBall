@@ -10,7 +10,6 @@
     <FileVersion>0.2.1.0</FileVersion>
     <RootNamespace>CommitBallBar</RootNamespace>
     <ApplicationIcon />
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" />
