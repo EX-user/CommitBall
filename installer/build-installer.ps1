@@ -144,13 +144,13 @@ Write-Host "Building installer..."
 Push-Location $PSScriptRoot
 try {
     New-Item -ItemType Directory -Path archives -Force | Out-Null
-    & $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.2.1 commitball.nsi
+    & $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.2.2 commitball.nsi
 } finally {
     Pop-Location
 }
 
 if ($LASTEXITCODE -eq 0) {
-    $exe = Get-Item (Join-Path $PSScriptRoot "archives\CommitBall-0.2.1.0-installer.exe")
+    $exe = Get-Item (Join-Path $PSScriptRoot "archives\CommitBall-0.2.2.0-installer.exe")
     $sizeMB = [math]::Round($exe.Length / 1MB, 1)
     Write-Host "`nDone! $($exe.FullName) ($sizeMB MB)" -ForegroundColor Green
 } else {
