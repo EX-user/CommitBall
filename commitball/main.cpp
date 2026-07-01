@@ -598,11 +598,26 @@ void HandleBallUiCommand(const char* command) {
 
 DWORD g_lastAutoCheckTime = 0;
 
+bool IsAgentSummaryBusy() {
+    FILE* f = fopen("data/agent-summary-status", "r");
+    if (!f) return false;
+
+    char state[32] = {};
+    int n = fscanf(f, "%31s", state);
+    fclose(f);
+
+    return n >= 1 && strcmp(state, "busy") == 0;
+}
+
 void CheckAutoAnalyse() {
     if (GetTickCount() - g_lastAutoCheckTime < 60000) return;
     g_lastAutoCheckTime = GetTickCount();
 
     if (!IsAgentRunning()) return;
+    if (IsAgentSummaryBusy()) {
+        Log("CheckAutoAnalyse: summary_to_panel already running, skip");
+        return;
+    }
 
     WIN32_FILE_ATTRIBUTE_DATA fileInfo;
     if (GetFileAttributesExA("data/agent-out/panel.html", GetFileExInfoStandard, &fileInfo)) {

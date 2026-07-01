@@ -14,6 +14,7 @@ namespace CommitBallAgent
         private static readonly object OutputToolLock = new();
         private static readonly object AgentOutWriteGate = new();
         private static string? AgentOutWriteOwnerSessionId;
+        private static string SummaryStatusPath => Path.Combine(Config.DataDir, "agent-summary-status");
         private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".db", ".sqlite", ".exe", ".dll", ".pdb", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".zip", ".7z"
@@ -64,10 +65,13 @@ namespace CommitBallAgent
 
         public static string GetSystemPrompt(bool isSubtask = false)
         {
+            var directSettings = ReadDirectSettingsForPrompt();
             if (isSubtask)
                 return "You are a sub-task executor. Complete the given task using available tools, then provide a concise final result. " +
                        "Available tools: list, read, write, edit, now. Use now whenever the task depends on today's date, current time, or relative dates. All file operations are scoped to data/. write and edit can only modify files under data/agent-out/ and share the same filename/category path convention. Use write to create or replace a complete output file; use edit for precise local changes to existing agent-out text files instead of rewriting whole files. " +
-                       "When writing or editing analysis output, keep data/agent-out organized: reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted notes, scratch/YYYY-MM/ for temporary working files, and memory/ for long-lived memory files.";
+                       "When writing or editing analysis output, keep data/agent-out organized: reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted notes, scratch/YYYY-MM/ for temporary working files, and memory/ for long-lived memory files. " +
+                       "Treat data/agent-out/memory/direct_settings.md as stable user configuration when it is provided in this prompt; do not modify it unless the task explicitly asks for direct settings maintenance." +
+                       directSettings;
             return "You are CommitBall Agent, an AI assistant that can read and manage files in the data/ directory. " +
                    "Use the list tool to explore available files before reading them. " +
                    "Use the now tool whenever the task depends on today's date, current time, or relative dates. " +
@@ -75,9 +79,35 @@ namespace CommitBallAgent
                    "write and edit can only modify files under data/agent-out/ and share the same filename/category path convention. Use write to create or replace a complete output file; use edit for precise local changes to existing agent-out text files, and do not rewrite a whole file with write when replacing a small fragment. For archive meta JSON, use update_meta instead of edit. For panel.html, use display_panel instead of write or edit. " +
                    "When the conversation topic becomes clear, or when the user's topic changes materially, call rename_session to keep the current Agent tab title accurate. Use a concise human-readable title around 20 Chinese characters or 80 English characters. " +
                    "Users may send natural-language control commands from CommitBall Bar's 指令 mode. For Bar/Ball controls, use the dedicated tools instead of asking the user to type slash commands: set_bar_trigger for wake sequence changes, set_eye_mode for eye mode, and repair_archives for machine-only archive file repair. repair_archives scans data/sessions, exports missing txt files, and creates missing meta/cluster files without modifying existing meta.json files. If a request came from CommitBall Bar's 指令 mode, call show_ball_bubble occasionally with short plain-text progress updates and again with a final result message, without emoji, so the user gets feedback from the floating ball. " +
-                   "Keep data/agent-out organized: keep panel.html and panel-template.html at the root; use display_panel to update panel.html; maintain long-term memory only in memory/summary_task_exp_decay_memory.md; write new files and edit existing files in reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted persistent notes, scratch/YYYY-MM/ for temporary files, and memory/ for auxiliary memory files. " +
+                   "Keep data/agent-out organized: keep panel.html and panel-template.html at the root; use display_panel to update panel.html; maintain work memory in memory/summary_task_exp_decay_memory.md and stable direct-input configuration in memory/direct_settings.md; write new files and edit existing files in reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted persistent notes, scratch/YYYY-MM/ for temporary files, and memory/ for auxiliary memory files. " +
                    "If data/agent-out/memory/summary_task_exp_decay_memory.md exists, read it for background context on the user's recent activities. " +
-                   "If it doesn't exist, you should wait for further instructions.";
+                   "If data/agent-out/memory/direct_settings.md exists, treat the content appended to this system prompt as stable user configuration and follow it unless the user clearly overrides it. " +
+                   "If the work memory file doesn't exist, you should wait for further instructions." +
+                   directSettings;
+        }
+
+        private static string ReadDirectSettingsForPrompt()
+        {
+            try
+            {
+                var path = Path.Combine(Config.DataDir, "agent-out", "memory", "direct_settings.md");
+                if (!File.Exists(path))
+                    return "";
+
+                var text = File.ReadAllText(path).Trim();
+                if (string.IsNullOrWhiteSpace(text))
+                    return "";
+
+                const int maxChars = 12000;
+                if (text.Length > maxChars)
+                    text = text.Substring(text.Length - maxChars);
+
+                return "\n\nStable user direct settings from data/agent-out/memory/direct_settings.md:\n" + text + "\n";
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         public static bool IsSubtask(string toolName) => toolName == "subtask";
@@ -88,9 +118,32 @@ namespace CommitBallAgent
             {
                 while (AgentOutWriteOwnerSessionId != null && AgentOutWriteOwnerSessionId != ownerSessionId)
                     System.Threading.Monitor.Wait(AgentOutWriteGate);
+
                 AgentOutWriteOwnerSessionId = ownerSessionId;
+                WriteSummaryStatus(ownerSessionId);
                 return new AgentOutWriteLease(ownerSessionId);
             }
+        }
+
+        private static void WriteSummaryStatus(string ownerSessionId)
+        {
+            try
+            {
+                Directory.CreateDirectory(Config.DataDir);
+                var stamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                File.WriteAllText(SummaryStatusPath, $"busy {ownerSessionId} {stamp}");
+            }
+            catch { }
+        }
+
+        public static void ClearSummaryStatus()
+        {
+            try
+            {
+                if (File.Exists(SummaryStatusPath))
+                    File.Delete(SummaryStatusPath);
+            }
+            catch { }
         }
 
         private sealed class AgentOutWriteLease : IDisposable
@@ -112,6 +165,7 @@ namespace CommitBallAgent
                     if (AgentOutWriteOwnerSessionId == _ownerSessionId)
                     {
                         AgentOutWriteOwnerSessionId = null;
+                        ClearSummaryStatus();
                         System.Threading.Monitor.PulseAll(AgentOutWriteGate);
                     }
                 }

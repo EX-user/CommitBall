@@ -43,6 +43,7 @@ namespace CommitBallAgent
             }
 
             Config.Load();
+            Tools.ClearSummaryStatus();
 
             StartParentWatcher(e.Args);
             _window = new AgentWindow();
@@ -81,6 +82,7 @@ namespace CommitBallAgent
 
         protected override void OnExit(ExitEventArgs e)
         {
+            Tools.ClearSummaryStatus();
             _pipe?.Dispose();
             if (_mutex != null)
             {

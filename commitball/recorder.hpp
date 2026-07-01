@@ -429,10 +429,27 @@ inline void RecorderCleanup() {
 }
 
 inline void FlushLiveBuffer() {
-    std::string text = DbToText(g_db);
+    std::string text = DbToText(g_db, DbTextProfile::Agent);
     if (!text.empty()) {
         FILE* f = fopen(LIVE_TXT, "w");
         if (f) { fprintf(f, "%s", text.c_str()); fclose(f); }
+    }
+}
+
+inline std::string WithExportProfileSuffix(const std::string& txtPath, const char* suffix) {
+    std::string path = txtPath;
+    const std::string ext = ".txt";
+    if (path.size() >= ext.size() && path.substr(path.size() - ext.size()) == ext)
+        return path.substr(0, path.size() - ext.size()) + suffix + ext;
+    return path + suffix + ext;
+}
+
+inline void WriteTextFileA(const std::string& path, const std::string& text) {
+    if (text.empty()) return;
+    FILE* f = fopen(path.c_str(), "w");
+    if (f) {
+        fprintf(f, "%s", text.c_str());
+        fclose(f);
     }
 }
 
@@ -440,13 +457,14 @@ inline void ExportSessionDb(const std::string& dbPath, const std::string& txtPat
     sqlite3* db;
     if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) return;
 
-    std::string text = DbToText(db);
+    std::string rawText = DbToText(db, DbTextProfile::Raw);
+    std::string summaryText = DbToText(db, DbTextProfile::Summary);
+    std::string agentText = DbToText(db, DbTextProfile::Agent);
     sqlite3_close(db);
 
-    if (!text.empty()) {
-        FILE* f = fopen(txtPath.c_str(), "w");
-        if (f) { fprintf(f, "%s", text.c_str()); fclose(f); }
-    }
+    WriteTextFileA(WithExportProfileSuffix(txtPath, ".raw"), rawText);
+    WriteTextFileA(WithExportProfileSuffix(txtPath, ".summary"), summaryText);
+    WriteTextFileA(txtPath, agentText);
 }
 
 inline std::string JsonEscape(const std::string& s) {
@@ -741,6 +759,9 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
     fprintf(f, "  \"started_at\": \"%s\",\n", JsonEscape(startedAt).c_str());
     fprintf(f, "  \"ended_at\": \"%s\",\n", JsonEscape(endedAt).c_str());
     fprintf(f, "  \"txt_path\": \"%s\",\n", JsonEscape(txtPath).c_str());
+    fprintf(f, "  \"txt_profile\": \"agent\",\n");
+    fprintf(f, "  \"raw_txt_path\": \"%s\",\n", JsonEscape(WithExportProfileSuffix(txtPath, ".raw")).c_str());
+    fprintf(f, "  \"summary_txt_path\": \"%s\",\n", JsonEscape(WithExportProfileSuffix(txtPath, ".summary")).c_str());
     fprintf(f, "  \"db_path\": \"%s\",\n", JsonEscape(dbPath).c_str());
     fprintf(f, "  \"cluster_strategy\": \"process\",\n");
     fprintf(f, "  \"cluster_dir\": \"%s\",\n", JsonEscape(ArchiveDataRelativePath(clusterDir)).c_str());
@@ -795,8 +816,9 @@ inline void CheckSessionSplit() {
     if (GetDbSize() >= SESSION_SPLIT_SIZE * 9 / 10) {
         if (!GetConfigBool("auto_analysed")) {
             extern bool IsAgentRunning();
+            extern bool IsAgentSummaryBusy();
             extern void InvokeAgentAnalyse();
-            if (IsAgentRunning()) {
+            if (IsAgentRunning() && !IsAgentSummaryBusy()) {
                 SetConfigBool("auto_analysed", true);
                 InvokeAgentAnalyse();
             }

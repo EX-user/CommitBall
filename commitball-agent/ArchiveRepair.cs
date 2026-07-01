@@ -41,6 +41,13 @@ namespace CommitBallAgent
 
     static class ArchiveRepair
     {
+        private enum DbTextProfile
+        {
+            Raw,
+            Summary,
+            Agent
+        }
+
         private static string DataDir => Path.GetFullPath(Config.DataDir);
         private static string SessionsDir => Path.Combine(DataDir, "sessions");
         private static string ExportsDir => Path.Combine(DataDir, "exports");
@@ -85,8 +92,10 @@ namespace CommitBallAgent
             var txtPath = exportBase + ".txt";
             var metaPath = exportBase + ".meta.json";
             var clusterDir = exportBase + "_clusters";
+            var rawTxtPath = WithExportProfileSuffix(txtPath, ".raw");
+            var summaryTxtPath = WithExportProfileSuffix(txtPath, ".summary");
 
-            if (!File.Exists(txtPath))
+            if (!File.Exists(txtPath) || !File.Exists(rawTxtPath) || !File.Exists(summaryTxtPath))
             {
                 ExportSessionDb(dbPath, txtPath);
                 result.TxtFixed++;
@@ -104,13 +113,26 @@ namespace CommitBallAgent
 
         private static void ExportSessionDb(string dbPath, string txtPath)
         {
-            var text = DbToText(dbPath);
-            if (text.Length == 0) return;
             Directory.CreateDirectory(Path.GetDirectoryName(txtPath)!);
-            File.WriteAllText(txtPath, text, Encoding.UTF8);
+            WriteTextFile(WithExportProfileSuffix(txtPath, ".raw"), DbToText(dbPath, DbTextProfile.Raw));
+            WriteTextFile(WithExportProfileSuffix(txtPath, ".summary"), DbToText(dbPath, DbTextProfile.Summary));
+            WriteTextFile(txtPath, DbToText(dbPath, DbTextProfile.Agent));
         }
 
-        private static string DbToText(string dbPath)
+        private static void WriteTextFile(string path, string text)
+        {
+            if (text.Length == 0) return;
+            File.WriteAllText(path, text, Encoding.UTF8);
+        }
+
+        private static string WithExportProfileSuffix(string txtPath, string suffix)
+        {
+            return txtPath.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
+                ? txtPath[..^".txt".Length] + suffix + ".txt"
+                : txtPath + suffix + ".txt";
+        }
+
+        private static string DbToText(string dbPath, DbTextProfile profile = DbTextProfile.Agent)
         {
             var shortMap = new Dictionary<string, string>
             {
@@ -137,10 +159,18 @@ namespace CommitBallAgent
             var curRecordId = -1;
             var firstTs = "";
             var lastTs = "";
+            var lastFocus = "";
+            var skippedFocusRepeats = 0;
+            var wroteTimerInRecord = false;
 
             void FlushRecord()
             {
                 if (curRecordId < 0) return;
+                if (skippedFocusRepeats > 0 && profile == DbTextProfile.Raw)
+                {
+                    EnsureLineBreak(body);
+                    body.Append("[focus-repeat] +").Append(skippedFocusRepeats).AppendLine();
+                }
                 output.Append("--- #").Append(curRecordId).Append(" [").Append(firstTs).Append(" ~ ").Append(lastTs).AppendLine("] ---");
                 output.Append(body);
                 if (body.Length > 0 && body[^1] != '\n') output.AppendLine();
@@ -165,6 +195,8 @@ namespace CommitBallAgent
                     firstTs = ts;
                     lastTs = ts;
                     body.Clear();
+                    skippedFocusRepeats = 0;
+                    wroteTimerInRecord = false;
                 }
                 else
                 {
@@ -173,33 +205,78 @@ namespace CommitBallAgent
 
                 if (type.StartsWith("focus", StringComparison.Ordinal))
                 {
+                    if (profile != DbTextProfile.Raw && ExcludedFocus(content)) continue;
+                    if (profile != DbTextProfile.Raw && content == lastFocus)
+                    {
+                        skippedFocusRepeats++;
+                        continue;
+                    }
+                    if (skippedFocusRepeats > 0 && profile == DbTextProfile.Raw)
+                    {
+                        EnsureLineBreak(body);
+                        body.Append("[focus-repeat] +").Append(skippedFocusRepeats).AppendLine();
+                    }
+                    skippedFocusRepeats = 0;
+                    lastFocus = content;
                     EnsureLineBreak(body);
                     body.Append('[').Append(type).Append("] ").Append(content).AppendLine();
                 }
                 else if (type == "direct-input")
                 {
                     EnsureLineBreak(body);
+                    if (profile == DbTextProfile.Summary)
+                        content = Shorten(content, 200) + (content.Length > 200 ? "..." : "");
                     body.Append("[direct] ").Append(content).AppendLine();
                 }
                 else if (type == "click")
                 {
+                    if (profile != DbTextProfile.Raw) continue;
                     EnsureLineBreak(body);
                     body.Append("[click]").Append(content).AppendLine();
                 }
                 else if (type == "timer")
                 {
+                    if (profile != DbTextProfile.Raw && wroteTimerInRecord) continue;
                     EnsureLineBreak(body);
                     var timerTs = ts.Length >= 16 ? ts.Substring(11, 5) : ts;
                     body.Append("[timer] ").Append(timerTs).AppendLine();
+                    wroteTimerInRecord = true;
+                }
+                else if (type == "away")
+                {
+                    EnsureLineBreak(body);
+                    var awayTs = ts.Length >= 16 ? ts.Substring(11, 5) : ts;
+                    body.Append("[away] ").Append(awayTs).Append(' ').Append(content).AppendLine();
+                }
+                else if (type == "back")
+                {
+                    EnsureLineBreak(body);
+                    var backTs = ts.Length >= 16 ? ts.Substring(11, 5) : ts;
+                    body.Append("[back] ").Append(backTs).Append(' ').Append(content).AppendLine();
+                }
+                else if (type == "commit")
+                {
+                    EnsureLineBreak(body);
+                    body.Append("[commit] ").Append(content).AppendLine();
                 }
                 else if (type is "paste" or "paste-big" or "paste-mega")
                 {
                     EnsureLineBreak(body);
                     var paste = content.Replace("\r\n", "\u21B5").Replace("\n", "\u21B5");
-                    body.Append('[').Append(type).Append(']').Append(paste).AppendLine();
+                    if (profile == DbTextProfile.Summary)
+                    {
+                        var preview = Shorten(paste, 160);
+                        if (paste.Length > 160) preview += "...";
+                        body.Append('[').Append(type).Append(" chars=").Append(paste.Length).Append(']').Append(preview).AppendLine();
+                    }
+                    else
+                    {
+                        body.Append('[').Append(type).Append(']').Append(paste).AppendLine();
+                    }
                 }
                 else
                 {
+                    if (profile != DbTextProfile.Raw) continue;
                     foreach (var pair in shortMap)
                         content = content.Replace(pair.Key, pair.Value, StringComparison.Ordinal);
                     body.Append(content);
@@ -280,6 +357,9 @@ namespace CommitBallAgent
                 ["started_at"] = startedAt,
                 ["ended_at"] = endedAt,
                 ["txt_path"] = ToDataPrefixedPath(txtPath),
+                ["txt_profile"] = "agent",
+                ["raw_txt_path"] = ToDataPrefixedPath(WithExportProfileSuffix(txtPath, ".raw")),
+                ["summary_txt_path"] = ToDataPrefixedPath(WithExportProfileSuffix(txtPath, ".summary")),
                 ["db_path"] = ToDataPrefixedPath(dbPath),
                 ["cluster_strategy"] = "process",
                 ["cluster_dir"] = ToDataRelativePath(clusterDir),
@@ -442,6 +522,12 @@ namespace CommitBallAgent
         {
             var bar = focus.LastIndexOf('|');
             return TrimCopy(bar >= 0 ? focus[..bar] : focus);
+        }
+
+        private static bool ExcludedFocus(string focus)
+        {
+            var proc = FocusProcessName(focus).ToUpperInvariant();
+            return proc is "TEXTINPUTHOST.EXE" or "SHELLEXPERIENCEHOST.EXE" or "STARTMENUEXPERIENCEHOST.EXE";
         }
 
         private static void AddUniqueLimited(List<string> items, string value, int maxItems, int maxLen)

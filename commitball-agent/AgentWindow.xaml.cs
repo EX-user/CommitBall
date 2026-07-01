@@ -1006,8 +1006,9 @@ namespace CommitBallAgent
                 {
                     AppendOutput(tab, "[等待 agent-out 写入锁]\n", "#AAAAAE");
                     agentOutWriteLease = await Task.Run(() => Tools.AcquireAgentOutWriteLease(tab.Session.Id), tab.Cts.Token);
-                    AppendOutput(tab, "[agent-out 写入锁已获取，summary_to_panel 执行期间其他会话写入会等待]\n", "#AAAAAE");
+                    AppendOutput(tab, "[agent-out 写入锁已获取，summary_to_panel 执行期间其他会话写入会失败]\n", "#AAAAAE");
                 }
+
                 await Runtime.RunAsync(
                     tab.Session,
                     input,
