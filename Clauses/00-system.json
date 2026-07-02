@@ -1,0 +1,27 @@
+[
+  {
+    "title": "SYS_ROOT",
+    "accordance": [],
+    "content": "CommitBall 是一个桌面活动记录与分析系统. 它通过拦截键盘输入, 鼠标操作和窗口焦点变化, 将用户操作结构化存储到 SQLite 数据库, 并由 AI 生成工作日志摘要和可视化面板."
+  },
+  {
+    "title": "SYS_MULTIPROC",
+    "accordance": ["SYS_ROOT"],
+    "content": "系统由四个独立进程组成: CommitBall.exe (Core 主进程), CommitBall-BallShell.exe (悬浮球 UI), CommitBall-Bar.exe (输入条) 和 CommitBall-Agent.exe (AI 终端). Core 是其他三个进程的父进程, 负责启动, 监控和终止它们."
+  },
+  {
+    "title": "SYS_IPC_PIPE",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "四个进程之间通过 Named Pipe 进行通信. CB-Weasel (Weasel 的 fork, 即小狼毫输入法引擎的改名版本) 中的 WeaselServer 通过 pipe 向 Core 发送中文 commit 和英文字符; Core 通过 pipe 向 Bar, Agent, BallShell 发送控制指令. 子进程之间的通信通过 Core 转发, 例如 Bar 的指令模式输入由 Core 路由到 Agent. Core 为每种通信场景建立独立的 Named Pipe, 具体的 pipe 名称, 指令类型和数据格式将由独立条款体系详述."
+  },
+  {
+    "title": "SYS_ADMIN",
+    "accordance": ["SYS_ROOT"],
+    "content": "Core 进程通过 manifest 默认请求管理员权限. 如果用户拒绝 UAC 授权, Core 自身无法启动, 子进程也不会被拉起, 相当于无事发生, 不产生任何副作用. 管理员权限仅用于 WH_KEYBOARD_LL 钩子和 System32 DLL 注册."
+  },
+  {
+    "title": "WEASEL_LIFECYCLE",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "WeaselServer.exe 是 CB-Weasel 输入法的算法服务, 由 NSIS 安装包注册到 Windows 注册表的 HKLM Run 键开机自启. 它不是 Core 的子进程, Core 不管理其生命周期. WeaselServer 独立运行, 通过 Named Pipe 向 Core 单向发送中文 commit 和英文字符. 如果 WeaselServer 未运行, Core 无法接收中文和英文输入 (但 LL hook 的特殊键和鼠标点击仍正常工作)."
+  }
+]

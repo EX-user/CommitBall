@@ -1,0 +1,140 @@
+[
+  {
+    "cuid": "03aa7372",
+    "accordance": ["SYS_MULTIPROC"],
+    "accordance-cuid": ["3c7f41b1"],
+    "content": "Core 在启动时通过 CreateProcess 拉起 Bar 和 BallShell, 命令行传递 --parent-pid <Core PID>. Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). Core 退出时先通过 pipe 发送 QUIT 指令, 等待 600ms 后对未退出的子进程执行 TerminateProcess."
+  },
+  {
+    "cuid": "02a796c6",
+    "accordance": ["PROC_LIFECYCLE"],
+    "accordance-cuid": ["03aa7372"],
+    "content": "Core 创建一个 Win32 Job Object 并设置 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 标志, 每个子进程启动后立即分配到该 Job. 当 Core 进程终止时 (无论正常或异常), 内核自动关闭 Job 句柄, 所有子进程由内核终止."
+  },
+  {
+    "cuid": "5d700436",
+    "accordance": ["PROC_LIFECYCLE"],
+    "accordance-cuid": ["03aa7372"],
+    "content": "Bar 和 Agent 启动时解析 --parent-pid 参数, 在后台线程中调用 parent.WaitForExit() 阻塞等待 Core 退出. Core 退出后立即触发 Application.Shutdown(). 这是防孤儿进程的用户态补充 (BallShell 使用异步等价 WaitForExitAsync)."
+  },
+  {
+    "cuid": "b7badf3c",
+    "accordance": ["PROC_LIFECYCLE"],
+    "accordance-cuid": ["03aa7372"],
+    "content": "FastCommitBallExit() 是 Core 的安全退出流程: 1) 设置 STOPPED 状态并 flush 数据库 (WAL checkpoint + close); 2) 启动一个 detached cmd 进程执行 ping 延迟 + taskkill /F 兜底; 3) 关闭 pipe 句柄; 4) TerminateJobObject 杀死所有子进程; 5) TerminateProcess 逐一杀死子进程; 6) 自杀. 每步写入 data/log/exit.log."
+  },
+  {
+    "cuid": "b51c8ac2",
+    "accordance": ["PROC_LIFECYCLE"],
+    "accordance-cuid": ["03aa7372"],
+    "content": "Core 启动时的子进程拉起顺序: 先 Bar (输入条), 然后 BallShell (悬浮球). Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). 三个子进程之间无启动依赖, 任一启动失败不影响其他进程的拉起."
+  },
+  {
+    "cuid": "3420a69f",
+    "accordance": ["PROC_LIFECYCLE"],
+    "accordance-cuid": ["03aa7372"],
+    "content": "在 Core 正常运行期间, Core 不会主动关闭任何子进程. 子进程一旦启动便持续运行直到 Core 退出 (发送 QUIT) 或子进程自身崩溃. 不存在使用中主动回收子进程的机制."
+  },
+  {
+    "cuid": "9df88a20",
+    "accordance": ["PROC_HEALTH"],
+    "accordance-cuid": ["c8bc7401"],
+    "content": "Bar 的懒重启触发场景: 用户键入唤醒序列时, Core 调用 EnsureBarRunning() 检查并按需重启, 然后发送 SHOW 指令. Agent 的懒重启触发场景: 右键菜单'打开 Agent'或'分析当前状态', 以及自动分析条件满足时, Core 调用 EnsureAgentRunning() 检查并按需重启."
+  },
+  {
+    "cuid": "c8bc7401",
+    "accordance": ["SYS_MULTIPROC"],
+    "accordance-cuid": ["3c7f41b1"],
+    "content": "Core 对子进程的健康监控策略因进程而异: BallShell 每 2 秒检查一次, 如果发现已退出则自动重启; Bar 和 Agent 没有周期性健康检查, 仅在 Core 需要向它们发送指令时才检查并按需重启. 所有子进程崩溃后 (退出码不为 STILL_ACTIVE), 旧 handle 被关闭, 下次 EnsureXxxRunning() 时重新拉起."
+  },
+  {
+    "cuid": "e036bb7e",
+    "accordance": ["SYS_ROOT"],
+    "accordance-cuid": ["27f25001"],
+    "content": "记录的启动和停止由快速按 4 次 CapsLock 键控制 (每次间隔不超过 500ms). 此操作不影响当前应用焦点. 停止状态下不通过键盘钩子记录键鼠活动; 但 Bar 的直接输入 (direct-input) 不受此限制, 始终写入数据库."
+  },
+  {
+    "cuid": "ebe73c8c",
+    "accordance": ["SYS_ROOT"],
+    "accordance-cuid": ["27f25001"],
+    "content": "记录状态下采集键盘相关事件: 特殊按键 (keystroke, 通过 LL hook 捕获 Backspace, Enter, 方向键等), 中文输入 (通过 CB-Weasel 的 commit 回调), 英文字符 (通过 CB-Weasel 的 ProcessKeyEvent 转发)."
+  },
+  {
+    "cuid": "e2f55136",
+    "accordance": ["SYS_ROOT"],
+    "accordance-cuid": ["27f25001"],
+    "content": "记录状态下采集鼠标事件: 鼠标左键点击 (click), 通过 UI Automation 识别被点击控件的名称和类型, 记录格式为 'Type|Name' (如 'Button|保存')."
+  },
+  {
+    "cuid": "ffcbff18",
+    "accordance": ["SYS_ROOT"],
+    "accordance-cuid": ["27f25001"],
+    "content": "记录状态下采集窗口焦点事件: 窗口焦点变化 (focus, 记录窗口标题和进程名, 内容格式为 'Title|Process'). 同一窗口停留约 60 秒后插入一次停留标记 (focus-stay)."
+  },
+  {
+    "cuid": "e2c142b2",
+    "accordance": ["SYS_ROOT"],
+    "accordance-cuid": ["27f25001"],
+    "content": "记录状态下采集辅助事件: 粘贴内容 (paste, 按长度分级为 paste/paste-big/paste-mega), 每 10 分钟插入时间标记 (timer)."
+  },
+  {
+    "cuid": "bec92c0a",
+    "accordance": ["SYS_ROOT"],
+    "accordance-cuid": ["27f25001"],
+    "content": "离开/返回检测: LL 键盘和鼠标钩子在每次输入时更新 g_lastUserInputTime. Core 的 400ms 定时器轮询, 若距上次输入超过 10 分钟则写入 away 事件. 用户回来后的首次输入触发 back 事件."
+  },
+  {
+    "cuid": "74df97a9",
+    "accordance": ["REC_AWAY_BACK"],
+    "accordance-cuid": ["bec92c0a"],
+    "content": "away 期间不生成键盘/鼠标事件, 但 focus-stay 事件仍然继续生成 (焦点定时器独立运行). away 标志通过 g_awayLogged 全局变量去重, 确保只写入一次 away 事件."
+  },
+  {
+    "cuid": "051bcfbd",
+    "accordance": ["SYS_ROOT"],
+    "accordance-cuid": ["27f25001"],
+    "content": "数据库采用小容量 (512KB) 设计, 目的是避免单库积累过多数据导致性能问题."
+  },
+  {
+    "cuid": "a41a454a",
+    "accordance": ["REC_DB_CAPACITY"],
+    "accordance-cuid": ["051bcfbd"],
+    "content": "记录数据存储在 data/db/current.db (SQLite). 每 30 秒自动刷新 data/live/live.txt 为当前数据库的文本输出. 数据库容量上限为 512KB."
+  },
+  {
+    "cuid": "399fd5c1",
+    "accordance": ["REC_DB_CAPACITY"],
+    "accordance-cuid": ["051bcfbd"],
+    "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档修复 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动修复时重试. 储存布局的细节将由独立条款体系详述."
+  },
+  {
+    "cuid": "dc5677cb",
+    "accordance": ["REC_ROTATION"],
+    "accordance-cuid": ["399fd5c1"],
+    "content": "每次会话归档时生成 meta.json 元数据文件, 字段包括: session_id, 起止时间, 标题 (从首个 direct-input 或最高频窗口标题派生), work_tags (Top 进程名), rule_summary (Top 窗口+commit 摘要), 事件数, direct-input 数, focus_top (Top 5 窗口), clusters (按进程聚类的子文件列表). source 字段初始为 'rule' 表示机器生成; Agent 可通过 update_meta 工具覆盖标题/标签/摘要并改为 'agent'."
+  },
+  {
+    "cuid": "f382f3bd",
+    "accordance": ["REC_DB_CAPACITY"],
+    "accordance-cuid": ["051bcfbd"],
+    "content": "数据库中的 record_id 字段用于区分不同的录制会话. 四击 CapsLock 关闭当前会话仅切换为 STOPPED 状态, 不递增 record_id, 不创建新的数据库文件; 下次四击 CapsLock 重新开始记录时才递增 record_id. 每 1 小时强制递增一次 record_id (会话超时). 这些操作在同一 current.db 内完成, 与容量触发的数据库轮转是两个独立的概念."
+  },
+  {
+    "cuid": "5d8dfc5a",
+    "accordance": ["REC_ROTATION"],
+    "accordance-cuid": ["399fd5c1"],
+    "content": "每次归档导出三档文本: .raw.txt (全量, 含所有 click/keystroke/focus-repeat, 键码用短标记如 [<bs, 连续相同 focus 带 [focus-repeat] +N 计数标注), 供完整溯源; .summary.txt (去噪, 跳过 click 和 raw keystroke, 连续相同 focus 直接丢弃, direct-input 截断 200 字符, paste 截断 160 字符), 供人类阅读; .txt (Agent 档, 与 summary 相同的噪声过滤但保留 direct-input 和 paste 全文), 供 LLM 分析. live.txt 也使用 Agent 档."
+  },
+  {
+    "cuid": "2d85a405",
+    "accordance": ["REC_EXPORT_PROFILES"],
+    "accordance-cuid": ["5d8dfc5a"],
+    "content": "Summary 和 Agent 档导出过滤 Windows 壳进程的焦点事件: TextInputHost.exe (IME 候选窗), ShellExperienceHost.exe (操作中心), StartMenuExperienceHost.exe (开始菜单). 这些进程在普通打字和菜单操作中短暂抢焦点, 不代表用户工作目标. Raw 档保留所有焦点事件不过滤."
+  },
+  {
+    "cuid": "e1efd10a",
+    "accordance": ["REC_ROTATION"],
+    "accordance-cuid": ["399fd5c1"],
+    "content": "/summary_to_panel 执行期间通过文件锁 data/agent-summary-status 防止并发分析. Agent 侧通过 AgentOutWriteLease 排他锁阻止其他会话写入 agent-out. Core 侧 CheckSessionSplit 和 CheckAutoAnalyse 读取该文件, 如果状态为 busy 则跳过自动触发."
+  }
+]

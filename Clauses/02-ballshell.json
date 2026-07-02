@@ -1,0 +1,37 @@
+[
+  {
+    "title": "BALL_SHELL",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "CommitBall-BallShell.exe 是 C# WPF 悬浮球 UI, 负责球的皮肤渲染, 动画, 右键菜单, 气泡通知, 拖动和边缘吸附. 它始终置顶显示 (每 2 秒重新断言 HWND_TOPMOST), 启动后出现在屏幕右下角附近."
+  },
+  {
+    "title": "BALL_PIPE_PROTOCOL",
+    "accordance": ["BALL_SHELL"],
+    "content": "Core 通过 Named Pipe (CommitBall-BallShell) 向 BallShell 发送单行 JSON 消息, 格式为 '<VERB> {json}\\n'. BallShell 的 PipeBallBackend 异步读取并在 UI 线程分发."
+  },
+  {
+    "title": "BALL_PIPE_MSGS",
+    "accordance": ["BALL_PIPE_PROTOCOL"],
+    "content": "五种 pipe 消息: STATE (录制模式 + 眼睛模式, 状态变化时推送), STATUS (录制/数据库/Bar/Agent 四项状态文本, 显示在右键菜单), BUBBLE (气泡文本, 10 秒后自动清除), CLEAR_BUBBLE (立即清除当前气泡), SHUTDOWN (退出)."
+  },
+  {
+    "title": "BALL_BUBBLE",
+    "accordance": ["BALL_SHELL"],
+    "content": "气泡通知通过一个独立的全屏 click-through 透明窗口 (BubbleWindow) 实现. 该窗口设置 WS_EX_TRANSPARENT | WS_EX_NOACTIVATE 使鼠标点击穿透, 不抢焦点. 气泡文本通过 WPF DrawingContext 相对于球的位置渲染. Core 通过 show_ball_bubble Agent 工具或 BUBBLE pipe 消息触发, 10 秒后自动消失."
+  },
+  {
+    "title": "BALL_ANIM_ENGINE",
+    "accordance": ["BALL_SHELL"],
+    "content": "BallShell 的动画系统以 60 FPS (16ms 间隔的 DispatcherTimer) 驱动 SpringBallAnimator. 动画仅在 Recording 模式且 EyeEnabled 时运行, 否则显示静态帧."
+  },
+  {
+    "title": "BALL_ANIM_BEHAVIORS",
+    "accordance": ["BALL_ANIM_ENGINE"],
+    "content": "动画行为: 眼球跟随鼠标 (临界阻尼弹簧物理驱动 yaw/pitch), 鼠标空闲 6 秒后眼球随机游走 (700-2400ms 间隔), 随机眨眼 (1.1-4.7 秒间隔), 点击时半眨眼反馈 (squish 到 0.72 后衰减), 录制状态下的呼吸脉冲 (sin 波 * 5.4 驱动 morph/scale)."
+  },
+  {
+    "title": "BALL_MENU",
+    "accordance": ["BALL_SHELL"],
+    "content": "右键悬浮球弹出菜单, 包含: 记录状态显示, 数据库容量显示, Bar 状态显示, Agent 状态显示, 打开数据目录, 打开 live.txt, 打开并锁定 Bar, 打开 Agent, 分析当前状态, 皮肤切换, 帮助和退出."
+  }
+]
