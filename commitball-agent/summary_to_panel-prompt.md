@@ -44,12 +44,12 @@
 
 `write` 和 `edit` 工具都只作用于 `data/agent-out/`，并使用同一套 `filename` + 可选 `category` 路径参数。除非用户明确要求兼容旧文件，不要把新文件直接写在 `agent-out` 根目录。
 调用 `write` 或 `edit` 时优先使用 `category` 参数，例如 `category="reports"`、`category="extracts"` 或 `category="scratch"`；如果只给简单文件名，工具会自动放到对应月份目录。
-`write` 用于创建或整体覆盖输出文件；`edit` 用于对已有 report、extract、memory、response、analysis、scratch 等文本输出做精确片段替换。已有文件只需局部更新时优先用 `edit`，不要用 `write` 整体重写。不要用 `write` 或 `edit` 修改 `panel.html`，面板必须用 `display_panel`。
+`write` 用于创建或整体覆盖普通输出文件；`edit` 用于对已有 report、extract、memory、response、analysis、scratch 等文本输出做精确片段替换。已有文件只需局部更新时优先用 `edit`，不要用 `write` 整体重写。长期记忆和直达配置文件是特殊文件：首次创建才允许 `write`，已存在时只能 `edit` 增量修改。不要用 `write` 或 `edit` 修改 `panel.html`，面板必须用 `display_panel`。
 
 - 分析报告写入 `reports/YYYY-MM/YYMMDD_HHMM-report.md`
 - 希望持久化的提取内容写入 `extracts/YYYY-MM/YYMMDD_HHMM-extract.md`
-- 长期记忆主文件维护 `memory/summary_task_exp_decay_memory.md`
-- 直达配置文件维护 `memory/direct_settings.md`
+- 长期记忆主文件维护 `agent-out/memory/summary_task_exp_decay_memory.md`
+- 直达配置文件维护 `agent-out/memory/direct_settings.md`
 - 面板必须通过 `display_panel` 工具更新根目录的 `panel.html`，不要用 `write` 或 `edit` 修改 `panel.html`
 - 临时拆分、统计、中间判断写入 `scratch/YYYY-MM/`
 - 根目录只保留 `panel.html`、`panel-template.html`、`summary_task_exp_decay_memory_template.md` 和 `index.json`
@@ -86,11 +86,11 @@ D. **行为模式提取**
 
 > 对于所有希望持久化的内容, 区分其属于"代办", "疑问", "评论"和"陈述"中的哪一种。如果是评论, 需要仔细地确认评论对象。如果无法区分, 简单地分类为"其他"。extract文件中根据不同种类划分段落。
 
-> `data/notes`下储存了当日的直达输入，即`[direct] text`，你需要逐条浏览，并分辨：
+> `notes/` 下储存了当日的直达输入，即`[direct] text`，你需要逐条浏览，并分辨：
 > - 一些输入属于代办，你必须在panel和长期记忆文档中体现这一点，并在长期记忆的直达原文记录中完整保存原文与时间。
 > - 一些输入是用户直接提供的情景设定或事实信息，必须在长期记忆的直达原文记录中完整保存原文与时间；如果有长期价值，再提炼到用户画像、工作上下文或事实信息中。
 > - 一些输入是用户对当前会话的直接指示，例如 "取消xxx代办" 或 "在panel中提醒我xxx"，必须在长期记忆的直达原文记录中完整保存原文与时间，并根据含义更新对应栏目。
-> - 只有以 `直达配置:`、`直达配置：` 或 `[直达配置]` 开头的直达输入才是直达配置。直达配置只写入 `memory/direct_settings.md`，不要写入 `memory/summary_task_exp_decay_memory.md`。
+> - 只有以 `直达配置:`、`直达配置：` 或 `[直达配置]` 开头的直达输入才是直达配置。直达配置只写入 `agent-out/memory/direct_settings.md`，不要写入 `agent-out/memory/summary_task_exp_decay_memory.md`。
 > - 务必区分对"你"的指示和用户为自己记录代办事项
 
 ## 第二步：直达配置维护
@@ -107,11 +107,13 @@ D. **行为模式提取**
 - 如果用户明确取消某条配置，删除或标记该配置已取消。
 - 每条配置尽量保留简短来源时间或来源说明，方便以后判断是否过期。
 - 不要把代办、普通评论、临时提醒、普通事实信息写入 `direct_settings.md`。
-- 写入直达配置时，如果需要生成完整文件，调用 `write` 并传入 `category="memory"`、`filename="direct_settings.md"`；如果只需替换或补充已有配置文件中的局部片段，调用 `edit` 并使用同样的 `category` 和 `filename`。
+- 如果 `agent-out/memory/direct_settings.md` 不存在且本轮存在有效直达配置，这是首次创建，调用 `write` 并传入 `category="memory"`、`filename="direct_settings.md"`。
+- 如果 `agent-out/memory/direct_settings.md` 已存在，只能调用 `edit` 并使用同样的 `category` 和 `filename` 做增量局部修改；不要用 `write` 整体重写或覆盖已有直达配置文件。
+- 如果无法安全定位要编辑的片段，先用 `read` 读取更多 `agent-out/memory/direct_settings.md` 上下文再重试，不要改用 `write` 兜底覆盖。
 
 ## 第三步：指数归纳 — 长期记忆维护
 
-长期记忆主文件维护 `agent-out/memory/summary_task_exp_decay_memory.md`。直达配置已经由 `memory/direct_settings.md` 维护，不要写入长期记忆主文件。除直达配置外，所有普通直达和直达代办都必须在长期记忆主文件的"直达输入原文记录"中完整保存原文与时间。
+长期记忆主文件维护 `agent-out/memory/summary_task_exp_decay_memory.md`。直达配置已经由 `agent-out/memory/direct_settings.md` 维护，不要写入长期记忆主文件。除直达配置外，所有普通直达和直达代办都必须在长期记忆主文件的"直达输入原文记录"中完整保存原文与时间。
 
 维护长期记忆时，可以先用 list 工具查看 `exports/YYYY-MM/` 下最近的 `*.meta.json`，参考其中的 `title`、`work_tags`、`summary`、`clusters` 等归档元数据，辅助判断近期工作主题和工作维度；不要修改这些 meta 文件。
 
@@ -119,28 +121,30 @@ D. **行为模式提取**
 
 **情况 A：文件不存在（首次归纳）**
 - 读取 `agent-out/reports/` 和 `agent-out/extracts/` 下所有报告/提取文件，如果内容太多，可以使用 `subtask` 工具
-- 提取报告中的关键信息，结合刚刚总结的内容，参考模板文件 `summary_task_exp_decay_memory_template.md`，生成 `memory/summary_task_exp_decay_memory.md`
+- 提取报告中的关键信息，结合刚刚总结的内容，参考模板文件 `agent-out/summary_task_exp_decay_memory_template.md`，生成 `agent-out/memory/summary_task_exp_decay_memory.md`
+- 这是首次创建，调用 `write` 并传入 `category="memory"`、`filename="summary_task_exp_decay_memory.md"`。
 - 不论读入了多少内容，生成的exp_decay_memory文件不超过 200 行
 - 除直达配置外，必须逐条完整保存所有普通直达和直达代办的原文与时间；不要因为看似不重要而省略。
 - 对直达代办，既要在"直达输入原文记录"中完整保存原文与时间，也要在"任务和提醒/直达代办"中提炼成可执行待办。
-- 带直达配置前缀的内容已经进入 `memory/direct_settings.md`，不得写入 `memory/summary_task_exp_decay_memory.md`。
+- 带直达配置前缀的内容已经进入 `agent-out/memory/direct_settings.md`，不得写入 `agent-out/memory/summary_task_exp_decay_memory.md`。
 
 **情况 B：文件已存在（增量归纳）**
 - 如果exp_decay_memory文件的大小不超过40KB，可跳过下一步
-- 计算exp_decay_memory文件大小的0.7倍大小具体是多大。将现有的 `memory/summary_task_exp_decay_memory.md` 内容压缩至不超过原本字符数的 0.7 倍。保留最重要的信息，对于过时信息，丢弃细节精简为整体描述。确保压缩后不超过40KB
+- 计算exp_decay_memory文件大小的0.7倍大小具体是多大。将现有的 `agent-out/memory/summary_task_exp_decay_memory.md` 内容压缩至不超过原本字符数的 0.7 倍。保留最重要的信息，对于过时信息，丢弃细节精简为整体描述。确保压缩后不超过40KB
   - 压缩时可以精简轨迹、推测、重复事实和过时摘要，但不要压缩或改写"直达输入原文记录"中的普通直达和直达代办原文。
-- **确保 `memory/summary_task_exp_decay_memory.md` 现在不超过40KB**
-- 将刚刚在第一步中生成的 report/extract 追加到 `memory/summary_task_exp_decay_memory.md` 中。注意，每一条内容要分析是否重复以及属于哪个条目，不要反复记录相同事项，并且把新内容加入到对应条目下
-- 保持章节结构与 `summary_task_exp_decay_memory_template.md` 一致
+- **确保 `agent-out/memory/summary_task_exp_decay_memory.md` 现在不超过40KB**
+- 将刚刚在第一步中生成的 report/extract 追加到 `agent-out/memory/summary_task_exp_decay_memory.md` 中。注意，每一条内容要分析是否重复以及属于哪个条目，不要反复记录相同事项，并且把新内容加入到对应条目下
+- 保持章节结构与 `agent-out/summary_task_exp_decay_memory_template.md` 一致
 - 追加新内容时，除直达配置外，必须把当前轮次所有普通直达和直达代办完整追加到"直达输入原文记录"，保留原文与时间；带直达配置前缀的内容不得追加到长期记忆主文件。
-- 写入长期记忆时，如果需要生成完整文件，调用 `write` 并传入 `category="memory"`、`filename="summary_task_exp_decay_memory.md"`；如果只需替换或补充已有记忆文件中的局部片段，调用 `edit` 并使用同样的 `category` 和 `filename`
+- 文件已存在时只能调用 `edit` 并传入 `category="memory"`、`filename="summary_task_exp_decay_memory.md"` 做增量局部修改；不要用 `write` 整体重写或覆盖已有长期记忆文件。
+- 如果无法安全定位要编辑的片段，先用 `read` 读取更多 `agent-out/memory/summary_task_exp_decay_memory.md` 上下文再重试，不要改用 `write` 兜底覆盖。
 
 ## 第四步：生成面板
 
-基于 `memory/summary_task_exp_decay_memory.md`（而非临时分析结果）生成可视化面板：
+基于 `agent-out/memory/summary_task_exp_decay_memory.md`（而非临时分析结果）生成可视化面板：
 
 1. 读取 `agent-out/panel-template.html`
-2. 将 `memory/summary_task_exp_decay_memory.md` 和最新获取的信息填入模板
+2. 将 `agent-out/memory/summary_task_exp_decay_memory.md` 和最新获取的信息填入模板
 3. 调用 `display_panel` 工具写入 `agent-out/panel.html`（覆盖旧文件，不带时间戳）
 
 面板要求:
@@ -151,6 +155,6 @@ D. **行为模式提取**
 - 生成的 HTML 必须是完整的、可直接在浏览器中打开的页面
 - 如果panel中有类似 Todo 的区域，需分为两段; 用户直达输入（[direct]）中的代办事项（需判断哪些属于代办）；下方"猜你想做"填入从记录数据推测的待办/疑问。两段之间用 `<div class="section-divider"></div>` 分隔。如果某一段没有内容则省略该段及其标题
 > 只有用户通过直达输入注册的代办可以放入"代办"下，推测出的代办必须归档到"猜你想做"或其他分区
-> 确保处理了用户通过直达输入注入的配置或指令；其中带直达配置前缀的配置只应影响 `memory/direct_settings.md` 和后续行为，不应显示为普通长期记忆条目。
+> 确保处理了用户通过直达输入注入的配置或指令；其中带直达配置前缀的配置只应影响 `agent-out/memory/direct_settings.md` 和后续行为，不应显示为普通长期记忆条目。
 
 默认读取 `live/live.txt` 和 `exports/` 目录下最近的导出文件。直接开始，不需要确认。
