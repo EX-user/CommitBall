@@ -41,7 +41,7 @@ namespace CommitBallAgent
                         ["function"] = new JsonObject
                         {
                             ["name"] = tc.Name,
-                            ["arguments"] = tc.Arguments
+                            ["arguments"] = NormalizeToolArgumentsForApi(tc.Arguments)
                         }
                     });
                 }
@@ -56,6 +56,22 @@ namespace CommitBallAgent
                 return new { role = Role, reasoning_content = ReasoningContent, content = Content };
             }
             return new { role = Role, content = Content };
+        }
+
+        private static string NormalizeToolArgumentsForApi(string? arguments)
+        {
+            if (string.IsNullOrWhiteSpace(arguments))
+                return "{}";
+
+            try
+            {
+                var node = JsonNode.Parse(arguments);
+                return node is JsonObject ? arguments : "{}";
+            }
+            catch
+            {
+                return "{}";
+            }
         }
     }
 

@@ -55,6 +55,7 @@ namespace CommitBallAgent
 
                 if (resp.ToolCalls.Count > 0)
                 {
+                    var malformedArgs = NormalizeToolCalls(resp.ToolCalls);
                     var assistantMsg = new Message
                     {
                         Role = "assistant",
@@ -65,6 +66,20 @@ namespace CommitBallAgent
                     foreach (var tc in resp.ToolCalls)
                     {
                         var argsStr = string.IsNullOrWhiteSpace(tc.Arguments) ? "{}" : tc.Arguments;
+                        if (malformedArgs.TryGetValue(tc, out var malformedError))
+                        {
+                            AgentWindow.Log($"[{session.Id}] Tool args malformed: {tc.Name} → {malformedError}");
+                            var toolStartTextForMalformed = $"{tc.Name}({argsStr})";
+                            AddDisplay(session, "tool_start", toolStartTextForMalformed);
+                            onToolStart(toolStartTextForMalformed);
+                            var errMsg = $"Tool error: invalid JSON arguments from model: {malformedError}";
+                            session.Messages.Add(new Message { Role = "tool", Content = errMsg, ToolCallId = tc.Id });
+                            AddDisplay(session, "tool_done", $"{tc.Name}({argsStr}) ✗");
+                            AddDisplay(session, "tool_error_detail", errMsg);
+                            onToolDone($"{tc.Name}({argsStr}) ✗");
+                            onToolError(errMsg);
+                            continue;
+                        }
 
                         if (Tools.IsSubtask(tc.Name))
                         {
@@ -208,6 +223,34 @@ namespace CommitBallAgent
             }
 
             Memory.Save(session);
+        }
+
+        private static Dictionary<ToolCall, string> NormalizeToolCalls(List<ToolCall> toolCalls)
+        {
+            var malformed = new Dictionary<ToolCall, string>();
+            foreach (var tc in toolCalls)
+            {
+                var raw = string.IsNullOrWhiteSpace(tc.Arguments) ? "{}" : tc.Arguments;
+                try
+                {
+                    var node = JsonNode.Parse(raw);
+                    if (node is JsonObject)
+                    {
+                        tc.Arguments = raw;
+                    }
+                    else
+                    {
+                        malformed[tc] = "tool arguments must be a JSON object";
+                        tc.Arguments = "{}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    malformed[tc] = ex.Message;
+                    tc.Arguments = "{}";
+                }
+            }
+            return malformed;
         }
 
         private static void AddDisplay(Session session, string type, string content)
