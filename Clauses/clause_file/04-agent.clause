@@ -18,10 +18,10 @@
     "content": "Agent 的 pipe 入口 (CommitBall-Agent) 接收 Core 的指令: SHOW (显示窗口), QUIT (退出), INVOKE_NEW <json> (创建新会话执行命令数组), INVOKE_BAR <json> (路由到 bar-command 会话执行). 传入的 json 是一个字符串数组, 逐条入队执行."
   },
   {
-    "cuid": "a4454ab9",
+    "cuid": "3132fb2c",
     "accordance": ["AGENT_PIPE_ENTRY"],
     "accordance-cuid": ["eb0549ee"],
-    "content": "INVOKE_NEW (自动分析和归档修复) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. 单个 bar-command 标签页上下文满后自动关闭并新建."
+    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. 单个 bar-command 标签页上下文满后自动关闭并新建."
   },
   {
     "cuid": "b34ba804",
@@ -54,10 +54,10 @@
     "content": "Agent 的 write 和 edit 工具将输出文件按类别归档到 7 个允许的子目录: reports, extracts, reminders, responses, analysis, scratch, memory. 非 memory 类别自动添加 YYYY-MM/ 月份子目录. 文件名和路径经过多层安全检查: 拒绝绝对路径, .., : (NTFS ADS), 驱动器号, 无效字符; 最终用 Path.GetFullPath 做规范包含验证确保不逃逸 agent-out/."
   },
   {
-    "cuid": "b648638c",
+    "cuid": "4d249276",
     "accordance": ["AGENT_ROOT"],
     "accordance-cuid": ["2593c911"],
-    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (修复归档), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取时间). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
+    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (补全归档缺失的 txt/meta/cluster 文件), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取时间). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
   },
   {
     "cuid": "d58ca666",

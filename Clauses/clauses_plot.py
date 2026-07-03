@@ -82,11 +82,22 @@ def main():
     # Build DOT
     dot = build_dot(all_data, title_map)
 
+    # Find dot executable
+    dot_exe = "dot"
+    if subprocess.run(["where", "dot"], capture_output=True).returncode != 0:
+        for candidate in [
+            r"C:\Program Files\Graphviz\bin\dot.exe",
+            r"C:\Program Files (x86)\Graphviz\bin\dot.exe",
+        ]:
+            if Path(candidate).exists():
+                dot_exe = candidate
+                break
+
     # Render PNG directly via stdin/stdout pipe (no intermediate .dot file)
     png_path = clauses_dir / "clauses.png"
     try:
         result = subprocess.run(
-            ["dot", "-Tpng", "-Gdpi=200"],
+            [dot_exe, "-Tpng", "-Gdpi=200"],
             input=dot.encode("utf-8"), capture_output=True, timeout=60
         )
         if result.returncode == 0:

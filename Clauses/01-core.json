@@ -87,7 +87,7 @@
   {
     "title": "REC_ROTATION",
     "accordance": ["REC_DB_CAPACITY"],
-    "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档修复 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动修复时重试. 储存布局的细节将由独立条款体系详述."
+    "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档补全 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动补全时重试. 储存布局的细节将由独立条款体系详述."
   },
   {
     "title": "REC_META_JSON",
@@ -113,5 +113,20 @@
     "title": "REC_SUMMARY_LOCK",
     "accordance": ["REC_ROTATION"],
     "content": "/summary_to_panel 执行期间通过文件锁 data/agent-summary-status 防止并发分析. Agent 侧通过 AgentOutWriteLease 排他锁阻止其他会话写入 agent-out. Core 侧 CheckSessionSplit 和 CheckAutoAnalyse 读取该文件, 如果状态为 busy 则跳过自动触发."
+  },
+  {
+    "title": "REC_CLUSTER_WRITING",
+    "accordance": ["REC_ROTATION"],
+    "content": "归档时按前台焦点进程聚类, 将所有事件流式分配到对应进程的 cluster 文件 (cluster_NN_<进程名>.txt). 每个进程首次出现时创建新 cluster, 后续事件追加到同一 cluster. cluster 目录先清空再重新生成. 每个 cluster 记录事件数, direct-input 数, 窗口样本 (Top 5) 和 commit 样本 (Top 5), 以及 ≤500 字符的 rule_summary. 最终 cluster 按事件数降序排列."
+  },
+  {
+    "title": "BAR_TRIGGER_DETECT",
+    "accordance": ["REC_TOGGLE"],
+    "content": "Core 的 LL 键盘钩子中维护一个滑动窗口缓冲区 (g_barSeq[15]) 检测唤醒序列. 每次按键映射为字符追加到缓冲区; 非映射键清空缓冲区; 相邻按键间隔超过 2 秒也清空. 缓冲区尾部匹配当前唤醒序列时触发 SendShowToBar(). 映射表覆盖 a-z, 0-9 和 OEM 键 (反斜杠, 分号, 斜杠等)."
+  },
+  {
+    "title": "TIMER_CONTROL_TASKS",
+    "accordance": ["PROC_HEALTH"],
+    "content": "400ms 定时器驱动的控制流任务: CheckAutoAnalyse (60s, 检查 panel.html 是否过期 4h, 触发 Agent 分析), CheckBallShellHealth (2s, 检查 BallShell 存活, 按需重启). 这些任务不直接产生数据, 而是触发进程间协作或进程管理."
   }
 ]

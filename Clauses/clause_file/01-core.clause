@@ -102,15 +102,15 @@
     "content": "记录数据存储在 data/db/current.db (SQLite). 每 30 秒自动刷新 data/live/live.txt 为当前数据库的文本输出. 数据库容量上限为 512KB."
   },
   {
-    "cuid": "399fd5c1",
+    "cuid": "a2cd2a02",
     "accordance": ["REC_DB_CAPACITY"],
     "accordance-cuid": ["051bcfbd"],
-    "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档修复 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动修复时重试. 储存布局的细节将由独立条款体系详述."
+    "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档补全 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动补全时重试. 储存布局的细节将由独立条款体系详述."
   },
   {
     "cuid": "dc5677cb",
     "accordance": ["REC_ROTATION"],
-    "accordance-cuid": ["399fd5c1"],
+    "accordance-cuid": ["a2cd2a02"],
     "content": "每次会话归档时生成 meta.json 元数据文件, 字段包括: session_id, 起止时间, 标题 (从首个 direct-input 或最高频窗口标题派生), work_tags (Top 进程名), rule_summary (Top 窗口+commit 摘要), 事件数, direct-input 数, focus_top (Top 5 窗口), clusters (按进程聚类的子文件列表). source 字段初始为 'rule' 表示机器生成; Agent 可通过 update_meta 工具覆盖标题/标签/摘要并改为 'agent'."
   },
   {
@@ -122,7 +122,7 @@
   {
     "cuid": "5d8dfc5a",
     "accordance": ["REC_ROTATION"],
-    "accordance-cuid": ["399fd5c1"],
+    "accordance-cuid": ["a2cd2a02"],
     "content": "每次归档导出三档文本: .raw.txt (全量, 含所有 click/keystroke/focus-repeat, 键码用短标记如 [<bs, 连续相同 focus 带 [focus-repeat] +N 计数标注), 供完整溯源; .summary.txt (去噪, 跳过 click 和 raw keystroke, 连续相同 focus 直接丢弃, direct-input 截断 200 字符, paste 截断 160 字符), 供人类阅读; .txt (Agent 档, 与 summary 相同的噪声过滤但保留 direct-input 和 paste 全文), 供 LLM 分析. live.txt 也使用 Agent 档."
   },
   {
@@ -134,7 +134,25 @@
   {
     "cuid": "e1efd10a",
     "accordance": ["REC_ROTATION"],
-    "accordance-cuid": ["399fd5c1"],
+    "accordance-cuid": ["a2cd2a02"],
     "content": "/summary_to_panel 执行期间通过文件锁 data/agent-summary-status 防止并发分析. Agent 侧通过 AgentOutWriteLease 排他锁阻止其他会话写入 agent-out. Core 侧 CheckSessionSplit 和 CheckAutoAnalyse 读取该文件, 如果状态为 busy 则跳过自动触发."
+  },
+  {
+    "cuid": "7da44729",
+    "accordance": ["REC_ROTATION"],
+    "accordance-cuid": ["a2cd2a02"],
+    "content": "归档时按前台焦点进程聚类, 将所有事件流式分配到对应进程的 cluster 文件 (cluster_NN_<进程名>.txt). 每个进程首次出现时创建新 cluster, 后续事件追加到同一 cluster. cluster 目录先清空再重新生成. 每个 cluster 记录事件数, direct-input 数, 窗口样本 (Top 5) 和 commit 样本 (Top 5), 以及 ≤500 字符的 rule_summary. 最终 cluster 按事件数降序排列."
+  },
+  {
+    "cuid": "f3ccd1d9",
+    "accordance": ["REC_TOGGLE"],
+    "accordance-cuid": ["e036bb7e"],
+    "content": "Core 的 LL 键盘钩子中维护一个滑动窗口缓冲区 (g_barSeq[15]) 检测唤醒序列. 每次按键映射为字符追加到缓冲区; 非映射键清空缓冲区; 相邻按键间隔超过 2 秒也清空. 缓冲区尾部匹配当前唤醒序列时触发 SendShowToBar(). 映射表覆盖 a-z, 0-9 和 OEM 键 (反斜杠, 分号, 斜杠等)."
+  },
+  {
+    "cuid": "388a40e6",
+    "accordance": ["PROC_HEALTH"],
+    "accordance-cuid": ["c8bc7401"],
+    "content": "400ms 定时器驱动的控制流任务: CheckAutoAnalyse (60s, 检查 panel.html 是否过期 4h, 触发 Agent 分析), CheckBallShellHealth (2s, 检查 BallShell 存活, 按需重启). 这些任务不直接产生数据, 而是触发进程间协作或进程管理."
   }
 ]

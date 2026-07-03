@@ -1,0 +1,57 @@
+[
+  {
+    "title": "FILE_ROOT",
+    "accordance": ["SYS_ROOT"],
+    "content": "文本文件是数据库之外的主要持久化方式, 服务于多种用途: 为用户提供可读的原始记录 (live.txt, exports, notes), 为 Agent 提供分析上下文 (exports, agent-out), 存储配置 (agent-config.json, ball-shell-state.json), 维护 Agent 会话记忆 (agent-memory), 以及协助排故 (log 文件). 文件分布在 data/ 目录下, 按进程和用途分子目录组织."
+  },
+  {
+    "title": "CONFIG_ROOT",
+    "accordance": ["FILE_ROOT"],
+    "content": "配置和状态类文件是系统运行的轻量持久化层, 不含用户行为记录. 分为三类: 1) 运行时配置 (data/agent-config.json 存储 Agent API 凭据, SQLite config 表存储 bar_trigger/eye_mode/auto_analysed); 2) 进程状态标志 (data/bar-status, data/agent-status, data/agent-summary-status, 供 Core 轮询读取); 3) 窗口几何状态 (data/ball-shell-state.json, 双重写入). 此外还有安装时附带的只读静态资源 (prompt 文件和模板)."
+  },
+  {
+    "title": "FILE_STATIC_RESOURCES",
+    "accordance": ["CONFIG_ROOT"],
+    "content": "安装包附带只读静态资源, 不在运行时修改: summary_to_panel-prompt.md (Agent 汇总分析 prompt), panel-template.html (面板 HTML 模板), summary_task_exp_decay_memory_template.md (长期记忆模板). 这些文件随安装包分发, Agent 在运行时读取但不修改."
+  },
+  {
+    "title": "DATA_LAYOUT",
+    "accordance": ["FILE_ROOT"],
+    "content": "所有用户数据存储在 data/ 目录下, 按用途分层: data/db/current.db (活跃数据库); data/sessions/YYYY-MM/<ts>.db (归档数据库); data/exports/YYYY-MM/ (三档文本 .txt/.raw.txt/.summary.txt + .meta.json + _clusters/ 子目录); data/live/live.txt (实时文本快照); data/notes/YYYY-MM-DD.txt (每日笔记); data/agent-out/ (Agent 输出: panel.html, index.json, memory/, reports/YYYY-MM/, extracts/YYYY-MM/ 等 7 个类别子目录); data/agent-memory/<id>.json (会话内存); data/log/*.log (Core/Bar/Agent 三个进程的日志, BallShell 无日志文件); data/agent-config.json, data/*-status, data/ball-shell-state.json (配置和状态文件). 安装目录根下还有 commitball.pos (BallShell 旧式位置文件, 不在 data/ 内)."
+  },
+  {
+    "title": "FILE_NOTES",
+    "accordance": ["BAR_DIRECT_INPUT"],
+    "content": "Bar 的 SaveNote() 以追加模式写入 data/notes/YYYY-MM-DD.txt, 每行格式为 'HH:mm:ss  <用户文本>'. 每天一个文件, UTF-8 编码. 这是 direct-input 的第一去向, 与写入数据库同时发生."
+  },
+  {
+    "title": "FILE_AGENT_MEMORY",
+    "accordance": ["AGENT_MEMORY"],
+    "content": "Agent 的会话内存持久化在 data/agent-memory/<session-id>.json, 每次 tool 轮次结束后通过 Memory.Save() 覆盖写入, 包含完整的对话历史 (messages), 会话标题和 Purpose. 子任务会话存储在 data/agent-memory/subtasks/ 子目录下."
+  },
+  {
+    "title": "FILE_AGENT_CONFIG",
+    "accordance": ["AGENT_API_CONFIG"],
+    "content": "Agent 的 API 配置存储在 data/agent-config.json, 包含 base_url, model 和 api_key 三个字段. api_key 以明文存储在磁盘上. 文件通过 /vendor 命令设置并验证成功后覆盖写入."
+  },
+  {
+    "title": "FILE_AGENT_INDEX",
+    "accordance": ["AGENT_TOOLS_FILE"],
+    "content": "Agent 通过 /organize_agent_out 命令生成 data/agent-out/index.json, 包含 agent-out 目录下所有文件的清单 (路径, 角色, 大小, 修改时间). 整理时会移动散落在根目录的旧输出文件到对应类别子目录."
+  },
+  {
+    "title": "FILE_BALL_STATE",
+    "accordance": ["CONFIG_TABLE"],
+    "content": "BallShell 的窗口几何状态 (x, y, edge, visible) 存储在 data/ball-shell-state.json. 存在双重写入: BallShell 在拖动结束和窗口关闭时直接写入; Core 收到 BallShell 的 UI_WINDOW_STATE pipe 消息后也写入同一文件. 此外 BallShell 还在程序根目录写入 commitball.pos (旧式位置格式 'x y edgeInt') 作为兼容."
+  },
+  {
+    "title": "FILE_AGENT_ARCHIVE_REPAIR",
+    "accordance": ["AGENT_TOOLS_CONTROL"],
+    "content": "Agent 的 ArchiveRepair.cs 是 Core 侧导出逻辑 (ExportSessionDb, GenerateSessionMetadata, WriteArchiveClusters) 的 C# 等价实现, 用于补全归档缺失的产物. 它以只读方式打开 data/sessions/ 下的 .db 文件, 重新导出三档文本 (.txt/.raw.txt/.summary.txt), 重新生成 meta.json 和 cluster 文件. 不修改 .db 文件本身."
+  },
+  {
+    "title": "FILE_STATUS_FLAGS",
+    "accordance": ["LOG_FILES"],
+    "content": "三个进程状态标志文件以覆盖方式写入, 供 Core 读取: Bar 写 data/bar-status (hidden/visible/locked), Agent 写 data/agent-status (idle/busy), Agent 写 data/agent-summary-status (busy <session-id> <timestamp> 或删除). 这些文件是跨进程状态同步的轻量机制, 不经过 pipe."
+  }
+]

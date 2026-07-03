@@ -17,7 +17,7 @@
   {
     "title": "AGENT_INVOKE_ROUTING",
     "accordance": ["AGENT_PIPE_ENTRY"],
-    "content": "INVOKE_NEW (自动分析和归档修复) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. 单个 bar-command 标签页上下文满后自动关闭并新建."
+    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. 单个 bar-command 标签页上下文满后自动关闭并新建."
   },
   {
     "title": "AGENT_API_CONFIG",
@@ -47,7 +47,7 @@
   {
     "title": "AGENT_TOOLS_CONTROL",
     "accordance": ["AGENT_ROOT"],
-    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (修复归档), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取时间). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
+    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (补全归档缺失的 txt/meta/cluster 文件), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取时间). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
   },
   {
     "title": "AGENT_TOOLS_SUBTASK",

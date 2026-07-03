@@ -1,0 +1,77 @@
+[
+  {
+    "title": "DB_PURPOSE",
+    "accordance": ["REC_STORAGE"],
+    "content": "数据库存储由确定性代码 (LL 钩子, WeaselServer pipe, 焦点轮询, UI Automation) 截取的原始用户行为数据, 不经过 AI 加工. 这些数据是后续分析 (Agent 报告生成, 归档导出, 面板渲染) 的事实来源. 系统运行期间会产生大量数据库文件 (每次轮转生成一个归档库)."
+  },
+  {
+    "title": "DB_EXCLUSIVE_ACCESS",
+    "accordance": ["DB_PURPOSE"],
+    "content": "Core 是唯一向 current.db 写入的进程. Agent 仅以只读方式 (Microsoft.Data.Sqlite, ReadOnly 模式) 打开 data/sessions/ 下的归档数据库进行补全 (重新导出缺失的 txt/meta/cluster 文件), 不直接访问 current.db. Bar 通过 pipe 将 direct-input 发给 Core 代为写入. WeaselServer 通过 pipe 单向发送数据给 Core, 不直接操作数据库."
+  },
+  {
+    "title": "DB_SCHEMA",
+    "accordance": ["DB_EXCLUSIVE_ACCESS"],
+    "content": "SQLite 数据库 (current.db) 启用 WAL 模式, 包含两张表: log (id INTEGER PK AUTOINCREMENT, record_id INTEGER, ts TEXT, type TEXT, content TEXT) 和 config (key TEXT PK, value TEXT). log 表有 idx_ts 索引. 所有事件通过同一个全局 prepared statement (g_insertStmt) 同步插入, 每事件一次 bind+step, 无批处理或内存缓冲."
+  },
+  {
+    "title": "DB_TYPE_VOCAB",
+    "accordance": ["DB_SCHEMA"],
+    "content": "log 表的 type 字段取值词汇表: focus (窗口焦点变化), focus-stay-HH:MM:SS (焦点停留标记), keystroke (特殊按键), click (鼠标点击), commit (中文输入), paste/paste-big/paste-mega (粘贴, 按长度分级), direct-input (Bar 直接输入), timer (时间标记), away (离开), back (返回)."
+  },
+  {
+    "title": "CONFIG_TABLE",
+    "accordance": ["DB_EXCLUSIVE_ACCESS"],
+    "content": "config 表存储 Core 的运行时配置, 键值包括: bar_trigger (唤醒序列, 默认 \\ccb), eye_mode (眼睛模式, 默认 true), auto_analysed (本次数据库是否已自动分析). 这些键由 Core 直接读写. 外部修改通过 pipe 命令间接触发: Agent 通过 set_bar_trigger 和 set_eye_mode 工具发送 CMD SET_TRIGGER 和 CMD SET_EYE_MODE, 由 Core 代为执行. BallShell 窗口几何状态独立存储于 data/ball-shell-state.json, 不经过 config 表."
+  },
+  {
+    "title": "CORE_INPUT_EXCLUSIVE",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "Core 是唯一安装低级键盘/鼠标钩子 (WH_KEYBOARD_LL / WH_MOUSE_LL) 的进程. 其他进程不监听键鼠事件. Core 通过 LL 钩子捕获特殊键和粘贴, 通过 WeaselServer pipe 接收中英文输入, 通过焦点轮询检测窗口变化."
+  },
+  {
+    "title": "PIPE_WEASEL_PROTO",
+    "accordance": ["CORE_INPUT_EXCLUSIVE"],
+    "content": "WeaselServer 到 Core 的 pipe (CommitBall) 是持续连接的流式管道, 支持多实例. 消息以二进制长度前缀帧编码: 4 字节小端 uint32 长度 + UTF-16LE 文本. 帧超过 1MB 时丢弃缓冲区防溢出. 解码后的文本按 ASCII 前缀分派: COMMIT:<text> 为中文输入, KEYSTROKE:<char> 为英文字符. 通过 PostMessage 投递到 Core 的 UI 线程处理."
+  },
+  {
+    "title": "PIPE_NO_WEASEL",
+    "accordance": ["PIPE_WEASEL_PROTO"],
+    "content": "如果用户使用非 CB-Weasel 的输入法, WeaselServer 不会发送 COMMIT: 和 KEYSTROKE: 消息, 因此 Core 无法捕获中文输入和英文字符. LL 钩子仅记录特殊键 (Backspace, Enter, 方向键等) 和粘贴, 不记录常规字符键 (a-z, 0-9). 鼠标点击和窗口焦点跟踪不受影响."
+  },
+  {
+    "title": "PIPE_DIRECT_DATA",
+    "accordance": ["SYS_IPC_PIPE"],
+    "content": "Bar 到 Core 的直接输入 pipe (CommitBall-direct) 是一次性连接管道: 特别地, Bar为指令前缀状态时, 时发送的信息将携带CMD前缀. Bar 每次发送完毕即关闭连接, Core 端读取完整内容后分派. 不以 CMD 开头的文本作为 direct-input 写入数据库."
+  },
+  {
+    "title": "PIPE_DIRECT_CMDS",
+    "accordance": ["SYS_IPC_PIPE"],
+    "content": "CommitBall-direct pipe 中以 CMD 开头的行路由到 Core 的 ProcessDirectCommand, 由 Core 直接处理, 不写入数据库. Bar 发送 CMD AGENT_INPUT 请求转发文本到 Agent. Shell和Agent也能向Core发送CMD消息. 非Core进程的相互控制必须经 Core 中转."
+  },
+  {
+    "title": "PIPE_RETRY",
+    "accordance": ["SYS_IPC_PIPE"],
+    "content": "Core 向子进程发送 pipe 指令时采用重试策略: CreateFileW 连接失败时, 若返回 ERROR_PIPE_BUSY 则 WaitNamedPipe 等待, 否则 Sleep 后重试. 各目标的重试次数不同: Agent 24 次 (需等待懒启动), Bar 12 次, BallShell 和 QUIT 8 次. 超过重试上限则放弃并记录日志."
+  },
+  {
+    "title": "CLIPBOARD_CAPTURE",
+    "accordance": ["REC_TYPES_AUX"],
+    "content": "粘贴检测通过 LL 键盘钩子拦截 Ctrl+V 触发, 不使用剪贴板监听钩子. 检测到 Ctrl+V 时调用 OpenClipboard + GetClipboardData(CF_UNICODETEXT) 读取剪贴板文本, 转为 UTF-8 后按长度分级存储: 1000 字符以内全文 (paste), 1001-10000 截断为头 500 + 尾部 (paste-big), 超过 10000 截断为前 988 字符 (paste-mega). 剪贴板为空时记录 keystroke 类型 [Paste]."
+  },
+  {
+    "title": "TIMER_HEARTBEAT",
+    "accordance": ["SYS_ROOT"],
+    "content": "Core 使用单个 400ms Win32 定时器 (IDT_OUTPUT) 驱动所有周期任务. 每个任务在 WM_TIMER 回调中按自身节流条件决定是否执行, 互不阻塞. 由于焦点检测基于 400ms 轮询而非事件钩子, 短于 400ms 的焦点切换 (如弹窗一闪而过) 可能丢失."
+  },
+  {
+    "title": "TIMER_DATA_TASKS",
+    "accordance": ["TIMER_HEARTBEAT"],
+    "content": "与数据流相关的周期任务: FlushLiveBuffer (30s, DB → live.txt 文本输出), CheckFocusTimer (每 tick, 前台窗口 → DB focus 事件), CheckAwayEvent (每 tick 检查, 空闲 10min → DB away 事件), CheckTimerEvent (10min, 时间标记 → DB), CheckSessionTimeout (1h, 递增 record_id 产生新会话边界)."
+  },
+  {
+    "title": "LOG_FILES",
+    "accordance": ["SYS_ROOT"],
+    "content": "Core 维护多个纯文本日志和状态文件: data/log/exit.log (退出流程追踪, 追加写入), data/log/commitball.log (运行日志, 1000 行轮转截断, 记录焦点 HWND/标题/进程/位置), data/bar-status, data/agent-status, data/agent-summary-status (子进程状态文件, Core 读取以反映 Bar/Agent 运行状态)."
+  }
+]
