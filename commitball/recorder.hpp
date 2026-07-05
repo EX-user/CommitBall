@@ -1051,7 +1051,7 @@ inline void InsertFocusEvent(const std::wstring& title, const std::wstring& proc
 }
 
 inline void CheckFocusChange() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     HWND currentHwnd = GetForegroundWindow();
     if (currentHwnd != g_lastFocusHwnd) {
         std::wstring title, process;
@@ -1064,7 +1064,7 @@ inline void CheckFocusChange() {
 }
 
 inline void CheckFocusTimer() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     HWND currentHwnd = GetForegroundWindow();
     if (currentHwnd != g_lastFocusHwnd) {
         std::wstring title, process;
@@ -1086,7 +1086,7 @@ inline void CheckFocusTimer() {
 }
 
 inline void CheckTimerEvent() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     if (GetTickCount() - g_lastTimerEvent >= 600000) {
         std::string ts = GetTimestamp();
         sqlite3_reset(g_insertStmt);
@@ -1123,7 +1123,7 @@ inline void CheckAwayEvent() {
 }
 
 inline void CheckSessionTimeout() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     if (GetTickCount() - g_recordingStartTime < 3600000) return;
 
     Log("Session timeout: 1h reached, splitting session");
