@@ -68,18 +68,17 @@ namespace CommitBallAgent
             var directSettings = ReadDirectSettingsForPrompt();
             if (isSubtask)
                 return "You are a sub-task executor. Complete the given task using available tools, then provide a concise final result. " +
-                       "Available tools: list, read, write, edit, now. Use now whenever the task depends on today's date, current time, or relative dates. All file operations are scoped to data/. write and edit can only modify files under data/agent-out/ and share the same filename/category path convention. Use write to create a complete output file, but for existing long-lived memory files use edit only for incremental precise changes; do not use write to rewrite or replace an existing memory file. " +
-                       "When reading or listing files, write paths from the data/ root, such as agent-out/memory/summary_task_exp_decay_memory.md and agent-out/memory/direct_settings.md. When writing or editing analysis output, keep data/agent-out organized: reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted notes, scratch/YYYY-MM/ for temporary working files, and memory/ for long-lived memory files. For first-time memory creation only, use write with category=\"memory\" and the memory filename; if the memory file already exists, use edit with category=\"memory\" and the same filename. " +
+                       "Available tools: list, read, write, edit, now. Use now whenever the task depends on today's date, current time, or relative dates. Path roots are virtual: list/read use data/ as root, so pass paths like agent-out/memory/summary_task_exp_decay_memory.md; write/edit use data/agent-out/ as root, so pass category plus filename, not data/agent-out/... . " +
+                       "write and edit share the same filename/category path convention. Use write to create a complete output file, but for existing long-lived memory files use edit only for incremental precise changes; do not use write to rewrite or replace an existing memory file. Keep agent-out organized: reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted notes, scratch/YYYY-MM/ for temporary working files, and memory/ for long-lived memory files. For first-time memory creation only, use write with category=\"memory\" and the memory filename; if the memory file already exists, use edit with category=\"memory\" and the same filename. " +
                        "Treat data/agent-out/memory/direct_settings.md as stable user configuration when it is provided in this prompt; do not modify it unless the task explicitly asks for direct settings maintenance." +
                        directSettings;
             return "You are CommitBall Agent, an AI assistant that can read and manage files in the data/ directory. " +
                    "Use the list tool to explore available files before reading them. " +
                    "Use the now tool whenever the task depends on today's date, current time, or relative dates. " +
-                   "All file operations are scoped to data/. " +
+                   "Path roots are virtual: list/read/grep/update_meta use data/ as root, so pass paths like agent-out/memory/summary_task_exp_decay_memory.md, exports/YYYY-MM/, live/live.txt, and notes/. write/edit use data/agent-out/ as root, so pass category plus filename, not data/agent-out/... . " +
                    "write and edit can only modify files under data/agent-out/ and share the same filename/category path convention. Use write to create a complete output file; use edit for precise local changes to existing agent-out text files, and do not rewrite a whole file with write when replacing a small fragment. For existing long-lived memory files, never use write to rewrite or replace the file; use edit only for incremental precise changes. For archive meta JSON, use update_meta instead of edit. For panel.html, use display_panel instead of write or edit. " +
                    "When the conversation topic becomes clear, or when the user's topic changes materially, call rename_session to keep the current Agent tab title accurate. Use a concise human-readable title around 20 Chinese characters or 80 English characters. " +
                    "Users may send natural-language control commands from CommitBall Bar's 指令 mode. For Bar/Ball controls, use the dedicated tools instead of asking the user to type slash commands: set_bar_trigger for wake sequence changes, set_eye_mode for eye mode, and repair_archives for machine-only archive file repair. repair_archives scans data/sessions, exports missing txt files, and creates missing meta/cluster files without modifying existing meta.json files. If a request came from CommitBall Bar's 指令 mode, call show_ball_bubble occasionally with short plain-text progress updates and again with a final result message, without emoji, so the user gets feedback from the floating ball. " +
-                   "When reading or listing files, write paths from the data/ root, such as agent-out/memory/summary_task_exp_decay_memory.md, agent-out/memory/direct_settings.md, exports/YYYY-MM/, live/live.txt, and notes/. " +
                    "Keep data/agent-out organized: keep panel.html and panel-template.html at the root; use display_panel to update panel.html; maintain work memory in data/agent-out/memory/summary_task_exp_decay_memory.md and stable direct-input configuration in data/agent-out/memory/direct_settings.md; write new files and edit existing files in reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted persistent notes, scratch/YYYY-MM/ for temporary files, and memory/ for auxiliary memory files. For first-time memory creation only, use write with category=\"memory\" and filename=\"summary_task_exp_decay_memory.md\" or filename=\"direct_settings.md\"; if the memory file already exists, use edit with category=\"memory\" and the same filename. " +
                    "If data/agent-out/memory/summary_task_exp_decay_memory.md exists, read it for background context on the user's recent activities. " +
                    "If data/agent-out/memory/direct_settings.md exists, treat the content appended to this system prompt as stable user configuration and follow it unless the user clearly overrides it. " +
@@ -430,6 +429,9 @@ namespace CommitBallAgent
             {
                 try
                 {
+                    if (IsProtectedMemoryFile(normalized) && File.Exists(full))
+                        return $"Error: agent-out/{normalized} already exists and is protected. Use edit with category=\"memory\" for incremental changes; write is only allowed for first-time creation.";
+
                     var dir = Path.GetDirectoryName(full);
                     if (!string.IsNullOrEmpty(dir))
                         Directory.CreateDirectory(dir);
@@ -441,6 +443,13 @@ namespace CommitBallAgent
                     return $"Error writing file: {ex.Message}";
                 }
             }
+        }
+
+        private static bool IsProtectedMemoryFile(string normalized)
+        {
+            var path = normalized.Replace('\\', '/').TrimStart('/');
+            return path.Equals("memory/summary_task_exp_decay_memory.md", StringComparison.OrdinalIgnoreCase) ||
+                   path.Equals("memory/direct_settings.md", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ExecuteEdit(JsonObject args, Session? session)

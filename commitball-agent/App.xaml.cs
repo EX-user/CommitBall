@@ -17,6 +17,7 @@ namespace CommitBallAgent
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            AgentWindow.Log($"App OnStartup pid={Environment.ProcessId}");
 
             bool created;
             try
@@ -30,6 +31,7 @@ namespace CommitBallAgent
 
             if (!created)
             {
+                AgentWindow.Log("App OnStartup existing instance detected, forwarding SHOW");
                 try
                 {
                     using var client = new NamedPipeClientStream(".", "CommitBall-Agent", PipeDirection.Out);
@@ -49,6 +51,7 @@ namespace CommitBallAgent
             _window = new AgentWindow();
             _pipe = new PipeServer(_window);
             _pipe.Start();
+            AgentWindow.Log("App OnStartup complete");
         }
 
         private void StartParentWatcher(string[] args)
@@ -82,6 +85,8 @@ namespace CommitBallAgent
 
         protected override void OnExit(ExitEventArgs e)
         {
+            AgentWindow.Log($"App OnExit code={e.ApplicationExitCode}");
+            _window?.PrepareForShutdown();
             Tools.ClearSummaryStatus();
             _pipe?.Dispose();
             if (_mutex != null)

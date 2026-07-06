@@ -454,9 +454,7 @@ namespace CommitBallAgent
                 e.Handled = true;
                 if (tab != null && tab.IsInSessionMenu)
                 {
-                    tab.IsInSessionMenu = false;
-                    tab.Document.Blocks.Clear();
-                    RenderSession(tab);
+                    LeaveSessionMenu(tab);
                     return;
                 }
                 if (tab != null && tab.IsBusy)
@@ -506,15 +504,23 @@ namespace CommitBallAgent
 
         private void Window_Closing(object? sender, CancelEventArgs e)
         {
+            PrepareForShutdown();
+        }
+
+        public void PrepareForShutdown()
+        {
             foreach (var tab in _tabs.ToArray())
             {
                 if (tab.IsBusy)
                 {
+                    Log($"PrepareForShutdown: cancel busy session {tab.Session.Id}");
                     tab.Cts?.Cancel();
                     FixIncompleteToolCalls(tab.Session);
                 }
                 Memory.Save(tab.Session);
             }
+            WriteStatus("idle");
+            Log($"PrepareForShutdown complete tabs={_tabs.Count}");
         }
 
         private void OutputBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -902,7 +908,7 @@ namespace CommitBallAgent
         {
             if (input == "/new")
             {
-                tab.IsInSessionMenu = false;
+                LeaveSessionMenu(tab);
                 await CreateNewTabAsync();
                 return;
             }
@@ -920,10 +926,42 @@ namespace CommitBallAgent
                 return;
             }
 
-            tab.IsInSessionMenu = false;
+            LeaveSessionMenu(tab);
             await Memory.EnsureNamedAsync(tab.Session);
-            var targetTab = CreateTab(target, renderHistory: true, switchTo: true);
+            var targetTab = OpenSessionFromMenu(target);
             targetTab.IsInSessionMenu = false;
+        }
+
+        private void LeaveSessionMenu(AgentTabState tab)
+        {
+            if (!tab.IsInSessionMenu) return;
+            tab.IsInSessionMenu = false;
+            tab.Document.Blocks.Clear();
+            RenderSession(tab);
+        }
+
+        private AgentTabState OpenSessionFromMenu(Session session)
+        {
+            if (!Memory.IsBarCommandSession(session))
+                return CreateTab(session, renderHistory: true, switchTo: true);
+
+            var currentBar = _barCommandTab;
+            if (currentBar != null && _tabs.Contains(currentBar) && currentBar.Session.Id != session.Id)
+                CloseTab(currentBar);
+
+            var existing = _tabs.FirstOrDefault(t => t.Session.Id == session.Id);
+            if (existing != null)
+            {
+                existing.Kind = AgentTabState.TabKind.BarCommand;
+                _barCommandTab = existing;
+                SwitchToTab(existing);
+                RefreshAllTabs();
+                return existing;
+            }
+
+            var tab = CreateTab(session, renderHistory: true, switchTo: true, kind: AgentTabState.TabKind.BarCommand);
+            _barCommandTab = tab;
+            return tab;
         }
 
         private static string FormatSessionHeader(Session session)
