@@ -27,7 +27,7 @@
   {
     "title": "AGENT_UI_SESSION_MENU",
     "accordance": ["AGENT_UI_ROOT"],
-    "content": "/session 命令进入会话选择菜单, 清空输出区并列表显示所有会话: ID, 状态 (open/busy/full/closed), 标题, 创建~更新时间, 消息数. 当前会话标记 *. 输入会话 ID 切换, /new 新建, Esc 退出菜单并恢复当前会话渲染."
+    "content": "/session 命令进入会话选择菜单, 清空输出区并列表显示所有会话: ID, 状态 (open/busy/full/closed), 标题, 创建~更新时间, 消息数. 当前会话标记 *. 输入会话 ID 切换, /new 新建, Esc 取消; 离开菜单时恢复原会话渲染. 若选择 bar-command 历史会话, 关闭当前 Bar 指令会话并将所选会话作为唯一 Bar 指令会话."
   },
   {
     "title": "AGENT_UI_TOOL_DISPLAY",

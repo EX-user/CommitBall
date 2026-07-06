@@ -43,3 +43,8 @@ commitball-ball-shell/obj/
 # Installer artifacts
 installer/archives/
 installer/staging/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+*.pyc.*

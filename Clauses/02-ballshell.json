@@ -12,7 +12,7 @@
   {
     "title": "BALL_PIPE_MSGS",
     "accordance": ["BALL_PIPE_PROTOCOL"],
-    "content": "五种 pipe 消息: STATE (录制模式 + 眼睛模式, 状态变化时推送), STATUS (录制/数据库/Bar/Agent 四项状态文本, 显示在右键菜单), BUBBLE (气泡文本, 10 秒后自动清除), CLEAR_BUBBLE (立即清除当前气泡), SHUTDOWN (退出)."
+    "content": "五种 pipe 消息: STATE (录制模式 + 眼睛模式, 状态变化时推送), HOST_STATUS (录制/数据库/Bar/Agent 四项状态文本, 显示在右键菜单, 不是心跳), BUBBLE (气泡文本, 10 秒后自动清除), CLEAR_BUBBLE (立即清除当前气泡), SHUTDOWN (退出)."
   },
   {
     "title": "BALL_BUBBLE",

@@ -7,7 +7,7 @@
   {
     "title": "CF_SIGNALS_CORE_OUT",
     "accordance": ["CF_ROOT"],
-    "content": "Core 向外发送的控制信号: CommitBall-bar (SHOW/SHOW_LOCKED/QUIT); CommitBall-Agent (SHOW/QUIT/INVOKE_NEW/INVOKE_BAR); CommitBall-BallShell (STATE/STATUS/BUBBLE/SHUTDOWN)."
+    "content": "Core 向外发送的控制信号: CommitBall-bar (SHOW/SHOW_LOCKED/QUIT); CommitBall-Agent (SHOW/QUIT/INVOKE_NEW/INVOKE_BAR); CommitBall-BallShell (STATE/HOST_STATUS/BUBBLE/SHUTDOWN)."
   },
   {
     "title": "CF_SIGNALS_CORE_IN",
@@ -37,11 +37,11 @@
   {
     "title": "CF_ANALYSIS_CHAIN",
     "accordance": ["CF_ROOT"],
-    "content": "自动分析是一条跨进程触发链: Core 检测到触发条件 (DB 90% 容量, 或 panel.html 超 4 小时未更新) → EnsureAgentRunning() 确保 Agent 存活 → 发送 INVOKE_NEW [时间消息, /summary_to_panel] → Agent 读取 live.txt 和 exports, 调用 LLM 生成报告 → Agent 通过 display_panel 工具写入 panel.html 并发送 SHOW_PANEL 到 Bar → Bar 面板刷新. 整条链路中 Core 仅负责触发, 实际分析和面板生成由 Agent 独立完成."
+    "content": "自动分析是一条跨进程触发链: Core 检测到触发条件 (DB 90% 容量, 或 panel.html 不存在/超 4 小时未更新) → 确认 summary 未运行并按需唤起 Agent → 发送 INVOKE_NEW [时间消息, /summary_to_panel] → Agent 读取 live.txt 和 exports, 调用 LLM 生成报告 → display_panel 写入 panel.html 并发送 SHOW_PANEL 让 Bar 显示并加载面板. 容量预分析只有投递成功才标记为已分析."
   },
   {
     "title": "CF_STATUS_SYNC",
     "accordance": ["CF_ROOT"],
-    "content": "跨进程状态同步使用两种机制: 1) pipe 推送 (Core → BallShell 的 STATE/STATUS) 用于实时状态; 2) 文件标志 (data/bar-status, data/agent-status, data/agent-summary-status) 用于 Core 轮询读取子进程状态. 文件标志机制不需要 pipe 连接, 即使子进程的 pipe server 未就绪 Core 也能读取状态."
+    "content": "跨进程状态同步使用两种机制: 1) pipe 推送 (Core → BallShell 的 STATE/HOST_STATUS) 用于悬浮球实时外观和右键菜单状态; 2) 文件标志 (data/bar-status, data/agent-status, data/agent-summary-status) 用于 Core 轮询读取子进程状态. 文件标志机制不需要 pipe 连接, 即使子进程的 pipe server 未就绪 Core 也能读取状态."
   }
 ]

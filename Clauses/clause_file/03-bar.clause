@@ -15,7 +15,7 @@
     "cuid": "39575600",
     "accordance": ["BAR_WAKE"],
     "accordance-cuid": ["7f7c9482"],
-    "content": "唤醒序列是可配置的, 存储在 SQLite 的 config 表中 (key: bar_trigger). 允许的字符: a-z, A-Z, 0-9, 以及 \\ ; / [ ] - = , . , 最大长度 10. Agent 可通过 set_bar_trigger 工具修改."
+    "content": "唤醒序列是可配置的, 存储在 SQLite 的 config 表中 (key: bar_trigger). 允许的字符: a-z, A-Z, 0-9, 以及 \\ ; / ` [ ] - = , . , 最大长度 10. Agent 可通过 set_bar_trigger 工具修改; 工具写入时执行字符校验, 启动加载时仅接受 1-10 长度的已保存值."
   },
   {
     "cuid": "77459769",
@@ -33,7 +33,7 @@
     "cuid": "4351fae4",
     "accordance": ["BAR_ROOT"],
     "accordance-cuid": ["64ce0709"],
-    "content": "输入条支持前缀切换系统: 按 Tab 键在普通 (无前缀), 代办, 配置, 指令四种模式间循环切换. 选定前缀后, Enter 提交的文本会被加上对应的前缀. 前缀状态在 Enter 提交后保持不变, 仅在 Esc 或重新唤出时重置."
+    "content": "输入条支持前缀切换系统: 按 Tab 键在普通 (无前缀), 代办, 配置, 指令四种模式间循环切换. 选定前缀后, Enter 提交的文本会被加上对应的前缀. 前缀状态在 Bar 可见期间保持不变; 只要 Bar 隐藏, 无论隐藏原因是什么, 前缀都会重置."
   },
   {
     "cuid": "6d79f80a",
@@ -57,12 +57,12 @@
     "cuid": "f47119ec",
     "accordance": ["BAR_PANEL"],
     "accordance-cuid": ["f0141bee"],
-    "content": "面板刷新有两条路径: 1) 被动刷新 - Bar 的 30 秒 DispatcherTimer 检测 panel.html 的 LastWriteTime 变化; 2) 主动刷新 - Core 通过 REFRESH_PANEL pipe 指令通知 Bar 立即重新 Navigate WebView2 到 panel.html (由 Agent 的 display_panel 工具触发)."
+    "content": "面板更新使用单一外部入口: Agent 的 display_panel 工具写入 data/agent-out/panel.html 后向 Bar 发送 SHOW_PANEL; Bar 显示并锁定输入条, 打开面板, 并加载最新 panel.html. 面板已打开时, Bar 内部的 30 秒 DispatcherTimer 仅用于检测 panel.html 的 LastWriteTime 变化并重新加载当前文件."
   },
   {
     "cuid": "a79c0d35",
     "accordance": ["BAR_ROOT"],
     "accordance-cuid": ["64ce0709"],
-    "content": "Core 通过 Named Pipe (CommitBall-bar) 向 Bar 发送单行指令: SHOW (显示输入条), SHOW_LOCKED (显示并锁定, 用于右键菜单'打开并锁定 Bar'), SHOW_PANEL (显示并锁定输入条同时打开面板, 用于 Agent display_panel 工具), REFRESH_PANEL (刷新面板), NOTICE <text> (在输入条显示 Agent 提示消息), STATUS (心跳 ping, 连接成功即证明 Bar 存活, 无实际操作), QUIT (退出)."
+    "content": "Core 或 Agent 通过 Named Pipe (CommitBall-bar) 向 Bar 发送单行指令: SHOW (显示输入条), SHOW_LOCKED (显示并锁定, 用于右键菜单'打开并锁定 Bar'), SHOW_PANEL (显示并锁定输入条同时打开面板并加载最新 panel.html, 用于 Agent display_panel 工具), NOTICE <text> (在输入条显示 Agent 提示消息), QUIT (退出). Bar 不提供空操作心跳指令; Core 通过进程句柄和 data/bar-status 判断 Bar 状态."
   }
 ]

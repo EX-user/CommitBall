@@ -22,7 +22,7 @@
   {
     "title": "CONFIG_TABLE",
     "accordance": ["DB_EXCLUSIVE_ACCESS"],
-    "content": "config 表存储 Core 的运行时配置, 键值包括: bar_trigger (唤醒序列, 默认 \\ccb), eye_mode (眼睛模式, 默认 true), auto_analysed (本次数据库是否已自动分析). 这些键由 Core 直接读写. 外部修改通过 pipe 命令间接触发: Agent 通过 set_bar_trigger 和 set_eye_mode 工具发送 CMD SET_TRIGGER 和 CMD SET_EYE_MODE, 由 Core 代为执行. BallShell 窗口几何状态独立存储于 data/ball-shell-state.json, 不经过 config 表."
+    "content": "config 表存储 Core 的运行时配置, 键值包括: bar_trigger (唤醒序列, 默认 \\ccb), eye_mode (眼睛模式, 默认 true), auto_analysed (本库容量预分析是否已成功投递). 这些键由 Core 直接读写. 外部修改通过 pipe 命令间接触发: Agent 通过 set_bar_trigger 和 set_eye_mode 工具发送 CMD SET_TRIGGER 和 CMD SET_EYE_MODE, 由 Core 代为执行. BallShell 窗口几何状态独立存储于 data/ball-shell-state.json, 不经过 config 表."
   },
   {
     "title": "CORE_INPUT_EXCLUSIVE",
@@ -32,7 +32,7 @@
   {
     "title": "PIPE_WEASEL_PROTO",
     "accordance": ["CORE_INPUT_EXCLUSIVE"],
-    "content": "WeaselServer 到 Core 的 pipe (CommitBall) 是持续连接的流式管道, 支持多实例. 消息以二进制长度前缀帧编码: 4 字节小端 uint32 长度 + UTF-16LE 文本. 帧超过 1MB 时丢弃缓冲区防溢出. 解码后的文本按 ASCII 前缀分派: COMMIT:<text> 为中文输入, KEYSTROKE:<char> 为英文字符. 通过 PostMessage 投递到 Core 的 UI 线程处理."
+    "content": "WeaselServer 到 Core 的 pipe (CommitBall) 是持续连接的流式管道, 支持多实例. 消息以二进制长度前缀帧编码: 4 字节小端 uint32 长度 + UTF-16LE 文本. 帧超过 1MB 时丢弃缓冲区防溢出. 解码后的文本按 ASCII 前缀分派: COMMIT:<text> 为中文输入, KEYSTROKE:<char> 为英文字符. 通过 PostMessage 投递到 Core 的 UI 线程处理. Core 端使用 overlapped I/O 创建该 pipe, 退出时通过 CancelIoEx 取消阻塞的 ConnectNamedPipe/ReadFile."
   },
   {
     "title": "PIPE_NO_WEASEL",
@@ -42,12 +42,12 @@
   {
     "title": "PIPE_DIRECT_DATA",
     "accordance": ["SYS_IPC_PIPE"],
-    "content": "Bar 到 Core 的直接输入 pipe (CommitBall-direct) 是一次性连接管道: 特别地, Bar为指令前缀状态时, 时发送的信息将携带CMD前缀. Bar 每次发送完毕即关闭连接, Core 端读取完整内容后分派. 不以 CMD 开头的文本作为 direct-input 写入数据库."
+    "content": "CommitBall-direct 是一次性连接 pipe. 发送方写完即关闭; Core 端用 overlapped I/O 读取完整内容. 非 CMD 文本作为 direct-input 写入数据库; CMD 文本不写数据库."
   },
   {
     "title": "PIPE_DIRECT_CMDS",
     "accordance": ["SYS_IPC_PIPE"],
-    "content": "CommitBall-direct pipe 中以 CMD 开头的行路由到 Core 的 ProcessDirectCommand, 由 Core 直接处理, 不写入数据库. Bar 发送 CMD AGENT_INPUT 请求转发文本到 Agent. Shell和Agent也能向Core发送CMD消息. 非Core进程的相互控制必须经 Core 中转."
+    "content": "CommitBall-direct 的接收线程只读取消息并投递到 Core 主线程. CMD 消息在主线程调用 ProcessDirectCommand() 处理. Bar、BallShell 和 Agent tools 的控制请求都必须经 Core 中转."
   },
   {
     "title": "PIPE_RETRY",

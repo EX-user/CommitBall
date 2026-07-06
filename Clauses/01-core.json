@@ -2,7 +2,7 @@
   {
     "title": "PROC_LIFECYCLE",
     "accordance": ["SYS_MULTIPROC"],
-    "content": "Core 在启动时通过 CreateProcess 拉起 Bar 和 BallShell, 命令行传递 --parent-pid <Core PID>. Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). Core 退出时先通过 pipe 发送 QUIT 指令, 等待 600ms 后对未退出的子进程执行 TerminateProcess."
+    "content": "Core 在启动时通过 CreateProcess 拉起 Bar 和 BallShell, 命令行传递 --parent-pid <Core PID>. Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). Core 的用户退出和消息循环退出都汇聚到 FastCommitBallExit(), 该流程先进入退出态并停止新动作, 再 flush 数据库、唤醒入站 pipe、通知子进程退出, 超时后才使用 Job Object、TerminateProcess 和外部 taskkill 兜底."
   },
   {
     "title": "PROC_JOB_OBJECT",
@@ -17,7 +17,7 @@
   {
     "title": "PROC_FAST_EXIT",
     "accordance": ["PROC_LIFECYCLE"],
-    "content": "FastCommitBallExit() 是 Core 的安全退出流程: 1) 设置 STOPPED 状态并 flush 数据库 (WAL checkpoint + close); 2) 启动一个 detached cmd 进程执行 ping 延迟 + taskkill /F 兜底; 3) 关闭 pipe 句柄; 4) TerminateJobObject 杀死所有子进程; 5) TerminateProcess 逐一杀死子进程; 6) 自杀. 每步写入 data/log/exit.log."
+    "content": "FastCommitBallExit() 是 Core 唯一的完整退出流程. 它先进入退出态并停止新动作, 再唤醒和取消入站 pipe、flush 数据库、通知子进程退出、等待 pipe 线程、清理 hook/DB/mutex, 最后调用 ExitProcess(0). Job Object、TerminateProcess 和外部 taskkill 只作为超时兜底. 每个关键步骤写入 data/log/exit.log."
   },
   {
     "title": "PROC_STARTUP_ORDER",
@@ -72,7 +72,7 @@
   {
     "title": "REC_AWAY_BACK_DETAIL",
     "accordance": ["REC_AWAY_BACK"],
-    "content": "away 期间不生成键盘/鼠标事件, 但 focus-stay 事件仍然继续生成 (焦点定时器独立运行). away 标志通过 g_awayLogged 全局变量去重, 确保只写入一次 away 事件."
+    "content": "away 期间 Core 不再写入 focus、focus-stay、timer、键盘或鼠标事件. 用户回来后的首次键鼠输入由 MarkUserInputActivity() 写入 back, 并清除 g_awayLogged. g_awayLogged 同时用于确保一次离开只写入一次 away."
   },
   {
     "title": "REC_DB_CAPACITY",
@@ -127,6 +127,6 @@
   {
     "title": "TIMER_CONTROL_TASKS",
     "accordance": ["PROC_HEALTH"],
-    "content": "400ms 定时器驱动的控制流任务: CheckAutoAnalyse (60s, 检查 panel.html 是否过期 4h, 触发 Agent 分析), CheckBallShellHealth (2s, 检查 BallShell 存活, 按需重启). 这些任务不直接产生数据, 而是触发进程间协作或进程管理."
+    "content": "400ms 定时器驱动的控制流任务: CheckAutoAnalyse (60s, 检查 panel.html 是否不存在/过期 4h, 触发 Agent 分析), CheckBallShellHealth (2s, 检查 BallShell 存活, 按需重启). 这些任务不直接产生数据, 而是触发进程间协作或进程管理."
   }
 ]

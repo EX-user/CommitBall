@@ -9,7 +9,7 @@
     "cuid": "9a643063",
     "accordance": ["CF_ROOT"],
     "accordance-cuid": ["ec7d09c2"],
-    "content": "Core 向外发送的控制信号: CommitBall-bar (SHOW/SHOW_LOCKED/QUIT); CommitBall-Agent (SHOW/QUIT/INVOKE_NEW/INVOKE_BAR); CommitBall-BallShell (STATE/STATUS/BUBBLE/SHUTDOWN)."
+    "content": "Core 向外发送的控制信号: CommitBall-bar (SHOW/SHOW_LOCKED/QUIT); CommitBall-Agent (SHOW/QUIT/INVOKE_NEW/INVOKE_BAR); CommitBall-BallShell (STATE/HOST_STATUS/BUBBLE/SHUTDOWN)."
   },
   {
     "cuid": "24881029",
@@ -42,15 +42,15 @@
     "content": "Agent 控制类工具的转发模式: Agent 通过 Tools.SendCommitBallCommand 向 CommitBall-direct pipe 发送 CMD 命令 → Core 的 ProcessDirectCommand 接收并执行 → 对于需要影响其他进程的命令, Core 再通过对应管道转发 (如 SET_EYE_MODE 更新 config 后推送 STATE 到 BallShell; BUBBLE 转发为 BallShell BUBBLE 消息). Agent 不直接与 BallShell 通信; 对 Bar 的直接通信仅限 display_panel 的 SHOW_PANEL 和 NOTICE."
   },
   {
-    "cuid": "70334200",
+    "cuid": "90a9ff4a",
     "accordance": ["CF_ROOT"],
     "accordance-cuid": ["ec7d09c2"],
-    "content": "自动分析是一条跨进程触发链: Core 检测到触发条件 (DB 90% 容量, 或 panel.html 超 4 小时未更新) → EnsureAgentRunning() 确保 Agent 存活 → 发送 INVOKE_NEW [时间消息, /summary_to_panel] → Agent 读取 live.txt 和 exports, 调用 LLM 生成报告 → Agent 通过 display_panel 工具写入 panel.html 并发送 SHOW_PANEL 到 Bar → Bar 面板刷新. 整条链路中 Core 仅负责触发, 实际分析和面板生成由 Agent 独立完成."
+    "content": "自动分析是一条跨进程触发链: Core 检测到触发条件 (DB 90% 容量, 或 panel.html 不存在/超 4 小时未更新) → 确认 summary 未运行并按需唤起 Agent → 发送 INVOKE_NEW [时间消息, /summary_to_panel] → Agent 读取 live.txt 和 exports, 调用 LLM 生成报告 → display_panel 写入 panel.html 并发送 SHOW_PANEL 让 Bar 显示并加载面板. 容量预分析只有投递成功才标记为已分析."
   },
   {
     "cuid": "f0a222f7",
     "accordance": ["CF_ROOT"],
     "accordance-cuid": ["ec7d09c2"],
-    "content": "跨进程状态同步使用两种机制: 1) pipe 推送 (Core → BallShell 的 STATE/STATUS) 用于实时状态; 2) 文件标志 (data/bar-status, data/agent-status, data/agent-summary-status) 用于 Core 轮询读取子进程状态. 文件标志机制不需要 pipe 连接, 即使子进程的 pipe server 未就绪 Core 也能读取状态."
+    "content": "跨进程状态同步使用两种机制: 1) pipe 推送 (Core → BallShell 的 STATE/HOST_STATUS) 用于悬浮球实时外观和右键菜单状态; 2) 文件标志 (data/bar-status, data/agent-status, data/agent-summary-status) 用于 Core 轮询读取子进程状态. 文件标志机制不需要 pipe 连接, 即使子进程的 pipe server 未就绪 Core 也能读取状态."
   }
 ]

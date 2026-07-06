@@ -30,10 +30,10 @@
     "content": "子任务进度以 '│ ...' 滑动窗口动画显示: LLM 流式输出时, 保留最后 20 个字符, 通过原地修改 Run.Text 实现动画效果而非追加新行. 与工具调用区块视觉隔离."
   },
   {
-    "cuid": "d9c40bfe",
+    "cuid": "0db8c54c",
     "accordance": ["AGENT_UI_ROOT"],
     "accordance-cuid": ["beeabd87"],
-    "content": "/session 命令进入会话选择菜单, 清空输出区并列表显示所有会话: ID, 状态 (open/busy/full/closed), 标题, 创建~更新时间, 消息数. 当前会话标记 *. 输入会话 ID 切换, /new 新建, Esc 退出菜单并恢复当前会话渲染."
+    "content": "/session 命令进入会话选择菜单, 清空输出区并列表显示所有会话: ID, 状态 (open/busy/full/closed), 标题, 创建~更新时间, 消息数. 当前会话标记 *. 输入会话 ID 切换, /new 新建, Esc 取消; 离开菜单时恢复原会话渲染. 若选择 bar-command 历史会话, 关闭当前 Bar 指令会话并将所选会话作为唯一 Bar 指令会话."
   },
   {
     "cuid": "b635ea28",

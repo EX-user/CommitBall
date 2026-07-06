@@ -17,7 +17,7 @@
   {
     "title": "AGENT_INVOKE_ROUTING",
     "accordance": ["AGENT_PIPE_ENTRY"],
-    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. 单个 bar-command 标签页上下文满后自动关闭并新建."
+    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到唯一的专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. bar-command 上下文满后自动关闭并新建; 手动加载 bar-command 历史会话时替换当前 Bar 指令会话."
   },
   {
     "title": "AGENT_API_CONFIG",
@@ -42,7 +42,7 @@
   {
     "title": "AGENT_OUT_CATEGORIES",
     "accordance": ["AGENT_TOOLS_FILE"],
-    "content": "Agent 的 write 和 edit 工具将输出文件按类别归档到 7 个允许的子目录: reports, extracts, reminders, responses, analysis, scratch, memory. 非 memory 类别自动添加 YYYY-MM/ 月份子目录. 文件名和路径经过多层安全检查: 拒绝绝对路径, .., : (NTFS ADS), 驱动器号, 无效字符; 最终用 Path.GetFullPath 做规范包含验证确保不逃逸 agent-out/."
+    "content": "Agent 的 write 和 edit 工具将输出文件按类别归档到 7 个允许的子目录: reports, extracts, reminders, responses, analysis, scratch, memory. 非 memory 类别自动添加 YYYY-MM/ 月份子目录. 文件名和路径经过安全检查, 确保不逃逸 agent-out/. 已存在的 memory/summary_task_exp_decay_memory.md 和 memory/direct_settings.md 受保护: write 只能首次创建, 后续只能用 edit 增量修改."
   },
   {
     "title": "AGENT_TOOLS_CONTROL",
@@ -57,7 +57,7 @@
   {
     "title": "AGENT_AUTO_ANALYSIS",
     "accordance": ["AGENT_ROOT"],
-    "content": "满足以下任一条件时自动触发 Agent 分析: 数据库容量达到 90% (约 460KB) 且本次数据库未分析过; 或 panel.html 超过 4 小时未更新. 触发前提: Agent 正在运行且至少有一个会话可接收输入, 且当前无 summary_to_panel 在执行 (REC_SUMMARY_LOCK). 数据库轮转后分析标志自动重置."
+    "content": "满足以下任一条件时自动触发 Agent 分析: 数据库容量达到 90% (约 460KB) 且本库未成功投递过容量预分析; 或 panel.html 不存在/超过 4 小时未更新. Core 会按需唤起 Agent, 但当前有 summary_to_panel 在执行时跳过 (REC_SUMMARY_LOCK). 投递失败后 5 分钟内不重试; 数据库轮转后分析标志自动重置."
   },
   {
     "title": "AGENT_MEMORY",

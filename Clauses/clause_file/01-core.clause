@@ -1,38 +1,38 @@
 [
   {
-    "cuid": "03aa7372",
+    "cuid": "e2760744",
     "accordance": ["SYS_MULTIPROC"],
     "accordance-cuid": ["3c7f41b1"],
-    "content": "Core 在启动时通过 CreateProcess 拉起 Bar 和 BallShell, 命令行传递 --parent-pid <Core PID>. Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). Core 退出时先通过 pipe 发送 QUIT 指令, 等待 600ms 后对未退出的子进程执行 TerminateProcess."
+    "content": "Core 在启动时通过 CreateProcess 拉起 Bar 和 BallShell, 命令行传递 --parent-pid <Core PID>. Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). Core 的用户退出和消息循环退出都汇聚到 FastCommitBallExit(), 该流程先进入退出态并停止新动作, 再 flush 数据库、唤醒入站 pipe、通知子进程退出, 超时后才使用 Job Object、TerminateProcess 和外部 taskkill 兜底."
   },
   {
     "cuid": "02a796c6",
     "accordance": ["PROC_LIFECYCLE"],
-    "accordance-cuid": ["03aa7372"],
+    "accordance-cuid": ["e2760744"],
     "content": "Core 创建一个 Win32 Job Object 并设置 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 标志, 每个子进程启动后立即分配到该 Job. 当 Core 进程终止时 (无论正常或异常), 内核自动关闭 Job 句柄, 所有子进程由内核终止."
   },
   {
     "cuid": "5d700436",
     "accordance": ["PROC_LIFECYCLE"],
-    "accordance-cuid": ["03aa7372"],
+    "accordance-cuid": ["e2760744"],
     "content": "Bar 和 Agent 启动时解析 --parent-pid 参数, 在后台线程中调用 parent.WaitForExit() 阻塞等待 Core 退出. Core 退出后立即触发 Application.Shutdown(). 这是防孤儿进程的用户态补充 (BallShell 使用异步等价 WaitForExitAsync)."
   },
   {
-    "cuid": "b7badf3c",
+    "cuid": "38ded3ca",
     "accordance": ["PROC_LIFECYCLE"],
-    "accordance-cuid": ["03aa7372"],
-    "content": "FastCommitBallExit() 是 Core 的安全退出流程: 1) 设置 STOPPED 状态并 flush 数据库 (WAL checkpoint + close); 2) 启动一个 detached cmd 进程执行 ping 延迟 + taskkill /F 兜底; 3) 关闭 pipe 句柄; 4) TerminateJobObject 杀死所有子进程; 5) TerminateProcess 逐一杀死子进程; 6) 自杀. 每步写入 data/log/exit.log."
+    "accordance-cuid": ["e2760744"],
+    "content": "FastCommitBallExit() 是 Core 唯一的完整退出流程. 它先进入退出态并停止新动作, 再唤醒和取消入站 pipe、flush 数据库、通知子进程退出、等待 pipe 线程、清理 hook/DB/mutex, 最后调用 ExitProcess(0). Job Object、TerminateProcess 和外部 taskkill 只作为超时兜底. 每个关键步骤写入 data/log/exit.log."
   },
   {
     "cuid": "b51c8ac2",
     "accordance": ["PROC_LIFECYCLE"],
-    "accordance-cuid": ["03aa7372"],
+    "accordance-cuid": ["e2760744"],
     "content": "Core 启动时的子进程拉起顺序: 先 Bar (输入条), 然后 BallShell (悬浮球). Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). 三个子进程之间无启动依赖, 任一启动失败不影响其他进程的拉起."
   },
   {
     "cuid": "3420a69f",
     "accordance": ["PROC_LIFECYCLE"],
-    "accordance-cuid": ["03aa7372"],
+    "accordance-cuid": ["e2760744"],
     "content": "在 Core 正常运行期间, Core 不会主动关闭任何子进程. 子进程一旦启动便持续运行直到 Core 退出 (发送 QUIT) 或子进程自身崩溃. 不存在使用中主动回收子进程的机制."
   },
   {
@@ -84,10 +84,10 @@
     "content": "离开/返回检测: LL 键盘和鼠标钩子在每次输入时更新 g_lastUserInputTime. Core 的 400ms 定时器轮询, 若距上次输入超过 10 分钟则写入 away 事件. 用户回来后的首次输入触发 back 事件."
   },
   {
-    "cuid": "74df97a9",
+    "cuid": "dca250b8",
     "accordance": ["REC_AWAY_BACK"],
     "accordance-cuid": ["bec92c0a"],
-    "content": "away 期间不生成键盘/鼠标事件, 但 focus-stay 事件仍然继续生成 (焦点定时器独立运行). away 标志通过 g_awayLogged 全局变量去重, 确保只写入一次 away 事件."
+    "content": "away 期间 Core 不再写入 focus、focus-stay、timer、键盘或鼠标事件. 用户回来后的首次键鼠输入由 MarkUserInputActivity() 写入 back, 并清除 g_awayLogged. g_awayLogged 同时用于确保一次离开只写入一次 away."
   },
   {
     "cuid": "051bcfbd",
@@ -150,9 +150,9 @@
     "content": "Core 的 LL 键盘钩子中维护一个滑动窗口缓冲区 (g_barSeq[15]) 检测唤醒序列. 每次按键映射为字符追加到缓冲区; 非映射键清空缓冲区; 相邻按键间隔超过 2 秒也清空. 缓冲区尾部匹配当前唤醒序列时触发 SendShowToBar(). 映射表覆盖 a-z, 0-9 和 OEM 键 (反斜杠, 分号, 斜杠等)."
   },
   {
-    "cuid": "388a40e6",
+    "cuid": "74ff067c",
     "accordance": ["PROC_HEALTH"],
     "accordance-cuid": ["c8bc7401"],
-    "content": "400ms 定时器驱动的控制流任务: CheckAutoAnalyse (60s, 检查 panel.html 是否过期 4h, 触发 Agent 分析), CheckBallShellHealth (2s, 检查 BallShell 存活, 按需重启). 这些任务不直接产生数据, 而是触发进程间协作或进程管理."
+    "content": "400ms 定时器驱动的控制流任务: CheckAutoAnalyse (60s, 检查 panel.html 是否不存在/过期 4h, 触发 Agent 分析), CheckBallShellHealth (2s, 检查 BallShell 存活, 按需重启). 这些任务不直接产生数据, 而是触发进程间协作或进程管理."
   }
 ]

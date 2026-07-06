@@ -17,7 +17,7 @@
   {
     "title": "SYS_ADMIN",
     "accordance": ["SYS_ROOT"],
-    "content": "Core 进程通过 manifest 默认请求管理员权限. 如果用户拒绝 UAC 授权, Core 自身无法启动, 子进程也不会被拉起, 相当于无事发生, 不产生任何副作用. 管理员权限仅用于 WH_KEYBOARD_LL 钩子和 System32 DLL 注册."
+    "content": "Core 进程通过 manifest 默认请求管理员权限. 如果用户拒绝 UAC 授权, Core 自身无法启动, 子进程也不会被拉起, 相当于无事发生, 不产生任何副作用. 管理员权限仅用于 WH_KEYBOARD_LL 和 WH_MOUSE_LL 钩子以及 System32 DLL 注册."
   },
   {
     "title": "WEASEL_LIFECYCLE",
