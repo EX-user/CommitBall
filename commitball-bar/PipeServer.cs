@@ -36,12 +36,6 @@ namespace CommitBallBar
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.ShowBar(false)));
                                 else if (msg == "SHOW_LOCKED")
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.ShowBar(true)));
-                                else if (msg == "STATUS")
-                                {
-                                    // STATUS is intentionally fire-and-forget for now; successful connection means alive.
-                                }
-                                else if (msg == "REFRESH_PANEL")
-                                    _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.RefreshPanel()));
                                 else if (msg == "SHOW_PANEL")
                                     _bar.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _bar.ShowPanelFromTool()));
                                 else if (msg != null && msg.StartsWith("NOTICE "))

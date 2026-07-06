@@ -107,21 +107,6 @@ namespace CommitBallBar
             Hide();
         }
 
-        public void RefreshPanel()
-        {
-            if (!_webViewInitialized || !File.Exists(PanelPath)) return;
-            try
-            {
-                _lastWriteTime = File.GetLastWriteTime(PanelPath);
-                WebView.CoreWebView2.Navigate(new Uri("file:///" + PanelPath.Replace('\\', '/')).AbsoluteUri);
-                App.WriteLog("Panel refreshed by pipe command");
-            }
-            catch (Exception ex)
-            {
-                App.WriteLog($"RefreshPanel failed: {ex.Message}");
-            }
-        }
-
         private void StartWatch()
         {
             StopWatch();
