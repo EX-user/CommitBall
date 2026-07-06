@@ -92,7 +92,7 @@ cmd /c "mklink `"$target`" `"$link`""
 
 1. `.\apply-patch.ps1`
 
-   > 如果报 "patch 不适用"，确认 weasel 子模块完全干净（`git -C weasel diff --stat HEAD` 应无输出）。plum 子模块 dirty 状态会导致失败，可用 `git -C weasel apply --exclude plum ../diff_of_weasel.patch` 跳过。
+   > 如果报 "patch 不适用"，确认 weasel 子模块完全干净（`git -C weasel diff --stat HEAD` 应无输出），且子模块指针仍为 README/WEASEL_BUILD.md 中记录的官方上游版本。
 
 2. Boost 构建（见 WEASEL_BUILD.md 步骤 6-7）
 

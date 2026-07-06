@@ -91,7 +91,7 @@ WeaselServer.exe
 
 | 文件 | 说明 |
 |------|------|
-| `diff_of_weasel.patch` | CB-Weasel 侧改动（CommitBallBridge + 改名，26 文件，957 行） |
+| `diff_of_weasel.patch` | CB-Weasel 侧改动（CommitBallBridge + 改名隔离） |
 | `apply-patch.ps1` | 验证并应用 patch |
 | `build-commitball.ps1` | 构建 CommitBall.exe |
 | `commitball/main.cpp` | CommitBall 入口（WinMain + 全局变量） |
