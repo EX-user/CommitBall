@@ -41,6 +41,15 @@ const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
 const int FOCUS_TITLE_MAX = 128;
 #define WM_PIPE_MSG (WM_USER + 1)
 
+enum CorePipeMessageKind : LPARAM {
+    CORE_PIPE_KEYBOARD_MESSAGE = 0,
+    CORE_PIPE_DIRECT_INPUT = 1,
+    CORE_PIPE_BUBBLE = 2,
+    CORE_PIPE_STATE_CHANGED = 3,
+    CORE_PIPE_CHECK_BALLSHELL = 4,
+    CORE_PIPE_DIRECT_COMMAND = 5
+};
+
 const char CURRENT_DB[]   = "data/db/current.db";
 const char SESSIONS_DIR[] = "data/sessions";
 const char EXPORTS_DIR[]  = "data/exports";
@@ -420,11 +429,26 @@ inline bool RecorderInit() {
 }
 
 inline void RecorderCleanup() {
-    if (g_insertStmt) sqlite3_finalize(g_insertStmt);
-    if (g_db) sqlite3_close(g_db);
-    if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
-    if (g_directPipe != INVALID_HANDLE_VALUE) CloseHandle(g_directPipe);
-    if (g_pUIAutomation) g_pUIAutomation->Release();
+    if (g_insertStmt) {
+        sqlite3_finalize(g_insertStmt);
+        g_insertStmt = nullptr;
+    }
+    if (g_db) {
+        sqlite3_close(g_db);
+        g_db = nullptr;
+    }
+    if (g_pipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(g_pipe);
+        g_pipe = INVALID_HANDLE_VALUE;
+    }
+    if (g_directPipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(g_directPipe);
+        g_directPipe = INVALID_HANDLE_VALUE;
+    }
+    if (g_pUIAutomation) {
+        g_pUIAutomation->Release();
+        g_pUIAutomation = nullptr;
+    }
     CoUninitialize();
 }
 
@@ -815,12 +839,12 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
 inline void CheckSessionSplit() {
     if (GetDbSize() >= SESSION_SPLIT_SIZE * 9 / 10) {
         if (!GetConfigBool("auto_analysed")) {
-            extern bool IsAgentRunning();
             extern bool IsAgentSummaryBusy();
-            extern void InvokeAgentAnalyse();
-            if (IsAgentRunning() && !IsAgentSummaryBusy()) {
-                SetConfigBool("auto_analysed", true);
-                InvokeAgentAnalyse();
+            extern bool InvokeAgentAnalyse();
+            if (!IsAgentSummaryBusy()) {
+                if (InvokeAgentAnalyse()) {
+                    SetConfigBool("auto_analysed", true);
+                }
             }
         }
     }
@@ -942,7 +966,7 @@ inline void ProcessDirectCommand(const std::string& cmd) {
         if (SetBarTriggerConfig(trigger)) {
             Log("Bar trigger command applied");
             std::wstring* bubble = new std::wstring(L"Bar \x5524\x9192\x5E8F\x5217\x5DF2\x66F4\x65B0");
-            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, CORE_PIPE_BUBBLE);
         } else {
             Log("Invalid bar trigger from Bar: %s", trigger.c_str());
         }
@@ -961,11 +985,11 @@ inline void ProcessDirectCommand(const std::string& cmd) {
         }
 
         SetEyeModeConfig(enabled);
-        PostMessage(g_hWnd, WM_PIPE_MSG, 0, 3);
+        PostMessage(g_hWnd, WM_PIPE_MSG, 0, CORE_PIPE_STATE_CHANGED);
         std::wstring* bubble = new std::wstring(enabled
             ? L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5F00\x542F"
             : L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5173\x95ED");
-        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, CORE_PIPE_BUBBLE);
         return;
     }
     const std::string bubblePrefix = "BUBBLE ";
@@ -976,7 +1000,7 @@ inline void ProcessDirectCommand(const std::string& cmd) {
             std::wstring wide(wideLen, L'\0');
             MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wide[0], wideLen);
             std::wstring* bubble = new std::wstring(wide.c_str());
-            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, CORE_PIPE_BUBBLE);
         }
     }
 }
@@ -1245,24 +1269,89 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
 inline void CreatePipeServer() {
     const int BUF_SIZE = 4096;
     char readBuf[BUF_SIZE];
+    OVERLAPPED ov = {};
+    HANDLE hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!hEvent) {
+        Log("CreatePipeServer: CreateEvent failed (err=%d)", GetLastError());
+        return;
+    }
+    ov.hEvent = hEvent;
 
     while (g_running) {
-        g_pipe = CreateNamedPipeW(
+        HANDLE hPipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\CommitBall",
-            PIPE_ACCESS_INBOUND,
+            PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
             4096, 4096, 0, NULL);
+        g_pipe = hPipe;
 
-        if (g_pipe == INVALID_HANDLE_VALUE) {
+        if (hPipe == INVALID_HANDLE_VALUE) {
             Sleep(1000);
             continue;
         }
 
-        if (ConnectNamedPipe(g_pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+        ResetEvent(hEvent);
+        BOOL connected = ConnectNamedPipe(hPipe, &ov);
+        DWORD connectErr = connected ? ERROR_SUCCESS : GetLastError();
+        bool shouldRead = false;
+        if (connected || connectErr == ERROR_PIPE_CONNECTED) {
+            shouldRead = true;
+        } else if (connectErr == ERROR_IO_PENDING) {
+            while (g_running) {
+                DWORD wait = WaitForSingleObject(hEvent, 100);
+                if (wait == WAIT_OBJECT_0) {
+                    DWORD transferred = 0;
+                    if (GetOverlappedResult(hPipe, &ov, &transferred, FALSE))
+                        shouldRead = true;
+                    else
+                        Log("CreatePipeServer: ConnectNamedPipe overlapped failed (err=%d)", GetLastError());
+                    break;
+                }
+                if (wait != WAIT_TIMEOUT) {
+                    Log("CreatePipeServer: connect wait failed (wait=%d err=%d)", wait, GetLastError());
+                    break;
+                }
+            }
+            if (!g_running) CancelIoEx(hPipe, &ov);
+        } else {
+            Log("CreatePipeServer: ConnectNamedPipe failed (err=%d)", connectErr);
+        }
+
+        if (shouldRead) {
             std::string acc;
             DWORD bytesRead;
-            while (g_running && ReadFile(g_pipe, readBuf, BUF_SIZE, &bytesRead, NULL)) {
+            while (g_running) {
+                ResetEvent(hEvent);
+                bytesRead = 0;
+                BOOL readOk = ReadFile(hPipe, readBuf, BUF_SIZE, &bytesRead, &ov);
+                DWORD readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                if (!readOk && readErr == ERROR_IO_PENDING) {
+                    while (g_running) {
+                        DWORD wait = WaitForSingleObject(hEvent, 100);
+                        if (wait == WAIT_OBJECT_0) {
+                            readOk = GetOverlappedResult(hPipe, &ov, &bytesRead, FALSE);
+                            readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                            break;
+                        }
+                        if (wait != WAIT_TIMEOUT) {
+                            Log("CreatePipeServer: read wait failed (wait=%d err=%d)", wait, GetLastError());
+                            readOk = FALSE;
+                            readErr = GetLastError();
+                            break;
+                        }
+                    }
+                    if (!g_running) {
+                        CancelIoEx(hPipe, &ov);
+                        break;
+                    }
+                }
+                if (!readOk) {
+                    if (readErr != ERROR_BROKEN_PIPE && readErr != ERROR_OPERATION_ABORTED)
+                        Log("CreatePipeServer: ReadFile failed (err=%d)", readErr);
+                    break;
+                }
+                if (bytesRead == 0) break;
                 acc.append(readBuf, bytesRead);
                 while (acc.size() >= 4) {
                     uint32_t msgLen;
@@ -1272,15 +1361,19 @@ inline void CreatePipeServer() {
                     std::wstring wmsg((const wchar_t*)(acc.data() + 4), msgLen / sizeof(wchar_t));
                     acc.erase(0, 4 + msgLen);
                     std::wstring* pMsg = new std::wstring(std::move(wmsg));
-                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pMsg, 0); // lParam=0: keyboard msg
+                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pMsg, CORE_PIPE_KEYBOARD_MESSAGE);
                 }
             }
         }
 
-        DisconnectNamedPipe(g_pipe);
-        CloseHandle(g_pipe);
-        g_pipe = INVALID_HANDLE_VALUE;
+        DisconnectNamedPipe(hPipe);
+        if (g_pipe == hPipe) {
+            CloseHandle(hPipe);
+            g_pipe = INVALID_HANDLE_VALUE;
+        }
     }
+
+    CloseHandle(hEvent);
 }
 
 inline void InsertDirectInput(const std::string& text) {
@@ -1298,11 +1391,18 @@ inline void InsertDirectInput(const std::string& text) {
 inline void CreateBarPipeServer() {
     const int BUF_SIZE = 4096;
     char readBuf[BUF_SIZE];
+    OVERLAPPED ov = {};
+    HANDLE hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!hEvent) {
+        Log("CreateBarPipeServer: CreateEvent failed (err=%d)", GetLastError());
+        return;
+    }
+    ov.hEvent = hEvent;
 
     while (g_running) {
         g_directPipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\CommitBall-direct",
-            PIPE_ACCESS_INBOUND,
+            PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1, BUF_SIZE, 0, 0, NULL);
 
@@ -1312,10 +1412,67 @@ inline void CreateBarPipeServer() {
         }
 
         HANDLE hPipe = g_directPipe;
-        if (ConnectNamedPipe(hPipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+        ResetEvent(hEvent);
+        BOOL connected = ConnectNamedPipe(hPipe, &ov);
+        DWORD connectErr = connected ? ERROR_SUCCESS : GetLastError();
+        bool shouldRead = false;
+        if (connected || connectErr == ERROR_PIPE_CONNECTED) {
+            shouldRead = true;
+        } else if (connectErr == ERROR_IO_PENDING) {
+            while (g_running) {
+                DWORD wait = WaitForSingleObject(hEvent, 100);
+                if (wait == WAIT_OBJECT_0) {
+                    DWORD transferred = 0;
+                    if (GetOverlappedResult(hPipe, &ov, &transferred, FALSE))
+                        shouldRead = true;
+                    else
+                        Log("CreateBarPipeServer: ConnectNamedPipe overlapped failed (err=%d)", GetLastError());
+                    break;
+                }
+                if (wait != WAIT_TIMEOUT) {
+                    Log("CreateBarPipeServer: connect wait failed (wait=%d err=%d)", wait, GetLastError());
+                    break;
+                }
+            }
+            if (!g_running) CancelIoEx(hPipe, &ov);
+        } else {
+            Log("CreateBarPipeServer: ConnectNamedPipe failed (err=%d)", connectErr);
+        }
+
+        if (shouldRead) {
             std::string acc;
             DWORD bytesRead;
-            while (g_running && ReadFile(hPipe, readBuf, BUF_SIZE, &bytesRead, NULL)) {
+            while (g_running) {
+                ResetEvent(hEvent);
+                bytesRead = 0;
+                BOOL readOk = ReadFile(hPipe, readBuf, BUF_SIZE, &bytesRead, &ov);
+                DWORD readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                if (!readOk && readErr == ERROR_IO_PENDING) {
+                    while (g_running) {
+                        DWORD wait = WaitForSingleObject(hEvent, 100);
+                        if (wait == WAIT_OBJECT_0) {
+                            readOk = GetOverlappedResult(hPipe, &ov, &bytesRead, FALSE);
+                            readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                            break;
+                        }
+                        if (wait != WAIT_TIMEOUT) {
+                            Log("CreateBarPipeServer: read wait failed (wait=%d err=%d)", wait, GetLastError());
+                            readOk = FALSE;
+                            readErr = GetLastError();
+                            break;
+                        }
+                    }
+                    if (!g_running) {
+                        CancelIoEx(hPipe, &ov);
+                        break;
+                    }
+                }
+                if (!readOk) {
+                    if (readErr != ERROR_BROKEN_PIPE && readErr != ERROR_OPERATION_ABORTED)
+                        Log("CreateBarPipeServer: ReadFile failed (err=%d)", readErr);
+                    break;
+                }
+                if (bytesRead == 0) break;
                 acc.append(readBuf, bytesRead);
             }
             if (!acc.empty()) {
@@ -1323,21 +1480,27 @@ inline void CreateBarPipeServer() {
                 while (!text.empty() && (text.back() == '\r' || text.back() == '\n'))
                     text.pop_back();
                 if (!text.empty()) {
-                    if (text.rfind("CMD ", 0) == 0) {
-                        ProcessDirectCommand(text.substr(4));
+                    if (text == "CMD __EXIT__") {
+                        Log("Direct pipe exit wake received");
+                    } else if (text.rfind("CMD ", 0) == 0) {
+                        std::string* pCmd = new std::string(text.substr(4));
+                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pCmd, CORE_PIPE_DIRECT_COMMAND);
                     } else {
                         std::string* pText = new std::string(std::move(text));
-                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, 1); // lParam=1: direct-input
+                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, CORE_PIPE_DIRECT_INPUT);
                     }
                 }
             }
         }
 
         DisconnectNamedPipe(hPipe);
-        CloseHandle(hPipe);
-        if (g_directPipe == hPipe)
+        if (g_directPipe == hPipe) {
+            CloseHandle(hPipe);
             g_directPipe = INVALID_HANDLE_VALUE;
+        }
     }
+
+    CloseHandle(hEvent);
 }
 
 inline void ProcessMessage(const std::wstring& msg) {
