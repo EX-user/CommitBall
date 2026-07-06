@@ -1,0 +1,132 @@
+[
+  {
+    "title": "PROC_LIFECYCLE",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "Core 在启动时通过 CreateProcess 拉起 Bar 和 BallShell, 命令行传递 --parent-pid <Core PID>. Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). Core 退出时先通过 pipe 发送 QUIT 指令, 等待 600ms 后对未退出的子进程执行 TerminateProcess."
+  },
+  {
+    "title": "PROC_JOB_OBJECT",
+    "accordance": ["PROC_LIFECYCLE"],
+    "content": "Core 创建一个 Win32 Job Object 并设置 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 标志, 每个子进程启动后立即分配到该 Job. 当 Core 进程终止时 (无论正常或异常), 内核自动关闭 Job 句柄, 所有子进程由内核终止."
+  },
+  {
+    "title": "PROC_PARENT_PID",
+    "accordance": ["PROC_LIFECYCLE"],
+    "content": "Bar 和 Agent 启动时解析 --parent-pid 参数, 在后台线程中调用 parent.WaitForExit() 阻塞等待 Core 退出. Core 退出后立即触发 Application.Shutdown(). 这是防孤儿进程的用户态补充 (BallShell 使用异步等价 WaitForExitAsync)."
+  },
+  {
+    "title": "PROC_FAST_EXIT",
+    "accordance": ["PROC_LIFECYCLE"],
+    "content": "FastCommitBallExit() 是 Core 的安全退出流程: 1) 设置 STOPPED 状态并 flush 数据库 (WAL checkpoint + close); 2) 启动一个 detached cmd 进程执行 ping 延迟 + taskkill /F 兜底; 3) 关闭 pipe 句柄; 4) TerminateJobObject 杀死所有子进程; 5) TerminateProcess 逐一杀死子进程; 6) 自杀. 每步写入 data/log/exit.log."
+  },
+  {
+    "title": "PROC_STARTUP_ORDER",
+    "accordance": ["PROC_LIFECYCLE"],
+    "content": "Core 启动时的子进程拉起顺序: 先 Bar (输入条), 然后 BallShell (悬浮球). Agent 不在启动时拉起, 而是按需懒启动 (首次需要时由 EnsureAgentRunning() 拉起). 三个子进程之间无启动依赖, 任一启动失败不影响其他进程的拉起."
+  },
+  {
+    "title": "PROC_NO_KILL",
+    "accordance": ["PROC_LIFECYCLE"],
+    "content": "在 Core 正常运行期间, Core 不会主动关闭任何子进程. 子进程一旦启动便持续运行直到 Core 退出 (发送 QUIT) 或子进程自身崩溃. 不存在使用中主动回收子进程的机制."
+  },
+  {
+    "title": "PROC_RESTART_TRIGGERS",
+    "accordance": ["PROC_HEALTH"],
+    "content": "Bar 的懒重启触发场景: 用户键入唤醒序列时, Core 调用 EnsureBarRunning() 检查并按需重启, 然后发送 SHOW 指令. Agent 的懒重启触发场景: 右键菜单'打开 Agent'或'分析当前状态', 以及自动分析条件满足时, Core 调用 EnsureAgentRunning() 检查并按需重启."
+  },
+  {
+    "title": "PROC_HEALTH",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "Core 对子进程的健康监控策略因进程而异: BallShell 每 2 秒检查一次, 如果发现已退出则自动重启; Bar 和 Agent 没有周期性健康检查, 仅在 Core 需要向它们发送指令时才检查并按需重启. 所有子进程崩溃后 (退出码不为 STILL_ACTIVE), 旧 handle 被关闭, 下次 EnsureXxxRunning() 时重新拉起."
+  },
+  {
+    "title": "REC_TOGGLE",
+    "accordance": ["SYS_ROOT"],
+    "content": "记录的启动和停止由快速按 4 次 CapsLock 键控制 (每次间隔不超过 500ms). 此操作不影响当前应用焦点. 停止状态下不通过键盘钩子记录键鼠活动; 但 Bar 的直接输入 (direct-input) 不受此限制, 始终写入数据库."
+  },
+  {
+    "title": "REC_TYPES_KB",
+    "accordance": ["SYS_ROOT"],
+    "content": "记录状态下采集键盘相关事件: 特殊按键 (keystroke, 通过 LL hook 捕获 Backspace, Enter, 方向键等), 中文输入 (通过 CB-Weasel 的 commit 回调), 英文字符 (通过 CB-Weasel 的 ProcessKeyEvent 转发)."
+  },
+  {
+    "title": "REC_TYPES_MOUSE",
+    "accordance": ["SYS_ROOT"],
+    "content": "记录状态下采集鼠标事件: 鼠标左键点击 (click), 通过 UI Automation 识别被点击控件的名称和类型, 记录格式为 'Type|Name' (如 'Button|保存')."
+  },
+  {
+    "title": "REC_TYPES_FOCUS",
+    "accordance": ["SYS_ROOT"],
+    "content": "记录状态下采集窗口焦点事件: 窗口焦点变化 (focus, 记录窗口标题和进程名, 内容格式为 'Title|Process'). 同一窗口停留约 60 秒后插入一次停留标记 (focus-stay)."
+  },
+  {
+    "title": "REC_TYPES_AUX",
+    "accordance": ["SYS_ROOT"],
+    "content": "记录状态下采集辅助事件: 粘贴内容 (paste, 按长度分级为 paste/paste-big/paste-mega), 每 10 分钟插入时间标记 (timer)."
+  },
+  {
+    "title": "REC_AWAY_BACK",
+    "accordance": ["SYS_ROOT"],
+    "content": "离开/返回检测: LL 键盘和鼠标钩子在每次输入时更新 g_lastUserInputTime. Core 的 400ms 定时器轮询, 若距上次输入超过 10 分钟则写入 away 事件. 用户回来后的首次输入触发 back 事件."
+  },
+  {
+    "title": "REC_AWAY_BACK_DETAIL",
+    "accordance": ["REC_AWAY_BACK"],
+    "content": "away 期间不生成键盘/鼠标事件, 但 focus-stay 事件仍然继续生成 (焦点定时器独立运行). away 标志通过 g_awayLogged 全局变量去重, 确保只写入一次 away 事件."
+  },
+  {
+    "title": "REC_DB_CAPACITY",
+    "accordance": ["SYS_ROOT"],
+    "content": "数据库采用小容量 (512KB) 设计, 目的是避免单库积累过多数据导致性能问题."
+  },
+  {
+    "title": "REC_STORAGE",
+    "accordance": ["REC_DB_CAPACITY"],
+    "content": "记录数据存储在 data/db/current.db (SQLite). 每 30 秒自动刷新 data/live/live.txt 为当前数据库的文本输出. 数据库容量上限为 512KB."
+  },
+  {
+    "title": "REC_ROTATION",
+    "accordance": ["REC_DB_CAPACITY"],
+    "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档补全 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动补全时重试. 储存布局的细节将由独立条款体系详述."
+  },
+  {
+    "title": "REC_META_JSON",
+    "accordance": ["REC_ROTATION"],
+    "content": "每次会话归档时生成 meta.json 元数据文件, 字段包括: session_id, 起止时间, 标题 (从首个 direct-input 或最高频窗口标题派生), work_tags (Top 进程名), rule_summary (Top 窗口+commit 摘要), 事件数, direct-input 数, focus_top (Top 5 窗口), clusters (按进程聚类的子文件列表). source 字段初始为 'rule' 表示机器生成; Agent 可通过 update_meta 工具覆盖标题/标签/摘要并改为 'agent'."
+  },
+  {
+    "title": "REC_RECORD_ID",
+    "accordance": ["REC_DB_CAPACITY"],
+    "content": "数据库中的 record_id 字段用于区分不同的录制会话. 四击 CapsLock 关闭当前会话仅切换为 STOPPED 状态, 不递增 record_id, 不创建新的数据库文件; 下次四击 CapsLock 重新开始记录时才递增 record_id. 每 1 小时强制递增一次 record_id (会话超时). 这些操作在同一 current.db 内完成, 与容量触发的数据库轮转是两个独立的概念."
+  },
+  {
+    "title": "REC_EXPORT_PROFILES",
+    "accordance": ["REC_ROTATION"],
+    "content": "每次归档导出三档文本: .raw.txt (全量, 含所有 click/keystroke/focus-repeat, 键码用短标记如 [<bs, 连续相同 focus 带 [focus-repeat] +N 计数标注), 供完整溯源; .summary.txt (去噪, 跳过 click 和 raw keystroke, 连续相同 focus 直接丢弃, direct-input 截断 200 字符, paste 截断 160 字符), 供人类阅读; .txt (Agent 档, 与 summary 相同的噪声过滤但保留 direct-input 和 paste 全文), 供 LLM 分析. live.txt 也使用 Agent 档."
+  },
+  {
+    "title": "REC_SHELL_FILTER",
+    "accordance": ["REC_EXPORT_PROFILES"],
+    "content": "Summary 和 Agent 档导出过滤 Windows 壳进程的焦点事件: TextInputHost.exe (IME 候选窗), ShellExperienceHost.exe (操作中心), StartMenuExperienceHost.exe (开始菜单). 这些进程在普通打字和菜单操作中短暂抢焦点, 不代表用户工作目标. Raw 档保留所有焦点事件不过滤."
+  },
+  {
+    "title": "REC_SUMMARY_LOCK",
+    "accordance": ["REC_ROTATION"],
+    "content": "/summary_to_panel 执行期间通过文件锁 data/agent-summary-status 防止并发分析. Agent 侧通过 AgentOutWriteLease 排他锁阻止其他会话写入 agent-out. Core 侧 CheckSessionSplit 和 CheckAutoAnalyse 读取该文件, 如果状态为 busy 则跳过自动触发."
+  },
+  {
+    "title": "REC_CLUSTER_WRITING",
+    "accordance": ["REC_ROTATION"],
+    "content": "归档时按前台焦点进程聚类, 将所有事件流式分配到对应进程的 cluster 文件 (cluster_NN_<进程名>.txt). 每个进程首次出现时创建新 cluster, 后续事件追加到同一 cluster. cluster 目录先清空再重新生成. 每个 cluster 记录事件数, direct-input 数, 窗口样本 (Top 5) 和 commit 样本 (Top 5), 以及 ≤500 字符的 rule_summary. 最终 cluster 按事件数降序排列."
+  },
+  {
+    "title": "BAR_TRIGGER_DETECT",
+    "accordance": ["REC_TOGGLE"],
+    "content": "Core 的 LL 键盘钩子中维护一个滑动窗口缓冲区 (g_barSeq[15]) 检测唤醒序列. 每次按键映射为字符追加到缓冲区; 非映射键清空缓冲区; 相邻按键间隔超过 2 秒也清空. 缓冲区尾部匹配当前唤醒序列时触发 SendShowToBar(). 映射表覆盖 a-z, 0-9 和 OEM 键 (反斜杠, 分号, 斜杠等)."
+  },
+  {
+    "title": "TIMER_CONTROL_TASKS",
+    "accordance": ["PROC_HEALTH"],
+    "content": "400ms 定时器驱动的控制流任务: CheckAutoAnalyse (60s, 检查 panel.html 是否过期 4h, 触发 Agent 分析), CheckBallShellHealth (2s, 检查 BallShell 存活, 按需重启). 这些任务不直接产生数据, 而是触发进程间协作或进程管理."
+  }
+]

@@ -1,0 +1,57 @@
+[
+  {
+    "title": "BAR_ROOT",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "CommitBall-Bar.exe 是一个轻量 WPF 输入条, 兼具两个角色: 1) 低噪声记录渠道 - 普通/代办/配置模式的输入始终写入数据库 (direct-input), 不受录制状态影响; 2) Agent 交互界面 - 指令模式的输入路由到 Agent, 面板 (Panel) 展示 Agent 生成的 HTML 内容."
+  },
+  {
+    "title": "BAR_WAKE",
+    "accordance": ["BAR_ROOT"],
+    "content": "在任意位置键入唤醒序列 (默认 \\ccb, 2 秒内完成) 可唤出输入条."
+  },
+  {
+    "title": "BAR_TRIGGER_CONFIG",
+    "accordance": ["BAR_WAKE"],
+    "content": "唤醒序列是可配置的, 存储在 SQLite 的 config 表中 (key: bar_trigger). 允许的字符: a-z, A-Z, 0-9, 以及 \\ ; / [ ] - = , . , 最大长度 10. Agent 可通过 set_bar_trigger 工具修改."
+  },
+  {
+    "title": "BAR_FOCUS",
+    "accordance": ["BAR_WAKE"],
+    "content": "唤醒时的焦点机制: ShowBar() 调用 WPF Activate() 和 InputBox.Focus(), 然后通过 AttachThreadInput 技巧将当前前台窗口的线程输入队列附加到 Bar 线程, 调用 SetForegroundWindow 抢夺焦点, 最后分离. 这是为了绕过 Windows 对 SetForegroundWindow 的限制."
+  },
+  {
+    "title": "BAR_GEOMETRY",
+    "accordance": ["BAR_WAKE"],
+    "content": "输入条默认从屏幕下方约 3/4 处居中弹出, 宽度为屏幕工作区的 30% (最小 480px, 最大 680px)."
+  },
+  {
+    "title": "BAR_PREFIX",
+    "accordance": ["BAR_ROOT"],
+    "content": "输入条支持前缀切换系统: 按 Tab 键在普通 (无前缀), 代办, 配置, 指令四种模式间循环切换. 选定前缀后, Enter 提交的文本会被加上对应的前缀. 前缀状态在 Enter 提交后保持不变, 仅在 Esc 或重新唤出时重置."
+  },
+  {
+    "title": "BAR_PREFIX_IMPL",
+    "accordance": ["BAR_PREFIX"],
+    "content": "前缀切换的 UI 实现: 输入框左侧有一个圆角标签 (PrefixTag) 显示当前前缀名称, 仅显示不可点击. 切换前缀时根据标签文字宽度动态调整输入框的左 padding. 无前缀状态下标签隐藏且无额外 padding."
+  },
+  {
+    "title": "BAR_DIRECT_INPUT",
+    "accordance": ["BAR_ROOT"],
+    "content": "普通, 代办和配置模式的输入有两个去向: 保存到 data/notes/ 日志文件, 同时以 direct-input 类型写入当前数据库; 这两个去向不受记录状态影响. 指令模式的输入不会写入数据库和 notes, 而是作为自然语言命令交给 Agent 处理."
+  },
+  {
+    "title": "BAR_PANEL",
+    "accordance": ["BAR_ROOT"],
+    "content": "输入条可显示面板 (Panel), 默认位置在输入条上方, 用户可拖动改变位置. 面板使用 WebView2 渲染 data/agent-out/panel.html, 由 Bar 进程负责每 30 秒检测文件变化并刷新. 面板不会抢走输入焦点, 自动根据 HTML 内容调整高度. 面板开关由面板按钮控制."
+  },
+  {
+    "title": "BAR_PANEL_REFRESH",
+    "accordance": ["BAR_PANEL"],
+    "content": "面板刷新有两条路径: 1) 被动刷新 - Bar 的 30 秒 DispatcherTimer 检测 panel.html 的 LastWriteTime 变化; 2) 主动刷新 - Core 通过 REFRESH_PANEL pipe 指令通知 Bar 立即重新 Navigate WebView2 到 panel.html (由 Agent 的 display_panel 工具触发)."
+  },
+  {
+    "title": "BAR_PIPE_CMDS",
+    "accordance": ["BAR_ROOT"],
+    "content": "Core 通过 Named Pipe (CommitBall-bar) 向 Bar 发送单行指令: SHOW (显示输入条), SHOW_LOCKED (显示并锁定, 用于右键菜单'打开并锁定 Bar'), SHOW_PANEL (显示并锁定输入条同时打开面板, 用于 Agent display_panel 工具), REFRESH_PANEL (刷新面板), NOTICE <text> (在输入条显示 Agent 提示消息), STATUS (心跳 ping, 连接成功即证明 Bar 存活, 无实际操作), QUIT (退出)."
+  }
+]

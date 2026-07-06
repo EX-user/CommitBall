@@ -1,0 +1,47 @@
+[
+  {
+    "title": "CF_ROOT",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "进程间控制流呈星型拓扑, Core 是唯一的中央节点. 所有控制信号通过 Named Pipe 传输 — 管道是唯一的跨进程控制通信手段, 系统不使用共享内存, COM, Socket 或跨进程窗口消息. 三个子进程之间没有直接的控制通道, 所有跨进程控制请求必须经 Core 中转. 例外是 Agent 通过 CommitBall-bar pipe 直接向 Bar 发送 SHOW_PANEL 和 NOTICE 指令."
+  },
+  {
+    "title": "CF_SIGNALS_CORE_OUT",
+    "accordance": ["CF_ROOT"],
+    "content": "Core 向外发送的控制信号: CommitBall-bar (SHOW/SHOW_LOCKED/QUIT); CommitBall-Agent (SHOW/QUIT/INVOKE_NEW/INVOKE_BAR); CommitBall-BallShell (STATE/STATUS/BUBBLE/SHUTDOWN)."
+  },
+  {
+    "title": "CF_SIGNALS_CORE_IN",
+    "accordance": ["CF_ROOT"],
+    "content": "Core 接收的控制信号 (经 CommitBall-direct pipe, CMD 前缀): Bar 发送 AGENT_INPUT; Agent 发送 SET_TRIGGER/SET_EYE_MODE/BUBBLE; BallShell 发送 UI_COMMAND/UI_WINDOW_STATE. 另外 Agent 直接送 SHOW_PANEL 和 NOTICE 到 Bar 的 CommitBall-bar pipe, 不经过 Core."
+  },
+  {
+    "title": "CF_STATE_PROPAGATION",
+    "accordance": ["CF_ROOT"],
+    "content": "录制状态变化的传播链: 用户四击 CapsLock → Core 的 LL 钩子切换 STOPPED/RECORDING → OnStateChanged → PushBallShellState 向 BallShell 发送 STATE 消息 (模式+眼睛模式) → BallShell 更新球的外观 (静态帧/动画). 整条链路同步完成, BallShell 在下一个 60FPS 帧渲染新状态."
+  },
+  {
+    "title": "CF_BAR_WAKE_CHAIN",
+    "accordance": ["CF_ROOT"],
+    "content": "Bar 唤醒的端到端控制链: 用户在任意应用中键入唤醒序列 → Core 的 LL 键盘钩子通过滑动窗口匹配 → SendShowToBar → EnsureBarRunning 检查 Bar 进程存活 (按需重启) → 通过 CommitBall-bar pipe 发送 SHOW → Bar 的 PipeServer 收到 → ShowBar 显示窗口 + Activate + AttachThreadInput 抢焦点 → ShowPanel 显示面板 (如果已开启). 整条链路从按键到 Bar 可见, 跨 Core 和 Bar 两个进程."
+  },
+  {
+    "title": "CF_MENU_DISPATCH",
+    "accordance": ["CF_ROOT"],
+    "content": "BallShell 右键菜单命令的分派链: 用户右键球选择菜单项 (如'打开 Agent', '分析当前状态', '打开数据目录') → BallShell 通过 CommitBall-direct pipe 发送 CMD UI_COMMAND <name> → Core 的 ProcessDirectCommand 接收 → HandleBallUiCommand 执行对应动作 (启动 Agent, 触发分析, ShellExecute 打开目录等). 皮肤切换是例外: BallShell 在本地直接执行, 不经过 Core."
+  },
+  {
+    "title": "CF_AGENT_RELAY",
+    "accordance": ["CF_ROOT"],
+    "content": "Agent 控制类工具的转发模式: Agent 通过 Tools.SendCommitBallCommand 向 CommitBall-direct pipe 发送 CMD 命令 → Core 的 ProcessDirectCommand 接收并执行 → 对于需要影响其他进程的命令, Core 再通过对应管道转发 (如 SET_EYE_MODE 更新 config 后推送 STATE 到 BallShell; BUBBLE 转发为 BallShell BUBBLE 消息). Agent 不直接与 BallShell 通信; 对 Bar 的直接通信仅限 display_panel 的 SHOW_PANEL 和 NOTICE."
+  },
+  {
+    "title": "CF_ANALYSIS_CHAIN",
+    "accordance": ["CF_ROOT"],
+    "content": "自动分析是一条跨进程触发链: Core 检测到触发条件 (DB 90% 容量, 或 panel.html 超 4 小时未更新) → EnsureAgentRunning() 确保 Agent 存活 → 发送 INVOKE_NEW [时间消息, /summary_to_panel] → Agent 读取 live.txt 和 exports, 调用 LLM 生成报告 → Agent 通过 display_panel 工具写入 panel.html 并发送 SHOW_PANEL 到 Bar → Bar 面板刷新. 整条链路中 Core 仅负责触发, 实际分析和面板生成由 Agent 独立完成."
+  },
+  {
+    "title": "CF_STATUS_SYNC",
+    "accordance": ["CF_ROOT"],
+    "content": "跨进程状态同步使用两种机制: 1) pipe 推送 (Core → BallShell 的 STATE/STATUS) 用于实时状态; 2) 文件标志 (data/bar-status, data/agent-status, data/agent-summary-status) 用于 Core 轮询读取子进程状态. 文件标志机制不需要 pipe 连接, 即使子进程的 pipe server 未就绪 Core 也能读取状态."
+  }
+]
