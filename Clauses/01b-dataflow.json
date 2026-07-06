@@ -47,7 +47,7 @@
   {
     "title": "PIPE_DIRECT_CMDS",
     "accordance": ["SYS_IPC_PIPE"],
-    "content": "CommitBall-direct 的接收线程只读取消息并投递到 Core 主线程. CMD 消息在主线程调用 ProcessDirectCommand() 处理. Bar、BallShell 和 Agent tools 的控制请求都必须经 Core 中转."
+    "content": "CommitBall-direct 的接收线程只读取消息并投递到 Core 主线程. 非 CMD 文本作为 direct-input 处理; CMD 消息在主线程调用 ProcessDirectCommand() 分派. 该 pipe 是 Bar, BallShell 和 Agent tools 发起跨进程控制请求的统一入站口."
   },
   {
     "title": "PIPE_RETRY",

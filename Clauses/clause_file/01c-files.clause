@@ -18,10 +18,10 @@
     "content": "安装包附带只读静态资源, 不在运行时修改: summary_to_panel-prompt.md (Agent 汇总分析 prompt), panel-template.html (面板 HTML 模板), summary_task_exp_decay_memory_template.md (长期记忆模板). 这些文件随安装包分发, Agent 在运行时读取但不修改."
   },
   {
-    "cuid": "1938e6fe",
+    "cuid": "ed0b4686",
     "accordance": ["FILE_ROOT"],
     "accordance-cuid": ["7f99ee2f"],
-    "content": "所有用户数据存储在 data/ 目录下, 按用途分层: data/db/current.db (活跃数据库); data/sessions/YYYY-MM/<ts>.db (归档数据库); data/exports/YYYY-MM/ (三档文本 .txt/.raw.txt/.summary.txt + .meta.json + _clusters/ 子目录); data/live/live.txt (实时文本快照); data/notes/YYYY-MM-DD.txt (每日笔记); data/agent-out/ (Agent 输出: panel.html, index.json, memory/, reports/YYYY-MM/, extracts/YYYY-MM/ 等 7 个类别子目录); data/agent-memory/<id>.json (会话内存); data/log/*.log (Core/Bar/Agent 三个进程的日志, BallShell 无日志文件); data/agent-config.json, data/*-status, data/ball-shell-state.json (配置和状态文件). 安装目录根下还有 commitball.pos (BallShell 旧式位置文件, 不在 data/ 内)."
+    "content": "所有用户数据存储在 data/ 目录下, 按用途分层: data/db/current.db (活跃数据库); data/sessions/YYYY-MM/<ts>.db (归档数据库); data/exports/YYYY-MM/ (三档文本 .txt/.raw.txt/.summary.txt + .meta.json + _clusters/ 子目录); data/live/live.txt (实时文本快照); data/notes/YYYY-MM-DD.txt (每日笔记); data/agent-out/ (Agent 输出: panel.html, index.json, memory/, reports/YYYY-MM/, extracts/YYYY-MM/, scratch/YYYY-MM/ 四类写入目录); data/agent-memory/<id>.json (会话内存); data/log/*.log (Core/Bar/Agent 三个进程的日志, BallShell 无日志文件); data/agent-config.json, data/*-status, data/ball-shell-state.json (配置和状态文件). 安装目录根下还有 commitball.pos (BallShell 旧式位置文件, 不在 data/ 内)."
   },
   {
     "cuid": "f7c2da09",
@@ -50,7 +50,7 @@
   {
     "cuid": "f97fe4e1",
     "accordance": ["CONFIG_TABLE"],
-    "accordance-cuid": ["cbbc6998"],
+    "accordance-cuid": ["9763b2fe"],
     "content": "BallShell 的窗口几何状态 (x, y, edge, visible) 存储在 data/ball-shell-state.json. 存在双重写入: BallShell 在拖动结束和窗口关闭时直接写入; Core 收到 BallShell 的 UI_WINDOW_STATE pipe 消息后也写入同一文件. 此外 BallShell 还在程序根目录写入 commitball.pos (旧式位置格式 'x y edgeInt') 作为兼容."
   },
   {

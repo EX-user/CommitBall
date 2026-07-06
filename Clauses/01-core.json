@@ -77,7 +77,7 @@
   {
     "title": "REC_DB_CAPACITY",
     "accordance": ["SYS_ROOT"],
-    "content": "数据库采用小容量 (512KB) 设计, 目的是避免单库积累过多数据导致性能问题."
+    "content": "数据库容量上限为 512KB."
   },
   {
     "title": "REC_STORAGE",

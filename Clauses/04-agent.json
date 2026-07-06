@@ -42,12 +42,12 @@
   {
     "title": "AGENT_OUT_CATEGORIES",
     "accordance": ["AGENT_TOOLS_FILE"],
-    "content": "Agent 的 write 和 edit 工具将输出文件按类别归档到 7 个允许的子目录: reports, extracts, reminders, responses, analysis, scratch, memory. 非 memory 类别自动添加 YYYY-MM/ 月份子目录. 文件名和路径经过安全检查, 确保不逃逸 agent-out/. 已存在的 memory/summary_task_exp_decay_memory.md 和 memory/direct_settings.md 受保护: write 只能首次创建, 后续只能用 edit 增量修改."
+    "content": "Agent 的 write 和 edit 工具只允许四类输出目录: reports, extracts, scratch, memory. 指定其他 category 或以其他顶层目录作为 filename 路径前缀均非法. 非 memory 类别自动添加 YYYY-MM/ 月份子目录. 文件名和路径经过安全检查, 确保不逃逸 agent-out/. 已存在的 memory/summary_task_exp_decay_memory.md 和 memory/direct_settings.md 受保护: write 只能首次创建, 后续只能用 edit 增量修改."
   },
   {
     "title": "AGENT_TOOLS_CONTROL",
     "accordance": ["AGENT_ROOT"],
-    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (补全归档缺失的 txt/meta/cluster 文件), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取时间). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
+    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (补全归档缺失的 txt/meta/cluster 文件), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取当前本地时间、星期几、UTC 时间、时区和 UTC 偏移). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
   },
   {
     "title": "AGENT_TOOLS_SUBTASK",

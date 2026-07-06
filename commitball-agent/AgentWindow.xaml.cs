@@ -793,9 +793,9 @@ namespace CommitBallAgent
             if (lower == "summary_task_exp_decay_memory.md") return "memory";
             if (lower.EndsWith("-report.md")) return "reports";
             if (lower.EndsWith("-extract.md")) return "extracts";
-            if (lower.Contains("reminder") && lower.EndsWith(".md")) return "reminders";
-            if (lower.Contains("response") && lower.EndsWith(".md")) return "responses";
-            if (lower.Contains("summary") || lower.Contains("analysis")) return "analysis";
+            if (lower.Contains("reminder") && lower.EndsWith(".md")) return "scratch";
+            if (lower.Contains("response") && lower.EndsWith(".md")) return "scratch";
+            if (lower.Contains("summary") || lower.Contains("analysis")) return "scratch";
             if (lower.EndsWith(".md") || lower.EndsWith(".txt") || lower.EndsWith(".json") || lower.EndsWith(".py")) return "scratch";
             return "";
         }
@@ -863,9 +863,6 @@ namespace CommitBallAgent
         {
             return category.Equals("reports", StringComparison.OrdinalIgnoreCase) ||
                    category.Equals("extracts", StringComparison.OrdinalIgnoreCase) ||
-                   category.Equals("reminders", StringComparison.OrdinalIgnoreCase) ||
-                   category.Equals("responses", StringComparison.OrdinalIgnoreCase) ||
-                   category.Equals("analysis", StringComparison.OrdinalIgnoreCase) ||
                    category.Equals("scratch", StringComparison.OrdinalIgnoreCase) ||
                    category.Equals("memory", StringComparison.OrdinalIgnoreCase);
         }
@@ -1513,10 +1510,10 @@ namespace CommitBallAgent
         {
             try
             {
-                using var pipe = new NamedPipeClientStream(".", "CommitBall-bar", PipeDirection.Out);
+                using var pipe = new NamedPipeClientStream(".", "CommitBall-direct", PipeDirection.Out);
                 pipe.Connect(250);
                 var safe = text.Replace("\r", " ").Replace("\n", " ").Trim();
-                var bytes = System.Text.Encoding.UTF8.GetBytes("NOTICE " + safe + "\r\n");
+                var bytes = System.Text.Encoding.UTF8.GetBytes("CMD BAR_NOTICE " + safe);
                 pipe.Write(bytes, 0, bytes.Length);
             }
             catch

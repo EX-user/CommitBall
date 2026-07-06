@@ -47,11 +47,11 @@
   {
     "title": "BAR_PANEL_REFRESH",
     "accordance": ["BAR_PANEL"],
-    "content": "面板更新使用单一外部入口: Agent 的 display_panel 工具写入 data/agent-out/panel.html 后向 Bar 发送 SHOW_PANEL; Bar 显示并锁定输入条, 打开面板, 并加载最新 panel.html. 面板已打开时, Bar 内部的 30 秒 DispatcherTimer 仅用于检测 panel.html 的 LastWriteTime 变化并重新加载当前文件."
+    "content": "面板更新使用单一外部入口: Agent 的 display_panel 工具写入 data/agent-out/panel.html 后经 Core 转发 SHOW_PANEL 给 Bar; Bar 显示并锁定输入条, 打开面板, 并加载最新 panel.html. 面板已打开时, Bar 内部的 30 秒 DispatcherTimer 仅用于检测 panel.html 的 LastWriteTime 变化并重新加载当前文件."
   },
   {
     "title": "BAR_PIPE_CMDS",
     "accordance": ["BAR_ROOT"],
-    "content": "Core 或 Agent 通过 Named Pipe (CommitBall-bar) 向 Bar 发送单行指令: SHOW (显示输入条), SHOW_LOCKED (显示并锁定, 用于右键菜单'打开并锁定 Bar'), SHOW_PANEL (显示并锁定输入条同时打开面板并加载最新 panel.html, 用于 Agent display_panel 工具), NOTICE <text> (在输入条显示 Agent 提示消息), QUIT (退出). Bar 不提供空操作心跳指令; Core 通过进程句柄和 data/bar-status 判断 Bar 状态."
+    "content": "Core 通过 Named Pipe (CommitBall-bar) 向 Bar 发送单行指令: SHOW (显示输入条), SHOW_LOCKED (显示并锁定, 用于右键菜单'打开并锁定 Bar'), SHOW_PANEL (显示并锁定输入条同时打开面板并加载最新 panel.html, 用于 Agent display_panel 工具经 Core 转发), NOTICE <text> (在输入条显示 Agent 提示消息, 经 Core 转发), QUIT (退出). Bar 不提供空操作心跳指令; Core 通过进程句柄和 data/bar-status 判断 Bar 状态."
   }
 ]

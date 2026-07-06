@@ -90,21 +90,21 @@
     "content": "away 期间 Core 不再写入 focus、focus-stay、timer、键盘或鼠标事件. 用户回来后的首次键鼠输入由 MarkUserInputActivity() 写入 back, 并清除 g_awayLogged. g_awayLogged 同时用于确保一次离开只写入一次 away."
   },
   {
-    "cuid": "051bcfbd",
+    "cuid": "e14d16a8",
     "accordance": ["SYS_ROOT"],
     "accordance-cuid": ["27f25001"],
-    "content": "数据库采用小容量 (512KB) 设计, 目的是避免单库积累过多数据导致性能问题."
+    "content": "数据库容量上限为 512KB."
   },
   {
     "cuid": "a41a454a",
     "accordance": ["REC_DB_CAPACITY"],
-    "accordance-cuid": ["051bcfbd"],
+    "accordance-cuid": ["e14d16a8"],
     "content": "记录数据存储在 data/db/current.db (SQLite). 每 30 秒自动刷新 data/live/live.txt 为当前数据库的文本输出. 数据库容量上限为 512KB."
   },
   {
     "cuid": "a2cd2a02",
     "accordance": ["REC_DB_CAPACITY"],
-    "accordance-cuid": ["051bcfbd"],
+    "accordance-cuid": ["e14d16a8"],
     "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档补全 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动补全时重试. 储存布局的细节将由独立条款体系详述."
   },
   {
@@ -116,7 +116,7 @@
   {
     "cuid": "f382f3bd",
     "accordance": ["REC_DB_CAPACITY"],
-    "accordance-cuid": ["051bcfbd"],
+    "accordance-cuid": ["e14d16a8"],
     "content": "数据库中的 record_id 字段用于区分不同的录制会话. 四击 CapsLock 关闭当前会话仅切换为 STOPPED 状态, 不递增 record_id, 不创建新的数据库文件; 下次四击 CapsLock 重新开始记录时才递增 record_id. 每 1 小时强制递增一次 record_id (会话超时). 这些操作在同一 current.db 内完成, 与容量触发的数据库轮转是两个独立的概念."
   },
   {

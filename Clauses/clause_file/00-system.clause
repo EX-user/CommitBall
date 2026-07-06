@@ -12,10 +12,10 @@
     "content": "系统由四个独立进程组成: CommitBall.exe (Core 主进程), CommitBall-BallShell.exe (悬浮球 UI), CommitBall-Bar.exe (输入条) 和 CommitBall-Agent.exe (AI 终端). Core 是其他三个进程的父进程, 负责启动, 监控和终止它们."
   },
   {
-    "cuid": "22585a13",
+    "cuid": "f59fb0cc",
     "accordance": ["SYS_MULTIPROC"],
     "accordance-cuid": ["3c7f41b1"],
-    "content": "四个进程之间通过 Named Pipe 进行通信. CB-Weasel (Weasel 的 fork, 即小狼毫输入法引擎的改名版本) 中的 WeaselServer 通过 pipe 向 Core 发送中文 commit 和英文字符; Core 通过 pipe 向 Bar, Agent, BallShell 发送控制指令. 子进程之间的通信通过 Core 转发, 例如 Bar 的指令模式输入由 Core 路由到 Agent. Core 为每种通信场景建立独立的 Named Pipe, 具体的 pipe 名称, 指令类型和数据格式将由独立条款体系详述."
+    "content": "四个进程之间通过 Named Pipe 进行通信. WeaselServer 通过 pipe 向 Core 单向发送中文 commit 和英文字符; Bar, Agent 和 BallShell 的跨进程控制请求经 Core 中转. Core 为不同通信场景建立独立 Named Pipe; 具体 pipe 名称, 指令类型和转发边界由控制流条款体系详述."
   },
   {
     "cuid": "e4487166",

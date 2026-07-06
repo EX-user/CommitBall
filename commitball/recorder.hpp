@@ -956,6 +956,18 @@ inline void ProcessDirectCommand(const std::string& cmd) {
         SaveBallShellWindowState(payload.c_str());
         return;
     }
+    if (cmd == "BAR_SHOW_PANEL") {
+        extern void SendBarCommand(const char* command);
+        SendBarCommand("SHOW_PANEL");
+        return;
+    }
+    const std::string barNoticePrefix = "BAR_NOTICE ";
+    if (cmd.rfind(barNoticePrefix, 0) == 0) {
+        extern void SendBarCommand(const char* command);
+        std::string msg = "NOTICE " + cmd.substr(barNoticePrefix.size());
+        SendBarCommand(msg.c_str());
+        return;
+    }
     if (cmd == "RELOAD_TRIGGER") {
         ReloadBarTriggerConfig();
         return;

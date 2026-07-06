@@ -44,7 +44,7 @@
 
 `write` 和 `edit` 工具都只作用于 `data/agent-out/`，并使用同一套 `filename` + 可选 `category` 路径参数。除非用户明确要求兼容旧文件，不要把新文件直接写在 `agent-out` 根目录。
 调用 `write` 或 `edit` 时优先使用 `category` 参数，例如 `category="reports"`、`category="extracts"` 或 `category="scratch"`；如果只给简单文件名，工具会自动放到对应月份目录。
-`write` 用于创建或整体覆盖普通输出文件；`edit` 用于对已有 report、extract、memory、response、analysis、scratch 等文本输出做精确片段替换。已有文件只需局部更新时优先用 `edit`，不要用 `write` 整体重写。长期记忆和直达配置文件是特殊文件：首次创建才允许 `write`，已存在时只能 `edit` 增量修改。不要用 `write` 或 `edit` 修改 `panel.html`，面板必须用 `display_panel`。
+`write` 用于创建或整体覆盖普通输出文件；`edit` 用于对已有 report、extract、memory、scratch 等文本输出做精确片段替换。已有文件只需局部更新时优先用 `edit`，不要用 `write` 整体重写。长期记忆和直达配置文件是特殊文件：首次创建才允许 `write`，已存在时只能 `edit` 增量修改。不要用 `write` 或 `edit` 修改 `panel.html`，面板必须用 `display_panel`。
 
 - 分析报告写入 `reports/YYYY-MM/YYMMDD_HHMM-report.md`
 - 希望持久化的提取内容写入 `extracts/YYYY-MM/YYMMDD_HHMM-extract.md`

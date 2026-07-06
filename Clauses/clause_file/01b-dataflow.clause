@@ -50,19 +50,19 @@
   {
     "cuid": "cfcdc60b",
     "accordance": ["SYS_IPC_PIPE"],
-    "accordance-cuid": ["22585a13"],
+    "accordance-cuid": ["f59fb0cc"],
     "content": "CommitBall-direct 是一次性连接 pipe. 发送方写完即关闭; Core 端用 overlapped I/O 读取完整内容. 非 CMD 文本作为 direct-input 写入数据库; CMD 文本不写数据库."
   },
   {
-    "cuid": "80692b96",
+    "cuid": "65ac8524",
     "accordance": ["SYS_IPC_PIPE"],
-    "accordance-cuid": ["22585a13"],
-    "content": "CommitBall-direct 的接收线程只读取消息并投递到 Core 主线程. CMD 消息在主线程调用 ProcessDirectCommand() 处理. Bar、BallShell 和 Agent tools 的控制请求都必须经 Core 中转."
+    "accordance-cuid": ["f59fb0cc"],
+    "content": "CommitBall-direct 的接收线程只读取消息并投递到 Core 主线程. 非 CMD 文本作为 direct-input 处理; CMD 消息在主线程调用 ProcessDirectCommand() 分派. 该 pipe 是 Bar, BallShell 和 Agent tools 发起跨进程控制请求的统一入站口."
   },
   {
     "cuid": "5ac92a08",
     "accordance": ["SYS_IPC_PIPE"],
-    "accordance-cuid": ["22585a13"],
+    "accordance-cuid": ["f59fb0cc"],
     "content": "Core 向子进程发送 pipe 指令时采用重试策略: CreateFileW 连接失败时, 若返回 ERROR_PIPE_BUSY 则 WaitNamedPipe 等待, 否则 Sleep 后重试. 各目标的重试次数不同: Agent 24 次 (需等待懒启动), Bar 12 次, BallShell 和 QUIT 8 次. 超过重试上限则放弃并记录日志."
   },
   {
