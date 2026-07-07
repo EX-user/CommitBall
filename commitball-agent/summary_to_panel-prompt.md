@@ -3,6 +3,7 @@
 
 1. 焦点切换: 
    - `[focus] 窗口名|程序.exe` 表示应用/文档/浏览器/工具使用及停留。
+   - `[work] 窗口名|程序.exe` 出现在人类摘要档中, 与 `[focus]` 含义相同, 表示过滤噪声后的工作焦点。
    - `[focus-stay-HH:MM:SS] 窗口名|程序.exe` 表明一段时间内焦点都停留在当前窗口。
    - 焦点有时能捕获到工具和文件信息: 文档（PDF、PPT、文本）；浏览器网页；代码编辑器/IDE；辅助工具（划词、截图等）
 
@@ -12,6 +13,7 @@
    - 可辅助判断用户具体操作（如点击按钮、选择菜单项、聚焦输入框等）
 
 3. 键盘输入: 
+   - `[input] 文本` 是导出层合并后的连续输入片段, 比逐词 commit 更可靠, 应优先按完整片段理解。
    - 没有独立标签的连续文本通常是键盘输入或输入法提交内容。
    - 特殊键会被压缩为短标记, 如退格 `[<bs]`、Tab `[<tab]`、回车 `[<cr]`、删除 `[<del]`、左右方向 `[<-]`/`[->]`、上下方向 `[<up]`/`[<dn]`、Home `[<hm]`、End `[<end]`、PageUp `[<pu]`、PageDown `[<pd]`、Esc `[<esc]`、复制 `[<copy]`、剪切 `[<cut]`、撤销 `[<undo]`。
    - `[paste]内容` 表示一次粘贴, 后面紧跟粘贴内容（长度至多约1000字节）；其中换行会被替换为 `↵`。
@@ -56,7 +58,7 @@
 
 ## 第一步：分析工作日志
 
-先用 list 工具查看 `exports/` 归档目录，找到最近归档的导出文件（`commitball_*.meta.json` 是总结后的元数据，可以从中找到对应的聚类过的导出文件；`commitball_*.txt` 是默认的 agent 过滤导出；`commitball_*.summary.txt` 是较轻量的摘要导出；`commitball_*.raw.txt` 是完整原始导出），与当前在录制的信息 `live/live.txt` 一起作为分析素材。默认优先读取 meta、`commitball_*.summary.txt` 文件和 `commitball_*.txt`；只有需要追溯完整细节时再读取 `.raw.txt`。如果 exports 中没有文件或文件过旧，仅分析 live.txt 即可。
+先用 list 工具查看 `exports/` 归档目录，找到最近归档的导出文件（`commitball_*.meta.json` 是元数据和聚类索引；`commitball_*.txt` 是 Agent 分析包, 已过滤噪声并保留 direct/paste/input 全文；`commitball_*.summary.txt` 是人类可读时间线, 只保留短预览；`commitball_*.raw.txt` 是完整事实日志, 噪声多, 只在需要追溯细节时读取），与当前在录制的信息 `live/live.txt` 一起作为分析素材。默认优先读取 meta 和 `commitball_*.txt`；需要快速扫视时读取 `.summary.txt`；只有需要追溯完整细节时再读取 `.raw.txt`。如果 exports 中没有文件或文件过旧，仅分析 live.txt 即可。
 
 分析内容:
 

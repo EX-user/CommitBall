@@ -54,10 +54,10 @@
     "content": "BallShell 的窗口几何状态 (x, y, edge, visible) 存储在 data/ball-shell-state.json. 存在双重写入: BallShell 在拖动结束和窗口关闭时直接写入; Core 收到 BallShell 的 UI_WINDOW_STATE pipe 消息后也写入同一文件. 此外 BallShell 还在程序根目录写入 commitball.pos (旧式位置格式 'x y edgeInt') 作为兼容."
   },
   {
-    "cuid": "45a8b4f0",
+    "cuid": "1629663a",
     "accordance": ["AGENT_TOOLS_CONTROL"],
-    "accordance-cuid": ["4d249276"],
-    "content": "Agent 的 ArchiveRepair.cs 是 Core 侧导出逻辑 (ExportSessionDb, GenerateSessionMetadata, WriteArchiveClusters) 的 C# 等价实现, 用于补全归档缺失的产物. 它以只读方式打开 data/sessions/ 下的 .db 文件, 重新导出三档文本 (.txt/.raw.txt/.summary.txt), 重新生成 meta.json 和 cluster 文件. 不修改 .db 文件本身."
+    "accordance-cuid": ["00c9ebf2"],
+    "content": "Agent 的 ArchiveRepair.cs 是 Core 侧导出逻辑 (ExportSessionDb, GenerateSessionMetadata, WriteArchiveClusters) 的 C# 等价实现. 它以只读方式打开 data/sessions/ 下的 .db 文件, 刷新三档文本 (.txt/.raw.txt/.summary.txt); 当 meta.json 缺失时才生成 meta.json 和 cluster 文件. 它不修改 .db 文件本身, 也不覆盖已存在的 meta.json."
   },
   {
     "cuid": "9e6a3d13",

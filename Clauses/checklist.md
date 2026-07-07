@@ -23,12 +23,12 @@
 | e14d16a8 | PASS | commitball/recorder.hpp:40; commitball/ball_shared.hpp:22 |
 | a41a454a | PASS | commitball/recorder.hpp:44; commitball/recorder.hpp:38; commitball/recorder.hpp:40; commitball/recorder.hpp:431-437; commitball/core_window.hpp:64-68 |
 | a2cd2a02 | PASS | commitball/recorder.hpp:815-912; commitball/recorder.hpp:456-468; commitball/main.cpp:377-384; commitball/main.cpp:323-326 |
-| dc5677cb | PASS | commitball/recorder.hpp:664-813; commitball-agent/Tools.cs:696-791 |
+| 0f87d2e4 | PASS | commitball/recorder.hpp:726-855; commitball-agent/ArchiveRepair.cs:314-419; commitball-agent/Tools.cs:696-791 |
 | f382f3bd | PASS | commitball/recorder.hpp:380-386; commitball/recorder.hpp:1183-1204; commitball/recorder.hpp:1125-1151 |
-| 5d8dfc5a | PASS | commitball/recorder.hpp:456-468; commitball/dbexport.hpp:64-194; commitball/recorder.hpp:431-437 |
-| 2d85a405 | PASS | commitball/dbexport.hpp:37-45; commitball/dbexport.hpp:130-133 |
+| 690908ff | PASS | commitball/recorder.hpp:480-495; commitball/dbexport.hpp:94-216; commitball/recorder.hpp:431-437; commitball-agent/ArchiveRepair.cs:112-308 |
+| 938c26e7 | PASS | commitball/dbexport.hpp:49-66; commitball/dbexport.hpp:122-124; commitball/recorder.hpp:766-771; commitball-agent/ArchiveRepair.cs:582-599 |
 | e1efd10a | PASS | commitball/main.cpp:601-610; commitball-agent/Tools.cs:115-185; commitball/recorder.hpp:815-826; commitball/main.cpp:612-641 |
-| 7da44729 | PASS | commitball/recorder.hpp:594-662 |
+| 5f9e8c08 | PASS | commitball/recorder.hpp:621-724; commitball-agent/ArchiveRepair.cs:421-498 |
 | f3ccd1d9 | PASS | commitball/recorder.hpp:89-133; commitball/recorder.hpp:63 |
 | 74ff067c | PASS | commitball/main.cpp:662-695; commitball/main.cpp:833; commitball/core_window.hpp:88-91 |
 | bf997e4d | PASS | commitball/recorder.hpp:1172-1243; commitball/recorder.hpp:1066-1086; commitball/recorder.hpp:855; commitball/click.hpp:46-86 |
@@ -55,7 +55,7 @@
 | ec55f9c1 | PASS | commitball-agent/Config.cs:18; commitball-agent/Config.cs:28-30; commitball-agent/Config.cs:36-45; commitball-agent/AgentWindow.xaml.cs:580-644 |
 | 1f524c54 | PASS | commitball-agent/AgentWindow.xaml.cs:653-657; commitball-agent/AgentWindow.xaml.cs:717-774; commitball-agent/AgentWindow.xaml.cs:819-854 |
 | f97fe4e1 | PASS | commitball-ball-shell/PipeBallBackend.cs:14; commitball-ball-shell/PipeBallBackend.cs:88-97; commitball-ball-shell/PipeBallBackend.cs:242-267; commitball-ball-shell/BallWindow.cs:82; commitball-ball-shell/BallWindow.cs:186; commitball/main.cpp:534-545; commitball/recorder.hpp:928-934 |
-| 45a8b4f0 | PASS | commitball-agent/ArchiveRepair.cs:114-120; commitball-agent/ArchiveRepair.cs:289-393; commitball-agent/ArchiveRepair.cs:395-468; commitball-agent/Tools.cs:50; commitball-agent/Tools.cs:201; commitball-agent/Tools.cs:263 |
+| 1629663a | PASS | commitball-agent/ArchiveRepair.cs:84-109; commitball-agent/ArchiveRepair.cs:112-130; commitball-agent/ArchiveRepair.cs:314-419; commitball-agent/ArchiveRepair.cs:421-498; commitball-agent/Tools.cs:50; commitball-agent/Tools.cs:201; commitball-agent/Tools.cs:263 |
 | 9e6a3d13 | PASS | commitball-bar/BarWindow.xaml.cs:38; commitball-bar/BarWindow.xaml.cs:54; commitball-bar/BarWindow.xaml.cs:57-66; commitball-agent/AgentWindow.xaml.cs:64; commitball-agent/AgentWindow.xaml.cs:66-69; commitball-agent/Tools.cs:17; commitball-agent/Tools.cs:128-147; commitball/main.cpp:180; commitball/main.cpp:307-309; commitball/main.cpp:602 |
 | f6286aee | PASS | commitball-ball-shell/BallWindow.cs:12-84; commitball-ball-shell/BallWindow.cs:379-427; commitball-ball-shell/BallWindow.cs:194-234; commitball-ball-shell/BallWindow.cs:161-173; commitball-ball-shell/BallWindow.cs:580-654; commitball-ball-shell/BallWindow.cs:42-46; commitball-ball-shell/BallWindow.cs:95-112; commitball-ball-shell/BallWindow.cs:149-153 |
 | edee3c73 | PASS | commitball/main.cpp:419; commitball/main.cpp:434-435; commitball/main.cpp:482-519; commitball-ball-shell/PipeBallBackend.cs:111; commitball-ball-shell/PipeBallBackend.cs:105-133; commitball-ball-shell/PipeBallBackend.cs:121 |

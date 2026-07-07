@@ -47,7 +47,7 @@
   {
     "title": "FILE_AGENT_ARCHIVE_REPAIR",
     "accordance": ["AGENT_TOOLS_CONTROL"],
-    "content": "Agent 的 ArchiveRepair.cs 是 Core 侧导出逻辑 (ExportSessionDb, GenerateSessionMetadata, WriteArchiveClusters) 的 C# 等价实现, 用于补全归档缺失的产物. 它以只读方式打开 data/sessions/ 下的 .db 文件, 重新导出三档文本 (.txt/.raw.txt/.summary.txt), 重新生成 meta.json 和 cluster 文件. 不修改 .db 文件本身."
+    "content": "Agent 的 ArchiveRepair.cs 是 Core 侧导出逻辑 (ExportSessionDb, GenerateSessionMetadata, WriteArchiveClusters) 的 C# 等价实现. 它以只读方式打开 data/sessions/ 下的 .db 文件, 刷新三档文本 (.txt/.raw.txt/.summary.txt); 当 meta.json 缺失时才生成 meta.json 和 cluster 文件. 它不修改 .db 文件本身, 也不覆盖已存在的 meta.json."
   },
   {
     "title": "FILE_STATUS_FLAGS",

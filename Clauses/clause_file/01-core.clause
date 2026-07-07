@@ -108,10 +108,10 @@
     "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档补全 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动补全时重试. 储存布局的细节将由独立条款体系详述."
   },
   {
-    "cuid": "dc5677cb",
+    "cuid": "0f87d2e4",
     "accordance": ["REC_ROTATION"],
     "accordance-cuid": ["a2cd2a02"],
-    "content": "每次会话归档时生成 meta.json 元数据文件, 字段包括: session_id, 起止时间, 标题 (从首个 direct-input 或最高频窗口标题派生), work_tags (Top 进程名), rule_summary (Top 窗口+commit 摘要), 事件数, direct-input 数, focus_top (Top 5 窗口), clusters (按进程聚类的子文件列表). source 字段初始为 'rule' 表示机器生成; Agent 可通过 update_meta 工具覆盖标题/标签/摘要并改为 'agent'."
+    "content": "每次会话归档时生成 meta.json 元数据文件, 字段包括: session_id, 起止时间, 标题, work_tags, rule_summary, 事件数, direct-input 数, focus_top 和 clusters. 机器生成 meta 时必须先过滤系统噪声进程和空焦点, 标题优先取首个 direct-input, 其次取过滤后的最高频窗口标题; work_tags 和 focus_top 只统计有效工作进程. source 字段初始为 'rule' 表示机器生成; Agent 可通过 update_meta 工具覆盖标题/标签/摘要并改为 'agent'."
   },
   {
     "cuid": "f382f3bd",
@@ -120,16 +120,16 @@
     "content": "数据库中的 record_id 字段用于区分不同的录制会话. 四击 CapsLock 关闭当前会话仅切换为 STOPPED 状态, 不递增 record_id, 不创建新的数据库文件; 下次四击 CapsLock 重新开始记录时才递增 record_id. 每 1 小时强制递增一次 record_id (会话超时). 这些操作在同一 current.db 内完成, 与容量触发的数据库轮转是两个独立的概念."
   },
   {
-    "cuid": "5d8dfc5a",
+    "cuid": "690908ff",
     "accordance": ["REC_ROTATION"],
     "accordance-cuid": ["a2cd2a02"],
-    "content": "每次归档导出三档文本: .raw.txt (全量, 含所有 click/keystroke/focus-repeat, 键码用短标记如 [<bs, 连续相同 focus 带 [focus-repeat] +N 计数标注), 供完整溯源; .summary.txt (去噪, 跳过 click 和 raw keystroke, 连续相同 focus 直接丢弃, direct-input 截断 200 字符, paste 截断 160 字符), 供人类阅读; .txt (Agent 档, 与 summary 相同的噪声过滤但保留 direct-input 和 paste 全文), 供 LLM 分析. live.txt 也使用 Agent 档."
+    "content": "每次归档导出三档文本: .raw.txt 是完整事实日志, 保留 click、keystroke、focus-stay、timer 和连续 focus 计数, 仅供追溯; .summary.txt 是人类可读时间线, 过滤系统噪声进程和空焦点, 不输出 click/raw keystroke/timer, 合并连续 commit 为输入片段, direct-input 和 paste 只保留短预览, away/back 压缩为状态变化; .txt 是 Agent 分析包, 使用同样的噪声过滤和输入合并, 但保留 direct-input、paste 和输入片段全文. live.txt 也使用 Agent 档."
   },
   {
-    "cuid": "2d85a405",
+    "cuid": "938c26e7",
     "accordance": ["REC_EXPORT_PROFILES"],
-    "accordance-cuid": ["5d8dfc5a"],
-    "content": "Summary 和 Agent 档导出过滤 Windows 壳进程的焦点事件: TextInputHost.exe (IME 候选窗), ShellExperienceHost.exe (操作中心), StartMenuExperienceHost.exe (开始菜单). 这些进程在普通打字和菜单操作中短暂抢焦点, 不代表用户工作目标. Raw 档保留所有焦点事件不过滤."
+    "accordance-cuid": ["690908ff"],
+    "content": "Summary、Agent、meta 和 cluster 的机器生成路径过滤系统噪声焦点: 空窗口/空进程, TextInputHost.exe, ShellExperienceHost.exe, StartMenuExperienceHost.exe, SearchApp.exe, LockApp.exe, CommitBall-Bar.exe, CommitBall-Agent.exe, CommitBall-BallShell.exe, git-credential-manager.exe 以及安装器进程. 这些焦点不代表用户工作目标. Raw 档保留所有事件不过滤."
   },
   {
     "cuid": "e1efd10a",
@@ -138,10 +138,10 @@
     "content": "/summary_to_panel 执行期间通过文件锁 data/agent-summary-status 防止并发分析. Agent 侧通过 AgentOutWriteLease 排他锁阻止其他会话写入 agent-out. Core 侧 CheckSessionSplit 和 CheckAutoAnalyse 读取该文件, 如果状态为 busy 则跳过自动触发."
   },
   {
-    "cuid": "7da44729",
+    "cuid": "5f9e8c08",
     "accordance": ["REC_ROTATION"],
     "accordance-cuid": ["a2cd2a02"],
-    "content": "归档时按前台焦点进程聚类, 将所有事件流式分配到对应进程的 cluster 文件 (cluster_NN_<进程名>.txt). 每个进程首次出现时创建新 cluster, 后续事件追加到同一 cluster. cluster 目录先清空再重新生成. 每个 cluster 记录事件数, direct-input 数, 窗口样本 (Top 5) 和 commit 样本 (Top 5), 以及 ≤500 字符的 rule_summary. 最终 cluster 按事件数降序排列."
+    "content": "归档时按有效工作进程聚类, 系统噪声焦点不创建 cluster, 噪声期间产生的事件归入最近一个有效工作 cluster; 若尚无有效焦点则归入 misc. cluster 文件使用 Agent 档同类的去噪文本, 合并连续输入片段, 不写 raw click/keystroke/timer. cluster 目录先清空再重新生成. 每个 cluster 记录事件数, direct-input 数, 窗口样本 (Top 5), 输入样本 (Top 5) 和 ≤500 字符的 rule_summary. 最终 cluster 按事件数降序排列."
   },
   {
     "cuid": "f3ccd1d9",

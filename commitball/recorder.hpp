@@ -529,7 +529,9 @@ inline std::string Shorten(const std::string& s, size_t maxLen) {
 
 inline std::string FocusProcessName(const std::string& focus) {
     size_t bar = focus.rfind('|');
-    std::string proc = (bar != std::string::npos && bar + 1 < focus.size()) ? focus.substr(bar + 1) : focus;
+    std::string proc = "";
+    if (bar == std::string::npos) proc = focus;
+    else if (bar + 1 < focus.size()) proc = focus.substr(bar + 1);
     return TrimCopy(proc);
 }
 
@@ -590,6 +592,7 @@ struct ArchiveClusterInfo {
     std::string relPath;
     std::vector<std::string> windowSamples;
     std::vector<std::string> commitSamples;
+    std::string pendingInput;
     int eventCount = 0;
     int directInputCount = 0;
 };
@@ -621,7 +624,19 @@ inline void WriteArchiveClusters(sqlite3* db, const std::string& clusterDir, std
     DeleteFilesInDirA(clusterDir);
 
     std::map<std::string, size_t> clusterIndex;
-    std::string currentFocus = "unknown|unknown";
+    std::string currentFocus = "misc|misc";
+
+    auto flushClusterInput = [&](ArchiveClusterInfo& cluster) {
+        if (cluster.pendingInput.empty()) return;
+        FILE* f = fopen(cluster.path.c_str(), "a");
+        if (f) {
+            fprintf(f, "[input] %s\n", cluster.pendingInput.c_str());
+            fclose(f);
+        }
+        cluster.eventCount++;
+        AddUniqueLimited(cluster.commitSamples, cluster.pendingInput, 5, 180);
+        cluster.pendingInput.clear();
+    };
 
     auto ensureCluster = [&](const std::string& focus) -> ArchiveClusterInfo& {
         std::string process = FocusProcessName(focus);
@@ -657,28 +672,51 @@ inline void WriteArchiveClusters(sqlite3* db, const std::string& clusterDir, std
         std::string typeStr = type ? type : "";
         std::string contentStr = content ? content : "";
         if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+            if (DbExportExcludedFocus(contentStr)) continue;
             currentFocus = contentStr;
         }
 
         ArchiveClusterInfo& cluster = ensureCluster(currentFocus);
         if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+            flushClusterInput(cluster);
             std::string window = FocusWindowTitle(contentStr);
             AddUniqueLimited(cluster.windowSamples, window, 5, 100);
             if (cluster.window.empty()) cluster.window = window;
-        }
-        cluster.eventCount++;
-        if (type && strcmp(type, "direct-input") == 0)
+            cluster.eventCount++;
+        } else if (type && strcmp(type, "direct-input") == 0) {
+            flushClusterInput(cluster);
             cluster.directInputCount++;
-        if (type && strcmp(type, "commit") == 0 && !contentStr.empty())
-            AddUniqueLimited(cluster.commitSamples, contentStr, 5, 180);
-
-        FILE* f = fopen(cluster.path.c_str(), "a");
-        if (f) {
-            fprintf(f, "[%s] [%s] %s\n", ts ? ts : "", type ? type : "", content ? content : "");
-            fclose(f);
+            cluster.eventCount++;
+            FILE* f = fopen(cluster.path.c_str(), "a");
+            if (f) {
+                fprintf(f, "[%s] [direct] %s\n", ts ? ts : "", content ? content : "");
+                fclose(f);
+            }
+        } else if (type && strcmp(type, "commit") == 0 && !contentStr.empty()) {
+            cluster.pendingInput += contentStr;
+        } else if (type && (strcmp(type, "paste") == 0 || strcmp(type, "paste-big") == 0 || strcmp(type, "paste-mega") == 0)) {
+            flushClusterInput(cluster);
+            cluster.eventCount++;
+            FILE* f = fopen(cluster.path.c_str(), "a");
+            if (f) {
+                fprintf(f, "[%s] [%s] %s\n", ts ? ts : "", type ? type : "", content ? content : "");
+                fclose(f);
+            }
+        } else if (type && (strcmp(type, "away") == 0 || strcmp(type, "back") == 0)) {
+            flushClusterInput(cluster);
+            cluster.eventCount++;
+            FILE* f = fopen(cluster.path.c_str(), "a");
+            if (f) {
+                fprintf(f, "[%s] [%s] %s\n", ts ? ts : "", type ? type : "", content ? content : "");
+                fclose(f);
+            }
         }
     }
     sqlite3_finalize(stmt);
+
+    for (auto& cluster : clusters) {
+        flushClusterInput(cluster);
+    }
 
     std::sort(clusters.begin(), clusters.end(), [](const auto& a, const auto& b) {
         return a.eventCount > b.eventCount;
@@ -714,6 +752,7 @@ inline void GenerateSessionMetadata(const std::string& sessionId, const std::str
             std::string typeStr = type ? type : "";
             std::string contentStr = content ? content : "";
             if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
+                if (DbExportExcludedFocus(contentStr)) continue;
                 focusCounts[contentStr]++;
                 std::string proc = FocusProcessName(contentStr);
                 if (!proc.empty()) processCounts[proc]++;
