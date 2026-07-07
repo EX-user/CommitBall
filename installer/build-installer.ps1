@@ -63,7 +63,9 @@ if (!(Test-Path $runtimeInstaller) -or ((Get-Item $runtimeInstaller).Length -lt 
 
 # === Stage dictionary files ===
 Write-Host "Staging dictionary files..."
-New-Item -ItemType Directory -Path staging\build -Force | Out-Null
+$stagingDir = Join-Path $PSScriptRoot "staging"
+$dictionaryStageDir = Join-Path $stagingDir "build"
+New-Item -ItemType Directory -Path $dictionaryStageDir -Force | Out-Null
 
 $tableBin = "$env:APPDATA\Rime\build\luna_pinyin.table.bin"
 $prismBin = "$env:APPDATA\Rime\build\luna_pinyin_simp.prism.bin"
@@ -77,8 +79,8 @@ if (!(Test-Path $prismBin)) {
     exit 1
 }
 
-Copy-Item $tableBin staging\build\ -Force
-Copy-Item $prismBin staging\build\ -Force
+Copy-Item $tableBin $dictionaryStageDir -Force
+Copy-Item $prismBin $dictionaryStageDir -Force
 
 # === Build CommitBall ===
 Write-Host "Building CommitBall..."

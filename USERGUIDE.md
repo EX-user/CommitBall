@@ -303,7 +303,7 @@ Agent 的 tool 调用无硬性上限。当连续调用超过 20 次时，系统�
 
 ## 5. 安装与卸载
 
-- 安装：运行 `CommitBall-0.2.1.0-installer.exe`，以管理员权限安装到 `C:\Program Files\CommitBall`
+- 安装：运行 `CommitBall-0.2.2.0-installer.exe`，以管理员权限安装到 `C:\Program Files\CommitBall`
 - 运行环境：安装包内置 Microsoft .NET 8 Desktop Runtime (x64)，系统缺失时会自动静默安装
 - 卸载：运行 `C:\Program Files\CommitBall\uninstall.exe`
 - 数据保留：卸载不会删除 `data/` 目录下的用户数据
