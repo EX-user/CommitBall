@@ -58,7 +58,7 @@
 
 ## 第一步：分析工作日志
 
-先用 list 工具查看 `exports/` 归档目录，找到最近归档的导出文件（`commitball_*.meta.json` 是元数据和聚类索引；`commitball_*.txt` 是 Agent 分析包, 已过滤噪声并保留 direct/paste/input 全文；`commitball_*.summary.txt` 是人类可读时间线, 只保留短预览；`commitball_*.raw.txt` 是完整事实日志, 噪声多, 只在需要追溯细节时读取），与当前在录制的信息 `live/live.txt` 一起作为分析素材。默认优先读取 meta 和 `commitball_*.txt`；需要快速扫视时读取 `.summary.txt`；只有需要追溯完整细节时再读取 `.raw.txt`。如果 exports 中没有文件或文件过旧，仅分析 live.txt 即可。
+先用 list 工具查看 `exports/` 归档目录，找到最近归档的导出文件（`commitball_*.meta.json` 是元数据和聚类索引, 承担人类可读总结职责；`commitball_*.txt` 是 Agent 分析包, 已过滤噪声并保留 direct/paste/input 全文；`commitball_*.raw.txt` 是完整事实日志, 噪声多, 只在需要追溯细节时读取），与当前在录制的信息 `live/live.txt` 一起作为分析素材。默认优先读取 meta 和 `commitball_*.txt`；只有需要追溯完整细节时再读取 `.raw.txt`。如果 exports 中没有文件或文件过旧，仅分析 live.txt 即可。
 
 分析内容:
 

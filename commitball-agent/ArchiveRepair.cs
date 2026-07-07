@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -35,7 +36,10 @@ namespace CommitBallAgent
         public string RelPath { get; set; } = "";
         public List<string> WindowSamples { get; } = new();
         public List<string> CommitSamples { get; } = new();
+        public StringBuilder Content { get; } = new();
         public string PendingInput { get; set; } = "";
+        public string PendingInputStart { get; set; } = "";
+        public string PendingInputEnd { get; set; } = "";
         public int EventCount { get; set; }
         public int DirectInputCount { get; set; }
     }
@@ -45,7 +49,6 @@ namespace CommitBallAgent
         private enum DbTextProfile
         {
             Raw,
-            Summary,
             Agent
         }
 
@@ -93,33 +96,49 @@ namespace CommitBallAgent
             var txtPath = exportBase + ".txt";
             var metaPath = exportBase + ".meta.json";
             var clusterDir = exportBase + "_clusters";
-            var rawTxtPath = WithExportProfileSuffix(txtPath, ".raw");
-            var summaryTxtPath = WithExportProfileSuffix(txtPath, ".summary");
+            result.TxtFixed += EnsureSessionTextExports(dbPath, txtPath);
 
-            ExportSessionDb(dbPath, txtPath);
-            result.TxtFixed++;
-            AgentWindow.Log("Archive repair refreshed txt profiles: " + txtPath);
+            List<ArchiveClusterInfo>? clusters = null;
+            if (!File.Exists(metaPath) || NeedsClusterRepair(metaPath, clusterDir))
+            {
+                clusters = BuildArchiveClusters(dbPath, clusterDir);
+                var writtenClusters = WriteMissingArchiveClusters(clusters);
+                result.ClusterFixed += writtenClusters;
+                if (writtenClusters > 0)
+                    AgentWindow.Log($"Archive repair generated missing cluster files: {clusterDir}, files={writtenClusters}");
+            }
 
             if (!File.Exists(metaPath))
             {
-                GenerateSessionMetadata(sessionId, dbPath, txtPath, metaPath);
+                clusters ??= BuildArchiveClusters(dbPath, clusterDir);
+                GenerateSessionMetadata(sessionId, dbPath, txtPath, metaPath, clusterDir, clusters);
                 result.MetaFixed++;
-                result.ClusterFixed++;
-                AgentWindow.Log("Archive repair generated missing meta/clusters: " + metaPath);
+                AgentWindow.Log("Archive repair generated missing meta: " + metaPath);
             }
         }
 
-        private static void ExportSessionDb(string dbPath, string txtPath)
+        private static int EnsureSessionTextExports(string dbPath, string txtPath)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(txtPath)!);
-            WriteTextFile(WithExportProfileSuffix(txtPath, ".raw"), DbToText(dbPath, DbTextProfile.Raw));
-            WriteTextFile(WithExportProfileSuffix(txtPath, ".summary"), DbToText(dbPath, DbTextProfile.Summary));
-            WriteTextFile(txtPath, DbToText(dbPath, DbTextProfile.Agent));
+            var written = 0;
+            var rawPath = WithExportProfileSuffix(txtPath, ".raw");
+            if (!File.Exists(rawPath))
+            {
+                WriteTextFile(rawPath, DbToText(dbPath, DbTextProfile.Raw));
+                written++;
+                AgentWindow.Log("Archive repair generated missing raw txt: " + rawPath);
+            }
+            if (!File.Exists(txtPath))
+            {
+                WriteTextFile(txtPath, DbToText(dbPath, DbTextProfile.Agent));
+                written++;
+                AgentWindow.Log("Archive repair generated missing agent txt: " + txtPath);
+            }
+            return written;
         }
 
         private static void WriteTextFile(string path, string text)
         {
-            if (text.Length == 0) return;
             File.WriteAllText(path, text, Encoding.UTF8);
         }
 
@@ -132,26 +151,6 @@ namespace CommitBallAgent
 
         private static string DbToText(string dbPath, DbTextProfile profile = DbTextProfile.Agent)
         {
-            var shortMap = new Dictionary<string, string>
-            {
-                ["[Backspace]"] = "[<bs]",
-                ["[Tab]"] = "[<tab]",
-                ["[Enter]"] = "[<cr]",
-                ["[Delete]"] = "[<del]",
-                ["[Left]"] = "[<-]",
-                ["[Right]"] = "[->]",
-                ["[Up]"] = "[<up]",
-                ["[Down]"] = "[<dn]",
-                ["[Home]"] = "[<hm]",
-                ["[End]"] = "[<end]",
-                ["[PageUp]"] = "[<pu]",
-                ["[PageDown]"] = "[<pd]",
-                ["[Esc]"] = "[<esc]",
-                ["[Copy]"] = "[<copy]",
-                ["[Cut]"] = "[<cut]",
-                ["[Undo]"] = "[<undo]",
-            };
-
             var output = new StringBuilder();
             var body = new StringBuilder();
             var curRecordId = -1;
@@ -159,6 +158,8 @@ namespace CommitBallAgent
             var lastTs = "";
             var lastFocus = "";
             var pendingInput = "";
+            var pendingInputStart = "";
+            var pendingInputEnd = "";
             var skippedFocusRepeats = 0;
             var awayActive = false;
 
@@ -166,12 +167,7 @@ namespace CommitBallAgent
             {
                 if (curRecordId < 0) return;
                 if (profile != DbTextProfile.Raw)
-                    FlushInput(body, ref pendingInput, profile);
-                if (skippedFocusRepeats > 0 && profile == DbTextProfile.Raw)
-                {
-                    EnsureLineBreak(body);
-                    body.Append("[focus-repeat] +").Append(skippedFocusRepeats).AppendLine();
-                }
+                    FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
                 if (profile != DbTextProfile.Raw && body.Length == 0) return;
                 output.Append("--- #").Append(curRecordId).Append(" [").Append(firstTs).Append(" ~ ").Append(lastTs).AppendLine("] ---");
                 output.Append(body);
@@ -198,6 +194,8 @@ namespace CommitBallAgent
                     lastTs = ts;
                     body.Clear();
                     pendingInput = "";
+                    pendingInputStart = "";
+                    pendingInputEnd = "";
                     skippedFocusRepeats = 0;
                 }
                 else
@@ -207,117 +205,121 @@ namespace CommitBallAgent
 
                 if (type.StartsWith("focus", StringComparison.Ordinal))
                 {
+                    if (profile == DbTextProfile.Raw)
+                    {
+                        AppendEventLine(body, ts, type, FlattenText(content));
+                        continue;
+                    }
                     if (profile != DbTextProfile.Raw && ExcludedFocus(content)) continue;
-                    if (profile != DbTextProfile.Raw)
-                        FlushInput(body, ref pendingInput, profile);
+                    FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
                     if (profile != DbTextProfile.Raw && content == lastFocus)
                     {
                         skippedFocusRepeats++;
                         continue;
                     }
-                    if (skippedFocusRepeats > 0 && profile == DbTextProfile.Raw)
-                    {
-                        EnsureLineBreak(body);
-                        body.Append("[focus-repeat] +").Append(skippedFocusRepeats).AppendLine();
-                    }
                     skippedFocusRepeats = 0;
                     lastFocus = content;
-                    EnsureLineBreak(body);
-                    body.Append(profile == DbTextProfile.Summary ? "[work] " : "[focus] ").Append(content).AppendLine();
+                    AppendEventLine(body, ts, "focus", content);
                 }
                 else if (type == "direct-input")
                 {
-                    if (profile != DbTextProfile.Raw)
-                        FlushInput(body, ref pendingInput, profile);
-                    EnsureLineBreak(body);
-                    if (profile == DbTextProfile.Summary)
-                        content = Shorten(content, 200) + (content.Length > 200 ? "..." : "");
-                    body.Append("[direct] ").Append(content).AppendLine();
+                    if (profile == DbTextProfile.Raw)
+                    {
+                        AppendEventLine(body, ts, type, FlattenText(content));
+                    }
+                    else
+                    {
+                        FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
+                        AppendEventLine(body, ts, "direct", content);
+                    }
                 }
                 else if (type == "click")
                 {
-                    if (profile != DbTextProfile.Raw) continue;
-                    EnsureLineBreak(body);
-                    body.Append("[click]").Append(content).AppendLine();
+                    if (profile == DbTextProfile.Raw)
+                    {
+                        AppendEventLine(body, ts, type, FlattenText(content));
+                    }
+                    else if (pendingInput.Length > 0)
+                    {
+                        FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
+                        AppendEventLine(body, ts, "click", content);
+                    }
                 }
                 else if (type == "timer")
                 {
-                    if (profile != DbTextProfile.Raw) continue;
-                    EnsureLineBreak(body);
-                    var timerTs = ts.Length >= 16 ? ts.Substring(11, 5) : ts;
-                    body.Append("[timer] ").Append(timerTs).AppendLine();
+                    if (profile == DbTextProfile.Raw)
+                        AppendEventLine(body, ts, type, FlattenText(content));
                 }
                 else if (type == "away")
                 {
-                    if (profile != DbTextProfile.Raw)
+                    if (profile == DbTextProfile.Raw)
+                    {
+                        AppendEventLine(body, ts, type, FlattenText(content));
+                    }
+                    else
                     {
                         if (awayActive) continue;
-                        FlushInput(body, ref pendingInput, profile);
+                        FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
                         awayActive = true;
+                        AppendEventLine(body, ts, "away", content);
                     }
-                    EnsureLineBreak(body);
-                    var awayTs = ts.Length >= 16 ? ts.Substring(11, 5) : ts;
-                    body.Append("[away] ").Append(awayTs).Append(' ').Append(content).AppendLine();
                 }
                 else if (type == "back")
                 {
-                    if (profile != DbTextProfile.Raw)
+                    if (profile == DbTextProfile.Raw)
                     {
-                        FlushInput(body, ref pendingInput, profile);
-                        awayActive = false;
+                        AppendEventLine(body, ts, type, FlattenText(content));
                     }
-                    EnsureLineBreak(body);
-                    var backTs = ts.Length >= 16 ? ts.Substring(11, 5) : ts;
-                    body.Append("[back] ").Append(backTs).Append(' ').Append(content).AppendLine();
+                    else
+                    {
+                        FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
+                        awayActive = false;
+                        AppendEventLine(body, ts, "back", content);
+                    }
                 }
                 else if (type == "commit")
                 {
                     if (profile == DbTextProfile.Raw)
                     {
-                        EnsureLineBreak(body);
-                        body.Append("[commit] ").Append(content).AppendLine();
+                        AppendEventLine(body, ts, type, FlattenText(content));
                     }
                     else
                     {
+                        if (pendingInput.Length == 0) pendingInputStart = ts;
+                        pendingInputEnd = ts;
                         pendingInput += content;
                     }
                 }
                 else if (type is "paste" or "paste-big" or "paste-mega")
                 {
                     if (profile != DbTextProfile.Raw)
-                        FlushInput(body, ref pendingInput, profile);
-                    EnsureLineBreak(body);
-                    var paste = content.Replace("\r\n", "\u21B5").Replace("\n", "\u21B5");
-                    if (profile == DbTextProfile.Summary)
-                    {
-                        var preview = Shorten(paste, 160);
-                        if (paste.Length > 160) preview += "...";
-                        body.Append('[').Append(type).Append(" chars=").Append(paste.Length).Append(']').Append(preview).AppendLine();
-                    }
-                    else
-                    {
-                        body.Append('[').Append(type).Append(']').Append(paste).AppendLine();
-                    }
+                        FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
+                    AppendEventLine(body, ts, type, FlattenText(content));
                 }
                 else
                 {
-                    if (profile != DbTextProfile.Raw) continue;
-                    foreach (var pair in shortMap)
-                        content = content.Replace(pair.Key, pair.Value, StringComparison.Ordinal);
-                    body.Append(content);
+                    if (profile == DbTextProfile.Raw)
+                        AppendEventLine(body, ts, type, type == "keystroke" ? KeyText(content) : FlattenText(content));
+                    else if (type == "keystroke")
+                    {
+                        FlushInput(body, ref pendingInput, ref pendingInputStart, pendingInputEnd);
+                        AppendEventLine(body, ts, "key", KeyText(content));
+                    }
                 }
             }
             FlushRecord();
             return output.ToString();
         }
 
-        private static void GenerateSessionMetadata(string sessionId, string dbPath, string txtPath, string metaPath)
+        private static void GenerateSessionMetadata(
+            string sessionId,
+            string dbPath,
+            string txtPath,
+            string metaPath,
+            string clusterDir,
+            List<ArchiveClusterInfo> clusters)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(metaPath)!);
-            var clusterDir = metaPath.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)
-                ? metaPath[..^".meta.json".Length] + "_clusters"
-                : metaPath + "_clusters";
-            var clusters = WriteArchiveClusters(dbPath, clusterDir);
 
             var startedAt = "";
             var endedAt = "";
@@ -385,7 +387,6 @@ namespace CommitBallAgent
                 ["txt_path"] = ToDataPrefixedPath(txtPath),
                 ["txt_profile"] = "agent",
                 ["raw_txt_path"] = ToDataPrefixedPath(WithExportProfileSuffix(txtPath, ".raw")),
-                ["summary_txt_path"] = ToDataPrefixedPath(WithExportProfileSuffix(txtPath, ".summary")),
                 ["db_path"] = ToDataPrefixedPath(dbPath),
                 ["cluster_strategy"] = "process",
                 ["cluster_dir"] = ToDataRelativePath(clusterDir),
@@ -415,15 +416,15 @@ namespace CommitBallAgent
                 }).ToArray())
             };
 
-            File.WriteAllText(metaPath, meta.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
+            File.WriteAllText(metaPath, meta.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            }), Encoding.UTF8);
         }
 
-        private static List<ArchiveClusterInfo> WriteArchiveClusters(string dbPath, string clusterDir)
+        private static List<ArchiveClusterInfo> BuildArchiveClusters(string dbPath, string clusterDir)
         {
-            Directory.CreateDirectory(clusterDir);
-            foreach (var file in Directory.EnumerateFiles(clusterDir))
-                File.Delete(file);
-
             var clusters = new List<ArchiveClusterInfo>();
             var clusterIndex = new Dictionary<string, ArchiveClusterInfo>(StringComparer.OrdinalIgnoreCase);
             var currentFocus = "misc|misc";
@@ -431,10 +432,23 @@ namespace CommitBallAgent
             void FlushClusterInput(ArchiveClusterInfo cluster)
             {
                 if (cluster.PendingInput.Length == 0) return;
-                File.AppendAllText(cluster.Path, "[input] " + cluster.PendingInput + "\n", Encoding.UTF8);
+                var range = cluster.PendingInputStart;
+                if (!string.IsNullOrWhiteSpace(cluster.PendingInputEnd) && cluster.PendingInputEnd != cluster.PendingInputStart)
+                    range += "~" + cluster.PendingInputEnd;
+                cluster.Content.Append('[').Append(range).Append("] [input] ").Append(cluster.PendingInput).AppendLine();
                 cluster.EventCount++;
                 AddUniqueLimited(cluster.CommitSamples, cluster.PendingInput, 5, 180);
                 cluster.PendingInput = "";
+                cluster.PendingInputStart = "";
+                cluster.PendingInputEnd = "";
+            }
+
+            void AppendClusterEvent(ArchiveClusterInfo cluster, string ts, string tag, string content)
+            {
+                cluster.EventCount++;
+                cluster.Content.Append('[').Append(ts).Append("] [").Append(tag).Append(']');
+                if (content.Length > 0) cluster.Content.Append(' ').Append(content);
+                cluster.Content.AppendLine();
             }
 
             ArchiveClusterInfo EnsureCluster(string focus)
@@ -482,24 +496,40 @@ namespace CommitBallAgent
                     var window = FocusWindowTitle(content);
                     AddUniqueLimited(cluster.WindowSamples, window, 5, 100);
                     if (cluster.Window.Length == 0) cluster.Window = window;
-                    cluster.EventCount++;
+                    AppendClusterEvent(cluster, ts, "focus", content);
                 }
                 else if (type == "direct-input")
                 {
                     FlushClusterInput(cluster);
                     cluster.DirectInputCount++;
-                    cluster.EventCount++;
-                    File.AppendAllText(cluster.Path, $"[{ts}] [direct] {content}\n", Encoding.UTF8);
+                    AppendClusterEvent(cluster, ts, "direct", content);
                 }
                 else if (type == "commit" && content.Length > 0)
                 {
+                    if (cluster.PendingInput.Length == 0) cluster.PendingInputStart = ts;
+                    cluster.PendingInputEnd = ts;
                     cluster.PendingInput += content;
                 }
-                else if (type is "paste" or "paste-big" or "paste-mega" or "away" or "back")
+                else if (type is "paste" or "paste-big" or "paste-mega")
                 {
                     FlushClusterInput(cluster);
-                    cluster.EventCount++;
-                    File.AppendAllText(cluster.Path, $"[{ts}] [{type}] {content}\n", Encoding.UTF8);
+                    AppendClusterEvent(cluster, ts, type, FlattenText(content));
+                }
+                else if (type is "away" or "back")
+                {
+                    FlushClusterInput(cluster);
+                    AppendClusterEvent(cluster, ts, type, content);
+                }
+                else if (type == "keystroke")
+                {
+                    FlushClusterInput(cluster);
+                    AppendClusterEvent(cluster, ts, "key", KeyText(content));
+                }
+                else if (type == "click")
+                {
+                    if (cluster.PendingInput.Length == 0) continue;
+                    FlushClusterInput(cluster);
+                    AppendClusterEvent(cluster, ts, "click", content);
                 }
             }
 
@@ -507,6 +537,56 @@ namespace CommitBallAgent
                 FlushClusterInput(cluster);
 
             return clusters.OrderByDescending(c => c.EventCount).ToList();
+        }
+
+        private static int WriteMissingArchiveClusters(List<ArchiveClusterInfo> clusters)
+        {
+            var written = 0;
+            foreach (var cluster in clusters)
+            {
+                if (cluster.Content.Length == 0) continue;
+                Directory.CreateDirectory(Path.GetDirectoryName(cluster.Path)!);
+                if (File.Exists(cluster.Path)) continue;
+                File.WriteAllText(cluster.Path, cluster.Content.ToString(), Encoding.UTF8);
+                written++;
+            }
+            return written;
+        }
+
+        private static bool NeedsClusterRepair(string metaPath, string clusterDir)
+        {
+            if (TryReadClusterPathsFromMeta(metaPath, out var expectedPaths))
+            {
+                if (expectedPaths.Count == 0) return false;
+                return expectedPaths.Any(path => !File.Exists(ToAbsoluteDataPath(path)));
+            }
+
+            return !Directory.Exists(clusterDir) ||
+                   !Directory.EnumerateFiles(clusterDir, "*.txt").Any();
+        }
+
+        private static bool TryReadClusterPathsFromMeta(string metaPath, out List<string> paths)
+        {
+            paths = new List<string>();
+            try
+            {
+                if (!File.Exists(metaPath)) return false;
+                var root = JsonNode.Parse(File.ReadAllText(metaPath)) as JsonObject;
+                if (root?["clusters"] is not JsonArray clusters) return false;
+                foreach (var node in clusters)
+                {
+                    if (node is not JsonObject cluster) continue;
+                    var rel = cluster["txt_path"]?.GetValue<string>() ?? "";
+                    if (!string.IsNullOrWhiteSpace(rel))
+                        paths.Add(rel);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AgentWindow.Log("ArchiveRepair could not inspect cluster paths in meta: " + metaPath + ": " + ex.Message);
+                return false;
+            }
         }
 
         private static SqliteConnection OpenReadOnly(string dbPath)
@@ -595,21 +675,56 @@ namespace CommitBallAgent
                 || proc.Contains("INSTALLER", StringComparison.Ordinal);
         }
 
-        private static void FlushInput(StringBuilder body, ref string input, DbTextProfile profile)
+        private static void FlushInput(StringBuilder body, ref string input, ref string inputStart, string inputEnd)
         {
             if (input.Length == 0) return;
             EnsureLineBreak(body);
-            if (profile == DbTextProfile.Summary)
-            {
-                var preview = Shorten(input, 200);
-                if (input.Length > 200) preview += "...";
-                body.Append("[input] ").Append(preview).AppendLine();
-            }
-            else
-            {
-                body.Append("[input] ").Append(input).AppendLine();
-            }
+            body.Append('[').Append(inputStart);
+            if (!string.IsNullOrWhiteSpace(inputEnd) && inputEnd != inputStart)
+                body.Append('~').Append(inputEnd);
+            body.Append("] [input] ").Append(input).AppendLine();
             input = "";
+            inputStart = "";
+        }
+
+        private static void AppendEventLine(StringBuilder body, string ts, string tag, string content)
+        {
+            EnsureLineBreak(body);
+            body.Append('[').Append(ts).Append("] [").Append(tag).Append(']');
+            if (!string.IsNullOrEmpty(content)) body.Append(' ').Append(content);
+            body.AppendLine();
+        }
+
+        private static string FlattenText(string text)
+        {
+            return text.Replace("\r\n", "\u21B5").Replace("\n", "\u21B5");
+        }
+
+        private static string KeyText(string text)
+        {
+            var shortMap = new Dictionary<string, string>
+            {
+                ["[Backspace]"] = "[<bs]",
+                ["[Tab]"] = "[<tab]",
+                ["[Enter]"] = "[<cr]",
+                ["[Delete]"] = "[<del]",
+                ["[Left]"] = "[<-]",
+                ["[Right]"] = "[->]",
+                ["[Up]"] = "[<up]",
+                ["[Down]"] = "[<dn]",
+                ["[Home]"] = "[<hm]",
+                ["[End]"] = "[<end]",
+                ["[PageUp]"] = "[<pu]",
+                ["[PageDown]"] = "[<pd]",
+                ["[Esc]"] = "[<esc]",
+                ["[Copy]"] = "[<copy]",
+                ["[Cut]"] = "[<cut]",
+                ["[Undo]"] = "[<undo]",
+                ["[Paste]"] = "[<paste]",
+            };
+            foreach (var pair in shortMap)
+                text = text.Replace(pair.Key, pair.Value, StringComparison.Ordinal);
+            return text;
         }
 
         private static void AddUniqueLimited(List<string> items, string value, int maxItems, int maxLen)
@@ -648,6 +763,15 @@ namespace CommitBallAgent
             if (full.StartsWith(data, StringComparison.OrdinalIgnoreCase))
                 return full[data.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
             return path.Replace('\\', '/');
+        }
+
+        private static string ToAbsoluteDataPath(string path)
+        {
+            var normalized = path.Replace('\\', '/').TrimStart('/');
+            if (normalized.StartsWith("data/", StringComparison.OrdinalIgnoreCase))
+                normalized = normalized["data/".Length..];
+            if (Path.IsPathRooted(path)) return Path.GetFullPath(path);
+            return Path.GetFullPath(Path.Combine(DataDir, normalized.Replace('/', Path.DirectorySeparatorChar)));
         }
 
         private static bool TextFileContains(string path, string needle)

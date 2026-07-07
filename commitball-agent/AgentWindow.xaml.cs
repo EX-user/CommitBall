@@ -699,9 +699,9 @@ namespace CommitBallAgent
                 var prompt =
                     "现在开始 CommitBall 归档修复和 meta 模型分析任务。\n" +
                     "请严格按以下步骤执行：\n" +
-                    "1. 先调用 repair_archives 工具。这个工具只做机器修复：扫描 data/sessions，导出缺失 txt，生成缺失 meta/cluster；如果对应 meta.json 已存在，工具不会修改它。\n" +
+                    "1. 先调用 repair_archives 工具。这个工具只做机器修复：扫描 data/sessions；只生成缺失的 .txt、.raw.txt、meta.json 和 _clusters/ 文件；已存在的派生产物不会覆盖。这个工具不做模型总结。\n" +
                     "2. 使用 list 工具查看 exports/，递归定位所有 *.meta.json；必要时按 YYYY-MM 子目录逐个 list。\n" +
-                    "3. 逐个检查 meta 是否已经有模型总结信息。判定为已完成的条件是：summary_source 为 agent，summary 非空；如果 clusters 存在，重要 cluster 也应有 summary_source=agent 且 agent_summary 非空。\n" +
+                    "3. 逐个检查 meta 是否已经有模型总结信息。判定为已完成的条件是：顶层 summary_source 为 agent 且 summary 非空；如果 clusters 存在，重要 cluster 也应有 summary_source=agent 且 agent_summary 非空。\n" +
                     "4. 对没有完成模型总结的 meta，调用 subtask。每个 subtask 负责一个 meta 文件：读取该 meta，读取 txt_path 指向的导出文本，读取 clusters 中重要 cluster 的 txt_path，然后调用 update_meta 更新 title、work_tags、summary 和必要的 cluster_summaries。\n" +
                     "5. subtask 必须基于 read 读到的内容总结，不要猜测不存在的事实；不要用 write 覆盖 meta，只能用 update_meta。\n" +
                     "6. 所有待处理 meta 都完成后，给出简短结果：机器修复结果、检查了多少 meta、更新了多少 meta、跳过了多少已完成 meta。\n";
