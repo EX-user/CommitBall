@@ -22,17 +22,20 @@
 | dca250b8 | PASS | commitball/recorder.hpp:81-96; commitball/recorder.hpp:1077-1114; commitball/recorder.hpp:1127-1145; commitball/click.hpp:46-49 |
 | e14d16a8 | PASS | commitball/recorder.hpp:40; commitball/ball_shared.hpp:22 |
 | a41a454a | PASS | commitball/recorder.hpp:44; commitball/recorder.hpp:38; commitball/recorder.hpp:40; commitball/recorder.hpp:431-437; commitball/core_window.hpp:64-68 |
-| a2cd2a02 | PASS | commitball/recorder.hpp:815-912; commitball/recorder.hpp:456-468; commitball/main.cpp:377-384; commitball/main.cpp:323-326 |
-| 0f87d2e4 | PASS | commitball/recorder.hpp:726-855; commitball-agent/ArchiveRepair.cs:314-419; commitball-agent/Tools.cs:696-791 |
+| c17edb3e | PASS | commitball/recorder.hpp:455-456; commitball/dbexport.hpp:67-76; commitball/dbexport.hpp:114-216 |
+| 611e4931 | PASS | commitball/recorder.hpp:520-607; commitball/main.cpp:416-421 |
+| 4d935f88 | PASS | commitball-agent/ArchiveRepair.cs:107-117; commitball-agent/ArchiveRepair.cs:315-423; commitball-agent/AgentWindow.xaml.cs:697-711; commitball-agent/Tools.cs:696-794 |
 | f382f3bd | PASS | commitball/recorder.hpp:380-386; commitball/recorder.hpp:1183-1204; commitball/recorder.hpp:1125-1151 |
-| 690908ff | PASS | commitball/recorder.hpp:480-495; commitball/dbexport.hpp:94-216; commitball/recorder.hpp:431-437; commitball-agent/ArchiveRepair.cs:112-308 |
+| b4eab646 | PASS | commitball-agent/ArchiveRepair.cs:111-115; commitball/recorder.hpp:520-607 |
+| 5a888f6b | PASS | commitball-agent/ArchiveRepair.cs:131-291; commitball-agent/ArchiveRepair.cs:609-628 |
+| b032bd1f | PASS | commitball-agent/ArchiveRepair.cs:111-115; commitball-agent/ArchiveRepair.cs:187-289; commitball-agent/ArchiveRepair.cs:621-628 |
 | 938c26e7 | PASS | commitball/dbexport.hpp:49-66; commitball/dbexport.hpp:122-124; commitball/recorder.hpp:766-771; commitball-agent/ArchiveRepair.cs:582-599 |
 | e1efd10a | PASS | commitball/main.cpp:601-610; commitball-agent/Tools.cs:115-185; commitball/recorder.hpp:815-826; commitball/main.cpp:612-641 |
-| 5f9e8c08 | PASS | commitball/recorder.hpp:621-724; commitball-agent/ArchiveRepair.cs:421-498 |
+| d7328be7 | PASS | commitball-agent/ArchiveRepair.cs:102-110; commitball-agent/ArchiveRepair.cs:427-555; commitball-agent/ArchiveRepair.cs:557-590 |
 | f3ccd1d9 | PASS | commitball/recorder.hpp:89-133; commitball/recorder.hpp:63 |
 | 74ff067c | PASS | commitball/main.cpp:662-695; commitball/main.cpp:833; commitball/core_window.hpp:88-91 |
 | bf997e4d | PASS | commitball/recorder.hpp:1172-1243; commitball/recorder.hpp:1066-1086; commitball/recorder.hpp:855; commitball/click.hpp:46-86 |
-| 21d0fe26 | PASS | commitball/recorder.hpp:372-408; commitball-agent/ArchiveRepair.cs:458-468; commitball/recorder.hpp:1245-1255 |
+| 3bffa0c8 | PASS | commitball/recorder.hpp:455-456; commitball/recorder.hpp:520-607; commitball-agent/ArchiveRepair.cs:99-117; commitball-agent/ArchiveRepair.cs:557-590; commitball-agent/ArchiveRepair.cs:593-602 |
 | 73ea74e7 | PASS | commitball/recorder.hpp:376; commitball/recorder.hpp:379-391; commitball/recorder.hpp:164; commitball/recorder.hpp:393-398; commitball/recorder.hpp:1045-1050 |
 | 1c9d663b | PASS | commitball/recorder.hpp:1038; commitball/recorder.hpp:1041; commitball/recorder.hpp:1215; commitball/recorder.hpp:1356; commitball/recorder.hpp:1227-1229; commitball/recorder.hpp:1291; commitball/recorder.hpp:1095; commitball/recorder.hpp:1117; commitball/recorder.hpp:79; commitball/click.hpp:76 |
 | 9763b2fe | PASS | commitball/recorder.hpp:59; commitball/recorder.hpp:66; commitball/recorder.hpp:193-254; commitball/recorder.hpp:817; commitball-agent/Tools.cs:232-257; commitball-agent/Tools.cs:296-311; commitball/main.cpp:552-563 |
@@ -49,13 +52,13 @@
 | 7f99ee2f | PASS | commitball/recorder.hpp:44-48; commitball-agent/Config.cs:16-18; commitball-ball-shell/PipeBallBackend.cs:14; commitball-agent/AgentWindow.xaml.cs:63 |
 | 8018f6f5 | PASS | commitball-agent/Config.cs:18; commitball-agent/Config.cs:36-45; commitball/recorder.hpp:198; commitball/recorder.hpp:262; commitball/recorder.hpp:817; commitball/recorder.hpp:822; commitball-bar/BarWindow.xaml.cs:38; commitball-agent/AgentWindow.xaml.cs:64; commitball-agent/Tools.cs:17; commitball/main.cpp:534-545 |
 | 479a77f8 | PASS | commitball-agent/AgentWindow.xaml.cs:679-684; commitball-agent/commitball-agent.csproj:23-33 |
-| ed0b4686 | PASS | commitball/recorder.hpp:44-48; commitball/recorder.hpp:833-840; commitball-agent/Config.cs:16-18; commitball-agent/Tools.cs:42-43; commitball-agent/Tools.cs:586-588; commitball-agent/Memory.cs:80-86 |
+| d8c3339f | PASS | commitball/recorder.hpp:44-48; commitball/recorder.hpp:832-839; commitball-agent/Config.cs:16-18; commitball-agent/Tools.cs:42-43; commitball-agent/Tools.cs:586-588; commitball-agent/Memory.cs:80-86 |
 | f7c2da09 | PASS | commitball-bar/BarWindow.xaml.cs:396-404; commitball-bar/BarWindow.xaml.cs:327-338 |
 | fefc68e8 | PASS | commitball-agent/Memory.cs:96-142; commitball-agent/Runtime.cs:111-125; commitball-agent/Runtime.cs:225 |
 | ec55f9c1 | PASS | commitball-agent/Config.cs:18; commitball-agent/Config.cs:28-30; commitball-agent/Config.cs:36-45; commitball-agent/AgentWindow.xaml.cs:580-644 |
 | 1f524c54 | PASS | commitball-agent/AgentWindow.xaml.cs:653-657; commitball-agent/AgentWindow.xaml.cs:717-774; commitball-agent/AgentWindow.xaml.cs:819-854 |
 | f97fe4e1 | PASS | commitball-ball-shell/PipeBallBackend.cs:14; commitball-ball-shell/PipeBallBackend.cs:88-97; commitball-ball-shell/PipeBallBackend.cs:242-267; commitball-ball-shell/BallWindow.cs:82; commitball-ball-shell/BallWindow.cs:186; commitball/main.cpp:534-545; commitball/recorder.hpp:928-934 |
-| 1629663a | PASS | commitball-agent/ArchiveRepair.cs:84-109; commitball-agent/ArchiveRepair.cs:112-130; commitball-agent/ArchiveRepair.cs:314-419; commitball-agent/ArchiveRepair.cs:421-498; commitball-agent/Tools.cs:50; commitball-agent/Tools.cs:201; commitball-agent/Tools.cs:263 |
+| a6f492f9 | PASS | commitball-agent/ArchiveRepair.cs:87-117; commitball-agent/ArchiveRepair.cs:427-555; commitball-agent/ArchiveRepair.cs:557-590; commitball/recorder.hpp:520-607 |
 | 9e6a3d13 | PASS | commitball-bar/BarWindow.xaml.cs:38; commitball-bar/BarWindow.xaml.cs:54; commitball-bar/BarWindow.xaml.cs:57-66; commitball-agent/AgentWindow.xaml.cs:64; commitball-agent/AgentWindow.xaml.cs:66-69; commitball-agent/Tools.cs:17; commitball-agent/Tools.cs:128-147; commitball/main.cpp:180; commitball/main.cpp:307-309; commitball/main.cpp:602 |
 | f6286aee | PASS | commitball-ball-shell/BallWindow.cs:12-84; commitball-ball-shell/BallWindow.cs:379-427; commitball-ball-shell/BallWindow.cs:194-234; commitball-ball-shell/BallWindow.cs:161-173; commitball-ball-shell/BallWindow.cs:580-654; commitball-ball-shell/BallWindow.cs:42-46; commitball-ball-shell/BallWindow.cs:95-112; commitball-ball-shell/BallWindow.cs:149-153 |
 | edee3c73 | PASS | commitball/main.cpp:419; commitball/main.cpp:434-435; commitball/main.cpp:482-519; commitball-ball-shell/PipeBallBackend.cs:111; commitball-ball-shell/PipeBallBackend.cs:105-133; commitball-ball-shell/PipeBallBackend.cs:121 |
@@ -84,7 +87,7 @@
 | 619cce4b | PASS | commitball-agent/AgentWindow.xaml.cs:288-335; commitball-agent/AgentWindow.xaml.cs:448-486; commitball-agent/AgentWindow.xaml.cs:1029-1048; commitball-agent/Tools.cs:115-185 |
 | d38ebad8 | PASS | commitball-agent/Tools.cs:23-29; commitball-agent/Tools.cs:313-407; commitball-agent/Tools.cs:409-489; commitball-agent/Tools.cs:550-607; commitball-agent/Tools.cs:609-668 |
 | 644347e1 | PASS | commitball-agent/Tools.cs:410-449; commitball-agent/Tools.cs:504-607 |
-| 00c9ebf2 | PASS | commitball-agent/Tools.cs:52; commitball-agent/Tools.cs:209-229; commitball-agent/Tools.cs:231-244; commitball-agent/Tools.cs:296-311; commitball-agent/Tools.cs:670-791 |
+| 773d9426 | PASS | commitball-agent/Tools.cs:51; commitball-agent/Tools.cs:82; commitball-agent/ArchiveRepair.cs:87-117; commitball-agent/ArchiveRepair.cs:557-590 |
 | d58ca666 | PASS | commitball-agent/Runtime.cs:26; commitball-agent/Runtime.cs:30; commitball-agent/Runtime.cs:69-145; commitball-agent/Runtime.cs:137-143; commitball-agent/Runtime.cs:201-207; commitball-agent/Tools.cs:113 |
 | ac8e0d89 | PASS | commitball/recorder.hpp:841-846; commitball/main.cpp:340-378; commitball/main.cpp:388-414; commitball/main.cpp:651-695; commitball-agent/Tools.cs:128-147 |
 | 4385429a | PASS | commitball-agent/summary_to_panel-prompt.md:40; commitball-agent/summary_to_panel-prompt.md:49-55; commitball-agent/summary_to_panel-prompt.md:57-85; commitball-agent/summary_to_panel-prompt.md:112-144; commitball-agent/Tools.cs:82-83 |

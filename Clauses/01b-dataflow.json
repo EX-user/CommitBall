@@ -7,7 +7,7 @@
   {
     "title": "DB_EXCLUSIVE_ACCESS",
     "accordance": ["DB_PURPOSE"],
-    "content": "Core 是唯一向 current.db 写入的进程. Agent 仅以只读方式 (Microsoft.Data.Sqlite, ReadOnly 模式) 打开 data/sessions/ 下的归档数据库进行补全 (重新导出缺失的 txt/meta/cluster 文件), 不直接访问 current.db. Bar 通过 pipe 将 direct-input 发给 Core 代为写入. WeaselServer 通过 pipe 单向发送数据给 Core, 不直接操作数据库."
+    "content": "Core 是唯一向 current.db 写入的进程, 也是唯一执行数据库轮转的进程. Agent 仅以只读方式 (Microsoft.Data.Sqlite, ReadOnly 模式) 打开 data/sessions/ 下的归档数据库, 并作为唯一实现从归档 .db 补齐缺失 txt/raw/meta/cluster 派生产物; Agent 不直接访问 current.db. Bar 通过 pipe 将 direct-input 发给 Core 代为写入. WeaselServer 通过 pipe 单向发送数据给 Core, 不直接操作数据库."
   },
   {
     "title": "DB_SCHEMA",

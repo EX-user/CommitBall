@@ -47,7 +47,7 @@
   {
     "title": "AGENT_TOOLS_CONTROL",
     "accordance": ["AGENT_ROOT"],
-    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (补全归档缺失的 txt/meta/cluster 文件), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取当前本地时间、星期几、UTC 时间、时区和 UTC 偏移). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
+    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (机器修复归档: 只补缺失 txt/raw/meta/cluster, 不覆盖已有派生产物, 不做模型分析), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取当前本地时间、星期几、UTC 时间、时区和 UTC 偏移). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
   },
   {
     "title": "AGENT_TOOLS_SUBTASK",

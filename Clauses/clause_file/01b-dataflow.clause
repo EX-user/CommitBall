@@ -6,15 +6,15 @@
     "content": "数据库存储由确定性代码 (LL 钩子, WeaselServer pipe, 焦点轮询, UI Automation) 截取的原始用户行为数据, 不经过 AI 加工. 这些数据是后续分析 (Agent 报告生成, 归档导出, 面板渲染) 的事实来源. 系统运行期间会产生大量数据库文件 (每次轮转生成一个归档库)."
   },
   {
-    "cuid": "21d0fe26",
+    "cuid": "3bffa0c8",
     "accordance": ["DB_PURPOSE"],
     "accordance-cuid": ["bf997e4d"],
-    "content": "Core 是唯一向 current.db 写入的进程. Agent 仅以只读方式 (Microsoft.Data.Sqlite, ReadOnly 模式) 打开 data/sessions/ 下的归档数据库进行补全 (重新导出缺失的 txt/meta/cluster 文件), 不直接访问 current.db. Bar 通过 pipe 将 direct-input 发给 Core 代为写入. WeaselServer 通过 pipe 单向发送数据给 Core, 不直接操作数据库."
+    "content": "Core 是唯一向 current.db 写入的进程, 也是唯一执行数据库轮转的进程. Agent 仅以只读方式 (Microsoft.Data.Sqlite, ReadOnly 模式) 打开 data/sessions/ 下的归档数据库, 并作为唯一实现从归档 .db 补齐缺失 txt/raw/meta/cluster 派生产物; Agent 不直接访问 current.db. Bar 通过 pipe 将 direct-input 发给 Core 代为写入. WeaselServer 通过 pipe 单向发送数据给 Core, 不直接操作数据库."
   },
   {
     "cuid": "73ea74e7",
     "accordance": ["DB_EXCLUSIVE_ACCESS"],
-    "accordance-cuid": ["21d0fe26"],
+    "accordance-cuid": ["3bffa0c8"],
     "content": "SQLite 数据库 (current.db) 启用 WAL 模式, 包含两张表: log (id INTEGER PK AUTOINCREMENT, record_id INTEGER, ts TEXT, type TEXT, content TEXT) 和 config (key TEXT PK, value TEXT). log 表有 idx_ts 索引. 所有事件通过同一个全局 prepared statement (g_insertStmt) 同步插入, 每事件一次 bind+step, 无批处理或内存缓冲."
   },
   {
@@ -26,7 +26,7 @@
   {
     "cuid": "9763b2fe",
     "accordance": ["DB_EXCLUSIVE_ACCESS"],
-    "accordance-cuid": ["21d0fe26"],
+    "accordance-cuid": ["3bffa0c8"],
     "content": "config 表存储 Core 的运行时配置, 键值包括: bar_trigger (唤醒序列, 默认 \\ccb), eye_mode (眼睛模式, 默认 true), auto_analysed (本库容量预分析是否已成功投递). 这些键由 Core 直接读写. 外部修改通过 pipe 命令间接触发: Agent 通过 set_bar_trigger 和 set_eye_mode 工具发送 CMD SET_TRIGGER 和 CMD SET_EYE_MODE, 由 Core 代为执行. BallShell 窗口几何状态独立存储于 data/ball-shell-state.json, 不经过 config 表."
   },
   {

@@ -18,10 +18,10 @@
     "content": "安装包附带只读静态资源, 不在运行时修改: summary_to_panel-prompt.md (Agent 汇总分析 prompt), panel-template.html (面板 HTML 模板), summary_task_exp_decay_memory_template.md (长期记忆模板). 这些文件随安装包分发, Agent 在运行时读取但不修改."
   },
   {
-    "cuid": "ed0b4686",
+    "cuid": "d8c3339f",
     "accordance": ["FILE_ROOT"],
     "accordance-cuid": ["7f99ee2f"],
-    "content": "所有用户数据存储在 data/ 目录下, 按用途分层: data/db/current.db (活跃数据库); data/sessions/YYYY-MM/<ts>.db (归档数据库); data/exports/YYYY-MM/ (三档文本 .txt/.raw.txt/.summary.txt + .meta.json + _clusters/ 子目录); data/live/live.txt (实时文本快照); data/notes/YYYY-MM-DD.txt (每日笔记); data/agent-out/ (Agent 输出: panel.html, index.json, memory/, reports/YYYY-MM/, extracts/YYYY-MM/, scratch/YYYY-MM/ 四类写入目录); data/agent-memory/<id>.json (会话内存); data/log/*.log (Core/Bar/Agent 三个进程的日志, BallShell 无日志文件); data/agent-config.json, data/*-status, data/ball-shell-state.json (配置和状态文件). 安装目录根下还有 commitball.pos (BallShell 旧式位置文件, 不在 data/ 内)."
+    "content": "所有用户数据存储在 data/ 目录下, 按用途分层: data/db/current.db (活跃数据库); data/sessions/YYYY-MM/<ts>.db (归档数据库); data/exports/YYYY-MM/ (归档文本 .txt/.raw.txt + .meta.json + _clusters/ 子目录); data/live/live.txt (实时文本快照); data/notes/YYYY-MM-DD.txt (每日笔记); data/agent-out/ (Agent 输出: panel.html, index.json, memory/, reports/YYYY-MM/, extracts/YYYY-MM/, scratch/YYYY-MM/ 四类写入目录); data/agent-memory/<id>.json (会话内存); data/log/*.log (Core/Bar/Agent 三个进程的日志, BallShell 无日志文件); data/agent-config.json, data/*-status, data/ball-shell-state.json (配置和状态文件). 安装目录根下还有 commitball.pos (BallShell 旧式位置文件, 不在 data/ 内)."
   },
   {
     "cuid": "f7c2da09",
@@ -54,10 +54,10 @@
     "content": "BallShell 的窗口几何状态 (x, y, edge, visible) 存储在 data/ball-shell-state.json. 存在双重写入: BallShell 在拖动结束和窗口关闭时直接写入; Core 收到 BallShell 的 UI_WINDOW_STATE pipe 消息后也写入同一文件. 此外 BallShell 还在程序根目录写入 commitball.pos (旧式位置格式 'x y edgeInt') 作为兼容."
   },
   {
-    "cuid": "1629663a",
+    "cuid": "a6f492f9",
     "accordance": ["AGENT_TOOLS_CONTROL"],
-    "accordance-cuid": ["00c9ebf2"],
-    "content": "Agent 的 ArchiveRepair.cs 是 Core 侧导出逻辑 (ExportSessionDb, GenerateSessionMetadata, WriteArchiveClusters) 的 C# 等价实现. 它以只读方式打开 data/sessions/ 下的 .db 文件, 刷新三档文本 (.txt/.raw.txt/.summary.txt); 当 meta.json 缺失时才生成 meta.json 和 cluster 文件. 它不修改 .db 文件本身, 也不覆盖已存在的 meta.json."
+    "accordance-cuid": ["773d9426"],
+    "content": "Agent 的 ArchiveRepair.cs 是归档文本、meta.json 和 cluster 文件的唯一生成实现. 它以只读方式打开 data/sessions/ 下的 .db 文件, 按派生产物是否存在进行补缺: 缺失 .txt/.raw.txt 才生成, 缺失 cluster 文件才生成, 缺失 meta.json 才生成规则版 meta.json; 已存在的派生产物默认不覆盖, 不生成 .summary.txt, repair_archives 不提供覆盖重建入口. 它不修改 .db 文件本身, 也不覆盖已存在的 meta.json. Core 不维护归档导出等价实现, 仅维护 data/live/live.txt 的实时快照导出."
   },
   {
     "cuid": "9e6a3d13",

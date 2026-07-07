@@ -85,14 +85,19 @@
     "content": "记录数据存储在 data/db/current.db (SQLite). 每 30 秒自动刷新 data/live/live.txt 为当前数据库的文本输出. 数据库容量上限为 512KB."
   },
   {
+    "title": "REC_LIVE_SNAPSHOT",
+    "accordance": ["REC_STORAGE"],
+    "content": "data/live/live.txt 是 current.db 的实时 Agent 分析快照, 由 Core 每 30 秒刷新. live.txt 应采用与归档 .txt 同类的 Agent 分析包规则: 过滤系统噪声焦点, 保留关键事件时间戳, 连接连续相邻 commit, 但在编辑键、click、paste、focus、direct-input、away/back 等事件处打断输入片段并保留事件顺序. live.txt 不承担归档溯源职责, 不应使用 raw.txt 的完整事实日志策略."
+  },
+  {
     "title": "REC_ROTATION",
     "accordance": ["REC_DB_CAPACITY"],
-    "content": "数据库达到 512KB 上限时自动轮转: 旧数据库重命名归档到 data/sessions/YYYY-MM/, 导出三档文本 (.txt/.raw.txt/.summary.txt) 到 data/exports/YYYY-MM/, 新数据库保留旧库最后 50 行. 轮转后自动触发 Agent 归档补全 (InvokeAgentRepairArchives, 发送 /repair_archives 指令), 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则静默跳过, 待下次轮转或手动补全时重试. 储存布局的细节将由独立条款体系详述."
+    "content": "数据库达到 512KB 上限时自动轮转: Core 仅负责将旧数据库重命名归档到 data/sessions/YYYY-MM/, 新数据库保留旧库最后 50 行, 并启动/通知 Agent 执行 /repair_archives. 归档文本、meta.json 和 cluster 文件不由 Core 生成, 统一由 Agent ArchiveRepair 从归档 .db 派生. 该调用会先 EnsureAgentRunning(), 若 Agent 不可用则记录日志并等待下次轮转、Agent 启动或手动 repair 时补齐. 储存布局的细节将由独立条款体系详述."
   },
   {
     "title": "REC_META_JSON",
     "accordance": ["REC_ROTATION"],
-    "content": "每次会话归档时生成 meta.json 元数据文件, 字段包括: session_id, 起止时间, 标题, work_tags, rule_summary, 事件数, direct-input 数, focus_top 和 clusters. 机器生成 meta 时必须先过滤系统噪声进程和空焦点, 标题优先取首个 direct-input, 其次取过滤后的最高频窗口标题; work_tags 和 focus_top 只统计有效工作进程. source 字段初始为 'rule' 表示机器生成; Agent 可通过 update_meta 工具覆盖标题/标签/摘要并改为 'agent'."
+    "content": "会话归档缺失 meta.json 时, ArchiveRepair 生成规则版元数据文件, 字段包括: session_id, 起止时间, 标题, work_tags, rule_summary, 事件数, direct-input 数, focus_top 和 clusters. 已存在的 meta.json 不由机器修复覆盖, repair_archives 不提供覆盖重建入口. 后续是否进行 Agent 模型分析只取决于 meta 是否已含 agent 总结信息, 即顶层 summary_source 为 agent 且 summary 非空, 重要 cluster 也应有 summary_source=agent 且 agent_summary 非空. meta.json 必须以 UTF-8 写出, 人类可读文本中的中文等非 ASCII 字符应直接保留, 不应保存为 \\uXXXX 转义形式. 机器生成 meta 时必须先过滤系统噪声进程和空焦点, 标题优先取首个 direct-input, 其次取过滤后的最高频窗口标题; work_tags 和 focus_top 只统计有效工作进程. source 字段初始为 'rule' 表示机器生成; Agent 可通过 update_meta 工具覆盖标题/标签/摘要并改为 'agent'."
   },
   {
     "title": "REC_RECORD_ID",
@@ -102,7 +107,17 @@
   {
     "title": "REC_EXPORT_PROFILES",
     "accordance": ["REC_ROTATION"],
-    "content": "每次归档导出三档文本: .raw.txt 是完整事实日志, 保留 click、keystroke、focus-stay、timer 和连续 focus 计数, 仅供追溯; .summary.txt 是人类可读时间线, 过滤系统噪声进程和空焦点, 不输出 click/raw keystroke/timer, 合并连续 commit 为输入片段, direct-input 和 paste 只保留短预览, away/back 压缩为状态变化; .txt 是 Agent 分析包, 使用同样的噪声过滤和输入合并, 但保留 direct-input、paste 和输入片段全文. live.txt 也使用 Agent 档."
+    "content": "归档 .db 的文本产物由 Agent ArchiveRepair 唯一生成: .raw.txt 是完整事实日志, 保留 click、keystroke、focus-stay、timer 和连续 focus 计数, 仅供追溯; .txt 是 Agent 分析包, 保留关键事件时间线和输入复原信息. 不再生成 .summary.txt; 面向人类快速阅读和总结的职责由 meta.json 承担."
+  },
+  {
+    "title": "REC_AGENT_EXPORT",
+    "accordance": ["REC_EXPORT_PROFILES"],
+    "content": ".txt 是面向 Agent 分析的归档文档, 不要求逐事件保真, 但必须保留足够信息帮助模型复原实际输入过程. .txt 必须按时间顺序保留关键事件时间戳; 连续相邻 commit 可连接为一个 [input] 片段并记录起止时间, 但如果 commit 之间出现 keystroke、click、paste、focus、direct-input、away/back 等事件, 必须先结束当前 [input], 按顺序写出该事件, 再开始新的 [input]. 编辑类 keystroke 必须以独立 [key] 行保留, 至少包括 Backspace/Delete、方向键、Home/End、PageUp/PageDown、Enter、Tab、Esc、Copy/Cut/Undo. paste 在 .txt 中完整保留; direct-input、away/back 和有效 focus 独立保留; timer 跳过; 无输入上下文且不伴随焦点变化的 click 可跳过, 完整细节以 raw 为准."
+  },
+  {
+    "title": "REC_RAW_EXPORT",
+    "accordance": ["REC_EXPORT_PROFILES"],
+    "content": ".raw.txt 必须按归档 .db 的 log 顺序导出所有事件, 不做噪声过滤或语义合并. 每条原始事件行必须保留该行的 ts 时间戳和 type, 以支持事件级溯源; record 分块标题可保留首尾时间作为辅助信息. raw 导出允许对特殊键、多行文本和不可见控制字符做可读化转义, 但不得丢失事件顺序和事件级时间信息. .raw.txt 不是 .db 的无损替代, 权威事实源仍是归档 .db."
   },
   {
     "title": "REC_SHELL_FILTER",
@@ -117,7 +132,7 @@
   {
     "title": "REC_CLUSTER_WRITING",
     "accordance": ["REC_ROTATION"],
-    "content": "归档时按有效工作进程聚类, 系统噪声焦点不创建 cluster, 噪声期间产生的事件归入最近一个有效工作 cluster; 若尚无有效焦点则归入 misc. cluster 文件使用 Agent 档同类的去噪文本, 合并连续输入片段, 不写 raw click/keystroke/timer. cluster 目录先清空再重新生成. 每个 cluster 记录事件数, direct-input 数, 窗口样本 (Top 5), 输入样本 (Top 5) 和 ≤500 字符的 rule_summary. 最终 cluster 按事件数降序排列."
+    "content": "归档时按有效工作应用聚类, 同一应用的操作按时间顺序聚合到同一个 cluster 文件; 系统噪声焦点不创建 cluster, 噪声期间产生的事件归入最近一个有效工作 cluster; 若尚无有效焦点则归入 misc. cluster 文件使用 REC_AGENT_EXPORT 同类文本规则: 保留关键事件时间戳, 连接连续相邻 commit, 在编辑键、click、paste、focus、direct-input、away/back 等事件处打断输入片段并保留事件顺序, 不写 timer. repair 只生成缺失的 cluster 文件, 已存在的 cluster 文件不覆盖, repair_archives 不提供覆盖重建入口. 每个 cluster 记录事件数, direct-input 数, 窗口样本 (Top 5), 输入样本 (Top 5) 和 ≤500 字符的 rule_summary. 最终 cluster 按事件数降序排列."
   },
   {
     "title": "BAR_TRIGGER_DETECT",
