@@ -295,7 +295,11 @@ namespace CommitBallAgent
                                 toolCallsMap[idx] = call;
                             }
                             if (tc.TryGetProperty("id", out var idEl))
-                                call.Id = idEl.GetString() ?? "";
+                            {
+                                var streamedId = idEl.GetString();
+                                if (!string.IsNullOrWhiteSpace(streamedId))
+                                    call.Id = streamedId;
+                            }
                             if (tc.TryGetProperty("function", out var fnEl))
                             {
                                 if (fnEl.TryGetProperty("name", out var nameEl))
@@ -322,6 +326,7 @@ namespace CommitBallAgent
             }
 
             sw.Stop();
+            NormalizeStreamedToolCalls(toolCallsMap);
             var result = new LLMResponse
             {
                 Content = content.ToString(),
@@ -367,12 +372,12 @@ namespace CommitBallAgent
                 if (role == "tool")
                 {
                     var toolCallId = message.ToolCallId ?? "";
-                    if (RemovePendingToolCallId(pendingToolCallIds, toolCallId))
+                    if (RemovePendingToolCallId(pendingToolCallIds, toolCallId, out var normalizedToolCallId))
                     {
                         result.Add(new Message
                         {
                             Role = "tool",
-                            ToolCallId = toolCallId,
+                            ToolCallId = normalizedToolCallId,
                             Content = message.Content ?? ""
                         });
                     }
@@ -432,6 +437,23 @@ namespace CommitBallAgent
             return result;
         }
 
+        private static void NormalizeStreamedToolCalls(Dictionary<int, ToolCall> toolCallsMap)
+        {
+            var usedIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var pair in toolCallsMap)
+            {
+                var toolCall = pair.Value;
+                var id = toolCall.Id?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(id) || usedIds.Contains(id))
+                {
+                    id = $"call_{Guid.NewGuid():N}";
+                    toolCall.Id = id;
+                }
+                usedIds.Add(id);
+                toolCall.Name = toolCall.Name?.Trim() ?? "";
+            }
+        }
+
         private static string NormalizeRole(string? role)
         {
             if (string.IsNullOrWhiteSpace(role))
@@ -459,7 +481,12 @@ namespace CommitBallAgent
             {
                 var id = toolCall.Id?.Trim() ?? "";
                 var name = toolCall.Name?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name) || !seenIds.Add(id))
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    id = $"call_sanitized_{Guid.NewGuid():N}";
+                    fixes++;
+                }
+                if (string.IsNullOrWhiteSpace(name) || !seenIds.Add(id))
                 {
                     fixes++;
                     continue;
@@ -496,15 +523,23 @@ namespace CommitBallAgent
             return "{}";
         }
 
-        private static bool RemovePendingToolCallId(List<string> pendingToolCallIds, string toolCallId)
+        private static bool RemovePendingToolCallId(List<string> pendingToolCallIds, string toolCallId, out string normalizedToolCallId)
         {
+            normalizedToolCallId = toolCallId;
             if (string.IsNullOrWhiteSpace(toolCallId))
-                return false;
+            {
+                if (pendingToolCallIds.Count == 0)
+                    return false;
+                normalizedToolCallId = pendingToolCallIds[0];
+                pendingToolCallIds.RemoveAt(0);
+                return true;
+            }
             for (var i = 0; i < pendingToolCallIds.Count; i++)
             {
                 if (pendingToolCallIds[i] == toolCallId)
                 {
                     pendingToolCallIds.RemoveAt(i);
+                    normalizedToolCallId = toolCallId;
                     return true;
                 }
             }
