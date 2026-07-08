@@ -84,6 +84,7 @@
 | b17d2e37 | PASS | commitball-agent/PipeServer.cs:13; commitball-agent/PipeServer.cs:42-90; commitball-agent/AgentWindow.xaml.cs:1456-1485; commitball-agent/AgentWindow.xaml.cs:943-957; commitball-agent/Memory.cs:77; commitball-agent/Memory.cs:173-176 |
 | b34ba804 | PASS | commitball-agent/Config.cs:18; commitball-agent/Config.cs:36-45; commitball-agent/AgentWindow.xaml.cs:580-644; commitball-agent/LLMClient.cs:82-153 |
 | e560cbc0 | PASS | commitball-agent/LLMClient.cs:22-25; commitball-agent/LLMClient.cs:155-161; commitball-agent/LLMClient.cs:163-205; commitball-agent/AgentWindow.xaml.cs:1025-1026; commitball-agent/AgentWindow.xaml.cs:1054-1058; commitball-agent/AgentWindow.xaml.cs:285; commitball-agent/AgentWindow.xaml.cs:98 |
+| 87e24eb1 | PASS | commitball-agent/LLMClient.cs:215-220; commitball-agent/LLMClient.cs:336-433; commitball-agent/LLMClient.cs:436-525 |
 | 619cce4b | PASS | commitball-agent/AgentWindow.xaml.cs:288-335; commitball-agent/AgentWindow.xaml.cs:448-486; commitball-agent/AgentWindow.xaml.cs:1029-1048; commitball-agent/Tools.cs:115-185 |
 | d38ebad8 | PASS | commitball-agent/Tools.cs:23-29; commitball-agent/Tools.cs:313-407; commitball-agent/Tools.cs:409-489; commitball-agent/Tools.cs:550-607; commitball-agent/Tools.cs:609-668 |
 | 644347e1 | PASS | commitball-agent/Tools.cs:410-449; commitball-agent/Tools.cs:504-607 |

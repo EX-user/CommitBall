@@ -36,6 +36,12 @@
     "content": "LLM API 错误通过 LLMException 结构化抛出. ThrowApiError 解析 OpenAI 风格的 error 对象 (code/type/message), CleanErrorBody 折叠空白并截断到 1200 字符. 流式响应中如果检测到 error 对象也会抛出 (ThrowStreamErrorIfAny). 错误消息在终端以橙色显示, 标签页标记 HasError."
   },
   {
+    "cuid": "87e24eb1",
+    "accordance": ["AGENT_LLM_ERROR"],
+    "accordance-cuid": ["e560cbc0"],
+    "content": "Agent 在调用 LLMClient.ChatAsync 前必须执行请求级上下文清理: display 消息不得发送给模型; 未知 role 丢弃或降级为 user; system 消息只保留首条并保持在首位; assistant tool_calls 必须有非空 id, function name 和 JSON object arguments, arguments 非法时规范化为 {}; tool 消息必须对应前序未闭合 tool_call_id, 孤立 tool 消息不得发送; assistant tool_calls 缺少后续 tool result 时必须补 [cancelled] 或删除该 tool_call. 清理后的 messages 必须满足 OpenAI 风格 chat/completions 消息序列约束, 避免供应商因非法上下文返回 Param Incorrect 等 400 错误."
+  },
+  {
     "cuid": "619cce4b",
     "accordance": ["AGENT_ROOT"],
     "accordance-cuid": ["2593c911"],
