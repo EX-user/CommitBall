@@ -1,0 +1,67 @@
+[
+  {
+    "title": "AGENT_ROOT",
+    "accordance": ["SYS_MULTIPROC"],
+    "content": "CommitBall-Agent.exe 是 C# WPF AI 分析终端, 是系统的智能层. 它通过 tool calling 读取和整理 data/ 目录, 生成分析报告和可视化面板, 并通过控制类工具与其他进程交互. Agent 支持多会话并行, 维护长期记忆, 在 CommitBall 使用期间持续后台运行."
+  },
+  {
+    "title": "AGENT_TERMINAL",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 是多标签终端. 每个标签页有独立的对话历史, 运行状态, CancellationToken 和输出文档集. 标签页状态包括: open (可接收输入), busy (正在运行), full (上下文已满, 禁止输入), closed (已关闭). 标签栏按类型分组: 正常会话和 Bar 指令会话."
+  },
+  {
+    "title": "AGENT_PIPE_ENTRY",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 的 pipe 入口 (CommitBall-Agent) 接收 Core 的指令: SHOW (显示窗口), QUIT (退出), INVOKE_NEW <json> (创建新会话执行命令数组), INVOKE_BAR <json> (路由到 bar-command 会话执行). 传入的 json 是一个字符串数组, 逐条入队执行."
+  },
+  {
+    "title": "AGENT_INVOKE_ROUTING",
+    "accordance": ["AGENT_PIPE_ENTRY"],
+    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到唯一的专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. bar-command 上下文满后自动关闭并新建; 手动加载 bar-command 历史会话时替换当前 Bar 指令会话."
+  },
+  {
+    "title": "AGENT_API_CONFIG",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 的 API 配置存储在 data/agent-config.json (base_url, model, api_key). 通过 /vendor 命令查看或设置. 设置时自动验证: 先 GET /models 检查模型是否在列表中, 如果该端点不兼容则回退到 POST /chat/completions 发送 ping. 验证失败不修改配置."
+  },
+  {
+    "title": "AGENT_LLM_ERROR",
+    "accordance": ["AGENT_ROOT"],
+    "content": "LLM API 错误通过 LLMException 结构化抛出. ThrowApiError 解析 OpenAI 风格的 error 对象 (code/type/message), CleanErrorBody 折叠空白并截断到 1200 字符. 流式响应中如果检测到 error 对象也会抛出 (ThrowStreamErrorIfAny). 错误消息在终端以橙色显示, 标签页标记 HasError."
+  },
+  {
+    "title": "AGENT_BLOCKING",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 的阻塞和取消机制: 标签页 busy 或 full 时禁止输入. Esc 取消当前标签的 LLM 请求 (通过 CancellationToken). 连按 Esc x2 (1 秒内) 中断输出并清空待执行队列. /summary_to_panel 执行期间通过 AgentOutWriteLease 排他锁阻止其他会话写入 agent-out, 防止并发分析破坏输出文件."
+  },
+  {
+    "title": "AGENT_TOOLS_FILE",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 的文件操作工具: list (列目录), read (读文件). 这两个工具可访问 data/ 目录范围内的任意文件. write (写文件) 和 edit (精确替换文件片段) 仅限 data/agent-out/ 目录. grep (搜索文本) 可搜索 data/agent-out/, data/exports 或指定的 data/ 子目录."
+  },
+  {
+    "title": "AGENT_OUT_CATEGORIES",
+    "accordance": ["AGENT_TOOLS_FILE"],
+    "content": "Agent 的 write 和 edit 工具只允许四类输出目录: reports, extracts, scratch, memory. 指定其他 category 或以其他顶层目录作为 filename 路径前缀均非法. 非 memory 类别自动添加 YYYY-MM/ 月份子目录. 文件名和路径经过安全检查, 确保不逃逸 agent-out/. 已存在的 memory/summary_task_exp_decay_memory.md 和 memory/direct_settings.md 受保护: write 只能首次创建, 后续只能用 edit 增量修改."
+  },
+  {
+    "title": "AGENT_TOOLS_CONTROL",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 的系统控制工具: display_panel (生成并刷新面板), update_meta (更新归档元数据), repair_archives (机器修复归档: 只补缺失 txt/raw/meta/cluster, 不覆盖已有派生产物, 不做模型分析), set_bar_trigger (设置唤醒序列), set_eye_mode (开关眼睛模式), show_ball_bubble (气泡通知), now (获取当前本地时间、星期几、UTC 时间、时区和 UTC 偏移). 这些工具通过 Core 转发或直接操作文件系统与其他进程交互."
+  },
+  {
+    "title": "AGENT_TOOLS_SUBTASK",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 的 subtask 工具可以启动独立子任务会话, 子任务有自己的对话上下文和工具权限, 但不可嵌套. Tool 调用无硬性上限."
+  },
+  {
+    "title": "AGENT_AUTO_ANALYSIS",
+    "accordance": ["AGENT_ROOT"],
+    "content": "满足以下任一条件时自动触发 Agent 分析: 数据库容量达到 90% (约 460KB) 且本库未成功投递过容量预分析; 或 panel.html 不存在/超过 4 小时未更新. Core 会按需唤起 Agent, 但当前有 summary_to_panel 在执行时跳过 (REC_SUMMARY_LOCK). 投递失败后 5 分钟内不重试; 数据库轮转后分析标志自动重置."
+  },
+  {
+    "title": "AGENT_MEMORY",
+    "accordance": ["AGENT_ROOT"],
+    "content": "Agent 维护长期记忆文件 data/agent-out/memory/summary_task_exp_decay_memory.md (指数衰减记忆). 每次分析时读取 live.txt 和近期 exports 数据, 生成报告, 提取笔记, 更新记忆并生成 panel.html."
+  }
+]

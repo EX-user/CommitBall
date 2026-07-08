@@ -19,6 +19,7 @@
 | `weasel/output/cb-weaselx64.dll` | msbuild weasel.sln | TSF 输入法 DLL |
 | `weasel/output/WeaselServer.exe` | msbuild weasel.sln | 算法服务（含 CommitBallBridge） |
 | `weasel/output/WeaselDeployer.exe` | msbuild weasel.sln | 部署工具 |
+| `weasel/output/WeaselSetup.exe` | msbuild weasel.sln /t:WeaselSetup | 输入法注册/注销 helper |
 | `weasel/output/rime.dll` | get-rime.ps1 | Rime 引擎 |
 | `weasel/output/data/*.yaml` | build.bat data | 输入方案源数据 |
 | `weasel/output/data/opencc/` | get-rime.ps1 或官方安装包 | 繁简转换数据 |
@@ -43,14 +44,14 @@ powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
 脚本会依次：
 1. 检查所有必需文件（缺失时报错并提示修复方法）
 2. 下载或复用 `installer/redist/windowsdesktop-runtime-win-x64.exe`
-3. 检查并暂存本机词表到 `staging/build/`
+3. 检查并暂存本机词表到 `installer/staging/build/`
 4. 编译 `commitball/publish/CommitBall.exe`
 5. 发布 `commitball-bar/publish/CommitBall-Bar.exe`
 6. 发布 `commitball-agent/publish/CommitBall-Agent.exe`
 7. 发布 `commitball-ball-shell/publish/CommitBall-BallShell.exe` 和运行时皮肤资源
 8. 调用 NSIS 构建安装包
 
-产物：`installer/archives/CommitBall-0.2.1.0-installer.exe`
+产物：`installer/archives/CommitBall-0.2.3.0-installer.exe`
 
 ## 安装包内容
 

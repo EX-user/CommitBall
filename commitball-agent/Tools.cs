@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -14,6 +15,7 @@ namespace CommitBallAgent
         private static readonly object OutputToolLock = new();
         private static readonly object AgentOutWriteGate = new();
         private static string? AgentOutWriteOwnerSessionId;
+        private static string SummaryStatusPath => Path.Combine(Config.DataDir, "agent-summary-status");
         private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".db", ".sqlite", ".exe", ".dll", ".pdb", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".zip", ".7z"
@@ -38,17 +40,17 @@ namespace CommitBallAgent
         {
             var listDef = "{\"type\":\"function\",\"function\":{\"name\":\"list\",\"description\":\"List files and directories under data/. Shows name, size, and modification time. Use 'match' to filter by wildcard pattern (e.g. '*2026-06-03*').\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Subdirectory relative to data/, empty or omitted for root\"},\"match\":{\"type\":\"string\",\"description\":\"Wildcard pattern to filter filenames (e.g. '*2026-06-03*', '*.txt')\"}}}}}";
             var readDef = "{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"Read a text file under data/. Returns file content with line numbers.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\",\"description\":\"File path relative to data/\"},\"start\":{\"type\":\"integer\",\"description\":\"Starting line number (1-based), default 1\"},\"lines\":{\"type\":\"integer\",\"description\":\"Max number of lines to read, default 50\"},\"maxLen\":{\"type\":\"integer\",\"description\":\"Max total characters to return, default 4000\"}},\"required\":[\"file\"]}}}";
-            var writeDef = "{\"type\":\"function\",\"function\":{\"name\":\"write\",\"description\":\"Write content to a text file under data/agent-out/. Prefer category plus filename. Categories create organized subdirectories: reports/YYYY-MM/, extracts/YYYY-MM/, reminders/YYYY-MM/, responses/YYYY-MM/, analysis/YYYY-MM/, scratch/YYYY-MM/, or memory/.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"filename\":{\"type\":\"string\",\"description\":\"Filename or relative path under the selected category. Must not be absolute or contain ..\"},\"category\":{\"type\":\"string\",\"enum\":[\"reports\",\"extracts\",\"reminders\",\"responses\",\"analysis\",\"scratch\",\"memory\"],\"description\":\"Optional output category. If set and filename has no directory, non-memory categories are written under category/YYYY-MM/.\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write\"}},\"required\":[\"filename\",\"content\"]}}}";
-            var editDef = "{\"type\":\"function\",\"function\":{\"name\":\"edit\",\"description\":\"Edit an existing text file under data/agent-out/ by replacing an exact oldText fragment with newText. Uses the same filename/category path convention as write. Use this for precise changes to generated reports, extracts, memory, responses, analysis artifacts, or scratch files instead of rewriting whole files. Does not create files. For archive meta JSON use update_meta; for panel.html use display_panel.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"filename\":{\"type\":\"string\",\"description\":\"Filename or relative path under the selected category, using the same convention as write. Must not be absolute or contain ..\"},\"category\":{\"type\":\"string\",\"enum\":[\"reports\",\"extracts\",\"reminders\",\"responses\",\"analysis\",\"scratch\",\"memory\"],\"description\":\"Optional output category, same as write. If set and filename has no directory, non-memory categories are resolved under category/YYYY-MM/.\"},\"oldText\":{\"type\":\"string\",\"description\":\"Exact text fragment to replace; must be non-empty and unique unless expectedCount is changed\"},\"newText\":{\"type\":\"string\",\"description\":\"Replacement text\"},\"expectedCount\":{\"type\":\"integer\",\"description\":\"Required number of matches before writing, default 1. If actual count differs, the edit fails without writing.\"}},\"required\":[\"filename\",\"oldText\",\"newText\"]}}}";
+            var writeDef = "{\"type\":\"function\",\"function\":{\"name\":\"write\",\"description\":\"Write content to a text file under data/agent-out/. Prefer category plus filename. Categories create organized subdirectories: reports/YYYY-MM/, extracts/YYYY-MM/, scratch/YYYY-MM/, or memory/.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"filename\":{\"type\":\"string\",\"description\":\"Filename or relative path under the selected category. Must not be absolute or contain ..\"},\"category\":{\"type\":\"string\",\"enum\":[\"reports\",\"extracts\",\"scratch\",\"memory\"],\"description\":\"Optional output category. If set and filename has no directory, non-memory categories are written under category/YYYY-MM/.\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write\"}},\"required\":[\"filename\",\"content\"]}}}";
+            var editDef = "{\"type\":\"function\",\"function\":{\"name\":\"edit\",\"description\":\"Edit an existing text file under data/agent-out/ by replacing an exact oldText fragment with newText. Uses the same filename/category path convention as write. Use this for precise changes to generated reports, extracts, memory files, or scratch files instead of rewriting whole files. Does not create files. For archive meta JSON use update_meta; for panel.html use display_panel.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"filename\":{\"type\":\"string\",\"description\":\"Filename or relative path under the selected category, using the same convention as write. Must not be absolute or contain ..\"},\"category\":{\"type\":\"string\",\"enum\":[\"reports\",\"extracts\",\"scratch\",\"memory\"],\"description\":\"Optional output category, same as write. If set and filename has no directory, non-memory categories are resolved under category/YYYY-MM/.\"},\"oldText\":{\"type\":\"string\",\"description\":\"Exact text fragment to replace; must be non-empty and unique unless expectedCount is changed\"},\"newText\":{\"type\":\"string\",\"description\":\"Replacement text\"},\"expectedCount\":{\"type\":\"integer\",\"description\":\"Required number of matches before writing, default 1. If actual count differs, the edit fails without writing.\"}},\"required\":[\"filename\",\"oldText\",\"newText\"]}}}";
             var grepDef = "{\"type\":\"function\",\"function\":{\"name\":\"grep\",\"description\":\"Search text files under data/agent-out, data/exports, or a specified data/ subdirectory. Returns matching file, line number, and line text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Case-insensitive text or regex pattern to search for\"},\"path\":{\"type\":\"string\",\"description\":\"Optional subdirectory under data/. Defaults to agent-out and exports\"},\"maxMatches\":{\"type\":\"integer\",\"description\":\"Maximum matches to return, default 50\"}},\"required\":[\"pattern\"]}}}";
-            var displayPanelDef = "{\"type\":\"function\",\"function\":{\"name\":\"display_panel\",\"description\":\"Write an HTML panel to data/agent-out/panel.html and ask CommitBall-Bar to show the panel immediately.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"html\":{\"type\":\"string\",\"description\":\"Complete HTML content to display in the Bar panel\"}},\"required\":[\"html\"]}}}";
+            var displayPanelDef = "{\"type\":\"function\",\"function\":{\"name\":\"display_panel\",\"description\":\"Write an HTML panel to data/agent-out/panel.html and ask Core to show the Bar panel immediately.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"html\":{\"type\":\"string\",\"description\":\"Complete HTML content to display in the Bar panel\"}},\"required\":[\"html\"]}}}";
             var updateMetaDef = "{\"type\":\"function\",\"function\":{\"name\":\"update_meta\",\"description\":\"Update archive metadata for one data/exports/**/*.meta.json file. Preserves fixed session/path/time fields and updates title, work_tags, summary, and optional per-cluster summaries.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\",\"description\":\"Metadata file path relative to data/, must be under exports/ and end with .meta.json\"},\"title\":{\"type\":\"string\",\"description\":\"Short human-readable session title\"},\"work_tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"3-6 concise work-dimension tags\"},\"summary\":{\"type\":\"string\",\"description\":\"Brief session summary grounded in exported log content\"},\"cluster_summaries\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"cluster_id\":{\"type\":\"string\",\"description\":\"Cluster id from meta, e.g. cluster_01\"},\"summary\":{\"type\":\"string\",\"description\":\"What the user did in this focus cluster\"},\"inferred_intent\":{\"type\":\"string\",\"description\":\"What the user likely wanted to do, grounded in evidence\"},\"reminder\":{\"type\":\"string\",\"description\":\"A useful reminder or empty string if none\"}},\"required\":[\"cluster_id\",\"summary\"]},\"description\":\"Optional per-focus cluster summaries to merge into meta.clusters\"}},\"required\":[\"file\",\"title\",\"work_tags\",\"summary\"]}}}";
             var renameSessionDef = "{\"type\":\"function\",\"function\":{\"name\":\"rename_session\",\"description\":\"Rename the current Agent conversation tab/session when the topic is clear or has changed. Use a concise title around 20 Chinese characters or 80 English characters.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\",\"description\":\"Concise session title\"}},\"required\":[\"title\"]}}}";
             var setBarTriggerDef = "{\"type\":\"function\",\"function\":{\"name\":\"set_bar_trigger\",\"description\":\"Set the CommitBall Bar wake trigger sequence. Equivalent to the old Bar /trigger command. Use only when the user asks to change the Bar wake sequence.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"trigger\":{\"type\":\"string\",\"description\":\"Wake sequence, length 1-10, ASCII letters/digits or one of \\\\ ; / ` [ ] - = , .\"}},\"required\":[\"trigger\"]}}}";
             var setEyeModeDef = "{\"type\":\"function\",\"function\":{\"name\":\"set_eye_mode\",\"description\":\"Turn CommitBall Ball eye mode on, off, or toggle it. Equivalent to the old Bar /eye command.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"mode\":{\"type\":\"string\",\"enum\":[\"on\",\"off\",\"toggle\"],\"description\":\"Desired eye mode\"}},\"required\":[\"mode\"]}}}";
-            var repairArchivesDef = "{\"type\":\"function\",\"function\":{\"name\":\"repair_archives\",\"description\":\"Run machine-only archive repair: scan data/sessions, export missing txt files, and generate missing meta/cluster files. Existing meta.json files are never regenerated or modified. This tool does not perform model analysis and does not queue tasks.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
+            var repairArchivesDef = "{\"type\":\"function\",\"function\":{\"name\":\"repair_archives\",\"description\":\"Run machine-only archive repair: scan data/sessions and create only missing archive derivatives (.txt, .raw.txt, meta.json, and cluster files). Existing derivative files are not overwritten. This tool does not perform model analysis and does not queue tasks.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
             var showBallBubbleDef = "{\"type\":\"function\",\"function\":{\"name\":\"show_ball_bubble\",\"description\":\"Show a short plain-text message bubble from the CommitBall floating ball. Use it to notify the user about results of commands, especially commands received from CommitBall Bar's 指令 mode. Avoid emoji and decorative symbols because the bubble renderer is optimized for plain text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\",\"description\":\"Short plain-text user-facing message, preferably under 40 Chinese characters or 100 English characters, without emoji\"}},\"required\":[\"message\"]}}}";
-            var nowDef = "{\"type\":\"function\",\"function\":{\"name\":\"now\",\"description\":\"Return the current local time, UTC time, time zone id, and UTC offset. Use this whenever a task depends on today's date, current time, or relative dates.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
+            var nowDef = "{\"type\":\"function\",\"function\":{\"name\":\"now\",\"description\":\"Return the current local time, local weekday, UTC time, time zone id, and UTC offset. Use this whenever a task depends on today's date, current time, weekday, or relative dates.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
             var pwdDef = "{\"type\":\"function\",\"function\":{\"name\":\"pwd\",\"description\":\"Returns the directory where CommitBall-Agent.exe is located.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}";
             var subtaskDef = "{\"type\":\"function\",\"function\":{\"name\":\"subtask\",\"description\":\"Launch a sub-task session to accomplish a complex goal. The sub-task has its own conversation and can use list/read/write/edit tools. Returns the final result.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"The task description for the sub-task to accomplish\"}},\"required\":[\"prompt\"]}}}";
 
@@ -64,20 +66,49 @@ namespace CommitBallAgent
 
         public static string GetSystemPrompt(bool isSubtask = false)
         {
+            var directSettings = ReadDirectSettingsForPrompt();
             if (isSubtask)
                 return "You are a sub-task executor. Complete the given task using available tools, then provide a concise final result. " +
-                       "Available tools: list, read, write, edit, now. Use now whenever the task depends on today's date, current time, or relative dates. All file operations are scoped to data/. write and edit can only modify files under data/agent-out/ and share the same filename/category path convention. Use write to create or replace a complete output file; use edit for precise local changes to existing agent-out text files instead of rewriting whole files. " +
-                       "When writing or editing analysis output, keep data/agent-out organized: reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted notes, scratch/YYYY-MM/ for temporary working files, and memory/ for long-lived memory files.";
+                       "Available tools: list, read, write, edit, now. Use now whenever the task depends on today's date, current time, or relative dates. Path roots are virtual: list/read use data/ as root, so pass paths like agent-out/memory/summary_task_exp_decay_memory.md; write/edit use data/agent-out/ as root, so pass category plus filename, not data/agent-out/... . " +
+                       "write and edit share the same filename/category path convention. Use write to create a complete output file, but for existing long-lived memory files use edit only for incremental precise changes; do not use write to rewrite or replace an existing memory file. Keep agent-out organized: reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted notes, scratch/YYYY-MM/ for temporary working files, and memory/ for long-lived memory files. For first-time memory creation only, use write with category=\"memory\" and the memory filename; if the memory file already exists, use edit with category=\"memory\" and the same filename. " +
+                       "Treat data/agent-out/memory/direct_settings.md as stable user configuration when it is provided in this prompt; do not modify it unless the task explicitly asks for direct settings maintenance." +
+                       directSettings;
             return "You are CommitBall Agent, an AI assistant that can read and manage files in the data/ directory. " +
                    "Use the list tool to explore available files before reading them. " +
                    "Use the now tool whenever the task depends on today's date, current time, or relative dates. " +
-                   "All file operations are scoped to data/. " +
-                   "write and edit can only modify files under data/agent-out/ and share the same filename/category path convention. Use write to create or replace a complete output file; use edit for precise local changes to existing agent-out text files, and do not rewrite a whole file with write when replacing a small fragment. For archive meta JSON, use update_meta instead of edit. For panel.html, use display_panel instead of write or edit. " +
+                   "Path roots are virtual: list/read/grep/update_meta use data/ as root, so pass paths like agent-out/memory/summary_task_exp_decay_memory.md, exports/YYYY-MM/, live/live.txt, and notes/. write/edit use data/agent-out/ as root, so pass category plus filename, not data/agent-out/... . " +
+                   "write and edit can only modify files under data/agent-out/ and share the same filename/category path convention. Use write to create a complete output file; use edit for precise local changes to existing agent-out text files, and do not rewrite a whole file with write when replacing a small fragment. For existing long-lived memory files, never use write to rewrite or replace the file; use edit only for incremental precise changes. For archive meta JSON, use update_meta instead of edit. For panel.html, use display_panel instead of write or edit. " +
                    "When the conversation topic becomes clear, or when the user's topic changes materially, call rename_session to keep the current Agent tab title accurate. Use a concise human-readable title around 20 Chinese characters or 80 English characters. " +
-                   "Users may send natural-language control commands from CommitBall Bar's 指令 mode. For Bar/Ball controls, use the dedicated tools instead of asking the user to type slash commands: set_bar_trigger for wake sequence changes, set_eye_mode for eye mode, and repair_archives for machine-only archive file repair. repair_archives scans data/sessions, exports missing txt files, and creates missing meta/cluster files without modifying existing meta.json files. If a request came from CommitBall Bar's 指令 mode, call show_ball_bubble occasionally with short plain-text progress updates and again with a final result message, without emoji, so the user gets feedback from the floating ball. " +
-                   "Keep data/agent-out organized: keep panel.html and panel-template.html at the root; use display_panel to update panel.html; maintain long-term memory only in memory/summary_task_exp_decay_memory.md; write new files and edit existing files in reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted persistent notes, scratch/YYYY-MM/ for temporary files, and memory/ for auxiliary memory files. " +
+                   "Users may send natural-language control commands from CommitBall Bar's 指令 mode. For Bar/Ball controls, use the dedicated tools instead of asking the user to type slash commands: set_bar_trigger for wake sequence changes, set_eye_mode for eye mode, and repair_archives for machine-only archive file repair. repair_archives scans data/sessions and creates only missing archive txt/raw/meta/cluster derivatives; it never overwrites existing derivatives and does not perform model analysis. If a request came from CommitBall Bar's 指令 mode, call show_ball_bubble occasionally with short plain-text progress updates and again with a final result message, without emoji, so the user gets feedback from the floating ball. " +
+                   "Keep data/agent-out organized: keep panel.html and panel-template.html at the root; use display_panel to update panel.html; maintain work memory in data/agent-out/memory/summary_task_exp_decay_memory.md and stable direct-input configuration in data/agent-out/memory/direct_settings.md; write new files and edit existing files in reports/YYYY-MM/ for reports, extracts/YYYY-MM/ for extracted persistent notes, scratch/YYYY-MM/ for temporary files, and memory/ for auxiliary memory files. For first-time memory creation only, use write with category=\"memory\" and filename=\"summary_task_exp_decay_memory.md\" or filename=\"direct_settings.md\"; if the memory file already exists, use edit with category=\"memory\" and the same filename. " +
                    "If data/agent-out/memory/summary_task_exp_decay_memory.md exists, read it for background context on the user's recent activities. " +
-                   "If it doesn't exist, you should wait for further instructions.";
+                   "If data/agent-out/memory/direct_settings.md exists, treat the content appended to this system prompt as stable user configuration and follow it unless the user clearly overrides it. " +
+                   "If the work memory file doesn't exist, you should wait for further instructions." +
+                   directSettings;
+        }
+
+        private static string ReadDirectSettingsForPrompt()
+        {
+            try
+            {
+                var path = Path.Combine(Config.DataDir, "agent-out", "memory", "direct_settings.md");
+                if (!File.Exists(path))
+                    return "";
+
+                var text = File.ReadAllText(path).Trim();
+                if (string.IsNullOrWhiteSpace(text))
+                    return "";
+
+                const int maxChars = 12000;
+                if (text.Length > maxChars)
+                    text = text.Substring(text.Length - maxChars);
+
+                return "\n\nStable user direct settings from data/agent-out/memory/direct_settings.md:\n" + text + "\n";
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         public static bool IsSubtask(string toolName) => toolName == "subtask";
@@ -88,9 +119,32 @@ namespace CommitBallAgent
             {
                 while (AgentOutWriteOwnerSessionId != null && AgentOutWriteOwnerSessionId != ownerSessionId)
                     System.Threading.Monitor.Wait(AgentOutWriteGate);
+
                 AgentOutWriteOwnerSessionId = ownerSessionId;
+                WriteSummaryStatus(ownerSessionId);
                 return new AgentOutWriteLease(ownerSessionId);
             }
+        }
+
+        private static void WriteSummaryStatus(string ownerSessionId)
+        {
+            try
+            {
+                Directory.CreateDirectory(Config.DataDir);
+                var stamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                File.WriteAllText(SummaryStatusPath, $"busy {ownerSessionId} {stamp}");
+            }
+            catch { }
+        }
+
+        public static void ClearSummaryStatus()
+        {
+            try
+            {
+                if (File.Exists(SummaryStatusPath))
+                    File.Delete(SummaryStatusPath);
+            }
+            catch { }
         }
 
         private sealed class AgentOutWriteLease : IDisposable
@@ -112,6 +166,7 @@ namespace CommitBallAgent
                     if (AgentOutWriteOwnerSessionId == _ownerSessionId)
                     {
                         AgentOutWriteOwnerSessionId = null;
+                        ClearSummaryStatus();
                         System.Threading.Monitor.PulseAll(AgentOutWriteGate);
                     }
                 }
@@ -160,6 +215,7 @@ namespace CommitBallAgent
             var payload = new
             {
                 local = local.ToString("yyyy-MM-dd HH:mm:ss zzz"),
+                weekday = local.LocalDateTime.DayOfWeek.ToString(),
                 utc = utc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'"),
                 timezone = zone.Id,
                 utc_offset = local.Offset.ToString(@"hh\:mm")
@@ -375,6 +431,9 @@ namespace CommitBallAgent
             {
                 try
                 {
+                    if (IsProtectedMemoryFile(normalized) && File.Exists(full))
+                        return $"Error: agent-out/{normalized} already exists and is protected. Use edit with category=\"memory\" for incremental changes; write is only allowed for first-time creation.";
+
                     var dir = Path.GetDirectoryName(full);
                     if (!string.IsNullOrEmpty(dir))
                         Directory.CreateDirectory(dir);
@@ -386,6 +445,13 @@ namespace CommitBallAgent
                     return $"Error writing file: {ex.Message}";
                 }
             }
+        }
+
+        private static bool IsProtectedMemoryFile(string normalized)
+        {
+            var path = normalized.Replace('\\', '/').TrimStart('/');
+            return path.Equals("memory/summary_task_exp_decay_memory.md", StringComparison.OrdinalIgnoreCase) ||
+                   path.Equals("memory/direct_settings.md", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ExecuteEdit(JsonObject args, Session? session)
@@ -454,7 +520,7 @@ namespace CommitBallAgent
             var normalizedCategory = NormalizeAgentOutCategory(category);
             if (!string.IsNullOrWhiteSpace(category) && normalizedCategory.Length == 0)
             {
-                error = "Error: category must be one of reports, extracts, reminders, responses, analysis, scratch, or memory";
+                error = "Error: category must be one of reports, extracts, scratch, or memory";
                 return false;
             }
 
@@ -483,9 +549,6 @@ namespace CommitBallAgent
             {
                 "report" or "reports" => "reports",
                 "extract" or "extracts" => "extracts",
-                "reminder" or "reminders" => "reminders",
-                "response" or "responses" => "responses",
-                "analysis" => "analysis",
                 "scratch" or "tmp" or "temp" => "scratch",
                 "memory" => "memory",
                 "" => "",
@@ -531,11 +594,11 @@ namespace CommitBallAgent
             {
                 var allowedTopDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    "reports", "extracts", "reminders", "responses", "analysis", "scratch", "memory"
+                    "reports", "extracts", "scratch", "memory"
                 };
                 if (!allowedTopDirs.Contains(segments[0]))
                 {
-                    error = "Error: subdirectory must be one of reports, extracts, reminders, responses, analysis, scratch, or memory";
+                    error = "Error: subdirectory must be one of reports, extracts, scratch, or memory";
                     return false;
                 }
             }
@@ -629,7 +692,7 @@ namespace CommitBallAgent
                 try
                 {
                     File.WriteAllText(full, html);
-                    NotifyBar("SHOW_PANEL");
+                    SendCommitBallCommand("BAR_SHOW_PANEL");
                     return $"Panel updated and shown ({html.Length} chars)";
                 }
                 catch (Exception ex)
@@ -723,7 +786,11 @@ namespace CommitBallAgent
                         root["cluster_summary_updated_at"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                     }
 
-                    var opts = new JsonSerializerOptions { WriteIndented = true };
+                    var opts = new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    };
                     File.WriteAllText(full, root.ToJsonString(opts));
                     return updatedClusters > 0
                         ? $"Metadata updated: {normalized}, clusters={updatedClusters}"
@@ -736,16 +803,5 @@ namespace CommitBallAgent
             }
         }
 
-        private static void NotifyBar(string command)
-        {
-            try
-            {
-                using var pipe = new NamedPipeClientStream(".", "CommitBall-bar", PipeDirection.Out);
-                pipe.Connect(300);
-                var bytes = System.Text.Encoding.UTF8.GetBytes(command + "\r\n");
-                pipe.Write(bytes, 0, bytes.Length);
-            }
-            catch { }
-        }
     }
 }

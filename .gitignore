@@ -11,7 +11,6 @@ commitball/RCa*
 commitball/RDa*
 $null
 dist/
-staging/
 
 # CommitBall runtime files
 commitball.db
@@ -43,3 +42,8 @@ commitball-ball-shell/obj/
 # Installer artifacts
 installer/archives/
 installer/staging/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+*.pyc.*

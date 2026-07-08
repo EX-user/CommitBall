@@ -162,7 +162,7 @@ public sealed class PipeBallBackend : IDisposable
             case "CLEAR_BUBBLE":
                 State = State with { BubbleText = null };
                 break;
-            case "STATUS":
+            case "HOST_STATUS":
                 ApplyStatus(json);
                 break;
             case "SHUTDOWN":

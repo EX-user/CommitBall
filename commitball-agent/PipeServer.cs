@@ -1,5 +1,6 @@
 using System;
 using System.IO.Pipes;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Windows;
@@ -43,6 +44,7 @@ namespace CommitBallAgent
                                     _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _window.Show()));
                                 else if (msg == "QUIT")
                                 {
+                                    AgentWindow.Log("PipeServer: shutdown requested");
                                     _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => Application.Current.Shutdown()));
                                     break;
                                 }
@@ -109,6 +111,15 @@ namespace CommitBallAgent
         public void Dispose()
         {
             _running = false;
+            try
+            {
+                using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
+                client.Connect(100);
+                var bytes = Encoding.UTF8.GetBytes("PING\n");
+                client.Write(bytes, 0, bytes.Length);
+            }
+            catch { }
+            AgentWindow.Log("PipeServer disposed");
         }
     }
 }

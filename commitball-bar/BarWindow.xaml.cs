@@ -67,8 +67,6 @@ namespace CommitBallBar
 
         private void InputBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
-            if (IsDirectCommandMode())
-                ResetPrefix();
             if (!_locked && Visibility == Visibility.Visible)
                 ScheduleAutoHideCheck(150);
         }
@@ -141,7 +139,6 @@ namespace CommitBallBar
 
             InputBox.Clear();
             _historyIndex = -1;
-            ResetPrefix();
             Visibility = Visibility.Visible;
             Show();
             _hwnd = new WindowInteropHelper(this).Handle;
@@ -177,22 +174,6 @@ namespace CommitBallBar
             }
             _panelWindow.PositionAbove(Left, Width, Top);
             _panelWindow.ShowPanel();
-        }
-
-        public void RefreshPanel()
-        {
-            if (!Dispatcher.CheckAccess())
-            {
-                Dispatcher.Invoke(RefreshPanel);
-                return;
-            }
-            if (_panelWindow == null)
-            {
-                if (Visibility == Visibility.Visible && _panelEnabled)
-                    ShowPanel();
-                return;
-            }
-            _panelWindow.RefreshPanel();
         }
 
         public void ShowPanelFromTool()

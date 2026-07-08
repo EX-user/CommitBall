@@ -2,8 +2,79 @@
 #include "sqlite3.h"
 #include <string>
 #include <cstring>
+#include <utility>
+#include <vector>
 
-inline std::string DbToText(sqlite3* db) {
+inline bool DbExportEnsureLine(std::string& body) {
+    if (!body.empty() && body.back() != '\n') {
+        body += "\n";
+        return true;
+    }
+    return false;
+}
+
+inline std::string DbExportFocusProcess(const std::string& focus) {
+    size_t bar = focus.rfind('|');
+    if (bar == std::string::npos) return focus;
+    if (bar + 1 >= focus.size()) return "";
+    size_t start = bar + 1;
+    while (start < focus.size() && (unsigned char)focus[start] <= 32) start++;
+    size_t end = focus.size();
+    while (end > start && (unsigned char)focus[end - 1] <= 32) end--;
+    return focus.substr(start, end - start);
+}
+
+inline std::string DbExportFocusTitle(const std::string& focus) {
+    size_t bar = focus.rfind('|');
+    std::string title = (bar == std::string::npos) ? focus : focus.substr(0, bar);
+    size_t start = 0;
+    while (start < title.size() && (unsigned char)title[start] <= 32) start++;
+    size_t end = title.size();
+    while (end > start && (unsigned char)title[end - 1] <= 32) end--;
+    return title.substr(start, end - start);
+}
+
+inline bool DbExportExcludedFocus(const std::string& focus) {
+    std::string proc = DbExportFocusProcess(focus);
+    for (char& c : proc) {
+        if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    }
+    if (proc.empty() || DbExportFocusTitle(focus).empty()) return true;
+    return proc == "TEXTINPUTHOST.EXE" ||
+           proc == "SHELLEXPERIENCEHOST.EXE" ||
+           proc == "STARTMENUEXPERIENCEHOST.EXE" ||
+           proc == "SEARCHAPP.EXE" ||
+           proc == "LOCKAPP.EXE" ||
+           proc == "COMMITBALL-BAR.EXE" ||
+           proc == "COMMITBALL-AGENT.EXE" ||
+           proc == "COMMITBALL-BALLSHELL.EXE" ||
+           proc == "GIT-CREDENTIAL-MANAGER.EXE" ||
+           proc.find("INSTALLER") != std::string::npos;
+}
+
+inline std::string DbExportFlattenText(std::string text) {
+    size_t pos = 0;
+    while ((pos = text.find("\r\n", pos)) != std::string::npos) {
+        text.replace(pos, 2, "\xE2\x86\xB5");
+    }
+    pos = 0;
+    while ((pos = text.find('\n', pos)) != std::string::npos) {
+        text.replace(pos, 1, "\xE2\x86\xB5");
+    }
+    return text;
+}
+
+inline void DbExportFlushInput(std::string& body, std::string& input, std::string& inputStart, const std::string& inputEnd) {
+    if (input.empty()) return;
+    DbExportEnsureLine(body);
+    body += "[" + inputStart;
+    if (!inputEnd.empty() && inputEnd != inputStart) body += "~" + inputEnd;
+    body += "] [input] " + input + "\n";
+    input.clear();
+    inputStart.clear();
+}
+
+inline std::string DbExportKeyText(std::string s) {
     static const std::pair<const char*, const char*> shortMap[] = {
         {"[Backspace]", "[<bs]"},
         {"[Tab]",       "[<tab]"},
@@ -21,8 +92,26 @@ inline std::string DbToText(sqlite3* db) {
         {"[Copy]",      "[<copy]"},
         {"[Cut]",       "[<cut]"},
         {"[Undo]",      "[<undo]"},
+        {"[Paste]",     "[<paste]"},
     };
+    for (auto& [from, to] : shortMap) {
+        size_t pos = 0;
+        while ((pos = s.find(from, pos)) != std::string::npos) {
+            s.replace(pos, strlen(from), to);
+            pos += strlen(to);
+        }
+    }
+    return s;
+}
 
+inline void DbExportAppendEventLine(std::string& body, const std::string& ts, const std::string& tag, const std::string& content) {
+    DbExportEnsureLine(body);
+    body += "[" + ts + "] [" + tag + "]";
+    if (!content.empty()) body += " " + content;
+    body += "\n";
+}
+
+inline std::string DbToText(sqlite3* db) {
     if (!db) return "";
 
     sqlite3_stmt* stmt;
@@ -34,9 +123,17 @@ inline std::string DbToText(sqlite3* db) {
     std::string output;
     int curRecordId = -1;
     std::string firstTs, lastTs, body;
+    std::string lastFocus;
+    std::string pendingInput;
+    std::string pendingInputStart;
+    std::string pendingInputEnd;
+    int skippedFocusRepeats = 0;
+    bool awayActive = false;
 
     auto flushRecord = [&]() {
         if (curRecordId < 0) return;
+        DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+        if (body.empty()) return;
         output += "--- #" + std::to_string(curRecordId) + " [" + firstTs + " ~ " + lastTs + "] ---\n";
         output += body;
         if (!body.empty() && body.back() != '\n') output += "\n";
@@ -55,57 +152,59 @@ inline std::string DbToText(sqlite3* db) {
             firstTs = ts ? ts : "";
             lastTs = firstTs;
             body.clear();
+            pendingInput.clear();
+            pendingInputStart.clear();
+            pendingInputEnd.clear();
+            skippedFocusRepeats = 0;
         } else if (ts) {
             lastTs = ts;
         }
 
         if (content) {
+            std::string tsStr = ts ? ts : "";
+            std::string typeStr = type ? type : "";
+            std::string contentStr = content ? content : "";
             if (type && strncmp(type, "focus", 5) == 0) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                body += std::string("[") + type + "] " + content + "\n";
+                std::string focus = contentStr;
+                if (DbExportExcludedFocus(focus)) continue;
+                DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+                if (focus == lastFocus) {
+                    skippedFocusRepeats++;
+                    continue;
+                }
+                skippedFocusRepeats = 0;
+                lastFocus = focus;
+                DbExportAppendEventLine(body, tsStr, "focus", focus);
             } else if (type && strcmp(type, "direct-input") == 0) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                body += std::string("[direct] ") + content + "\n";
+                DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+                DbExportAppendEventLine(body, tsStr, "direct", contentStr);
+            } else if (type && strcmp(type, "commit") == 0) {
+                if (pendingInput.empty()) pendingInputStart = tsStr;
+                pendingInputEnd = tsStr;
+                pendingInput += contentStr;
             } else if (type && strcmp(type, "click") == 0) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                body += std::string("[click]") + content + "\n";
+                if (pendingInput.empty()) continue;
+                DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+                DbExportAppendEventLine(body, tsStr, "click", contentStr);
             } else if (type && strcmp(type, "timer") == 0) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                std::string timerTs = ts ? ts : "";
-                if (timerTs.length() >= 16) timerTs = timerTs.substr(11, 5);
-                body += "[timer] " + timerTs + "\n";
+                continue;
             } else if (type && strcmp(type, "away") == 0) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                std::string awayTs = ts ? ts : "";
-                if (awayTs.length() >= 16) awayTs = awayTs.substr(11, 5);
-                body += "[away] " + awayTs + " " + content + "\n";
+                if (awayActive) continue;
+                DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+                awayActive = true;
+                DbExportAppendEventLine(body, tsStr, "away", contentStr);
             } else if (type && strcmp(type, "back") == 0) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                std::string backTs = ts ? ts : "";
-                if (backTs.length() >= 16) backTs = backTs.substr(11, 5);
-                body += "[back] " + backTs + " " + content + "\n";
+                DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+                awayActive = false;
+                DbExportAppendEventLine(body, tsStr, "back", contentStr);
             } else if (type && (strcmp(type, "paste") == 0 || strcmp(type, "paste-big") == 0 || strcmp(type, "paste-mega") == 0)) {
-                if (!body.empty() && body.back() != '\n') body += "\n";
-                std::string pc = content;
-                size_t pos = 0;
-                while ((pos = pc.find("\r\n", pos)) != std::string::npos) {
-                    pc.replace(pos, 2, "\xE2\x86\xB5");
-                }
-                pos = 0;
-                while ((pos = pc.find('\n', pos)) != std::string::npos) {
-                    pc.replace(pos, 1, "\xE2\x86\xB5");
-                }
-                body += std::string("[") + type + "]" + pc + "\n";
+                DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+                DbExportAppendEventLine(body, tsStr, typeStr, DbExportFlattenText(contentStr));
+            } else if (type && strcmp(type, "keystroke") == 0) {
+                DbExportFlushInput(body, pendingInput, pendingInputStart, pendingInputEnd);
+                DbExportAppendEventLine(body, tsStr, "key", DbExportKeyText(contentStr));
             } else {
-                std::string s = content;
-                for (auto& [from, to] : shortMap) {
-                    size_t pos2 = 0;
-                    while ((pos2 = s.find(from, pos2)) != std::string::npos) {
-                        s.replace(pos2, strlen(from), to);
-                        pos2 += strlen(to);
-                    }
-                }
-                body += s;
+                continue;
             }
         }
     }

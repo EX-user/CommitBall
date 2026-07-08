@@ -40,7 +40,7 @@
 - [ ] 用c-sharp重构commitball
 - [ ] 设计多层级的归档和汇总机制
 - [ ] 提供基于sql的agent tool
-- [ ] db to text 设计过滤机制
+- [x] db to text 设计过滤机制（已完成：导出 raw / agent 两种文本视图；兼容 `commitball_*.txt` 默认为 agent 过滤版，旁路保留 `.raw.txt`，人类可读总结由 `.meta.json` 承担）
 - [ ] 代码整体重构
 - [x] 提供直接显示到bar/panel上的agent tool；做bar到agent的直接互通（display_panel、show_ball_bubble、Bar 指令模式）
 

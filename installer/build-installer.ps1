@@ -63,7 +63,9 @@ if (!(Test-Path $runtimeInstaller) -or ((Get-Item $runtimeInstaller).Length -lt 
 
 # === Stage dictionary files ===
 Write-Host "Staging dictionary files..."
-New-Item -ItemType Directory -Path staging\build -Force | Out-Null
+$stagingDir = Join-Path $PSScriptRoot "staging"
+$dictionaryStageDir = Join-Path $stagingDir "build"
+New-Item -ItemType Directory -Path $dictionaryStageDir -Force | Out-Null
 
 $tableBin = "$env:APPDATA\Rime\build\luna_pinyin.table.bin"
 $prismBin = "$env:APPDATA\Rime\build\luna_pinyin_simp.prism.bin"
@@ -77,8 +79,8 @@ if (!(Test-Path $prismBin)) {
     exit 1
 }
 
-Copy-Item $tableBin staging\build\ -Force
-Copy-Item $prismBin staging\build\ -Force
+Copy-Item $tableBin $dictionaryStageDir -Force
+Copy-Item $prismBin $dictionaryStageDir -Force
 
 # === Build CommitBall ===
 Write-Host "Building CommitBall..."
@@ -144,13 +146,13 @@ Write-Host "Building installer..."
 Push-Location $PSScriptRoot
 try {
     New-Item -ItemType Directory -Path archives -Force | Out-Null
-    & $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.2.1 commitball.nsi
+    & $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.2.3 commitball.nsi
 } finally {
     Pop-Location
 }
 
 if ($LASTEXITCODE -eq 0) {
-    $exe = Get-Item (Join-Path $PSScriptRoot "archives\CommitBall-0.2.1.0-installer.exe")
+    $exe = Get-Item (Join-Path $PSScriptRoot "archives\CommitBall-0.2.3.0-installer.exe")
     $sizeMB = [math]::Round($exe.Length / 1MB, 1)
     Write-Host "`nDone! $($exe.FullName) ($sizeMB MB)" -ForegroundColor Green
 } else {

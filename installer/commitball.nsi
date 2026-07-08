@@ -11,7 +11,7 @@
   !define WEASEL_VERSION "0.17.4"
 !endif
 !ifndef COMMITBALL_VERSION
-  !define COMMITBALL_VERSION "0.2.1"
+  !define COMMITBALL_VERSION "0.2.3"
 !endif
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
@@ -120,10 +120,18 @@ Section "CB-Weasel 输入法" SecMain
   File "..\commitball-agent\panel-template.html"
   File "..\commitball-agent\summary_task_exp_decay_memory_template.md"
 
+  ; Unregister old CB-Weasel through the same helper used by the uninstaller.
+  DetailPrint "注销旧版本 CB-Weasel 输入法..."
+  IfFileExists "$INSTDIR\cb-weasel\WeaselSetup.exe" 0 old_weasel_setup_missing
+    nsExec::ExecToLog '"$INSTDIR\cb-weasel\WeaselSetup.exe" /u'
+    Goto old_weasel_setup_done
+  old_weasel_setup_missing:
+    DetailPrint "未找到旧版 WeaselSetup.exe，跳过输入法注销 helper。"
+  old_weasel_setup_done:
+  Sleep 500
+
   ; Release old DLL if locked
   DetailPrint "检查旧版本 DLL..."
-  nsExec::ExecToLog 'regsvr32 /u /s "$INSTDIR\cb-weasel\cb-weaselx64.dll"'
-  Sleep 500
 retry_delete_dll:
   ClearErrors
   Delete "$INSTDIR\cb-weasel\cb-weaselx64.dll"
@@ -142,6 +150,7 @@ retry_delete_dll:
   SetOverwrite on
   File "..\weasel\output\WeaselServer.exe"
   File "..\weasel\output\WeaselDeployer.exe"
+  File "..\weasel\output\WeaselSetup.exe"
   File "..\weasel\output\rime.dll"
   File "..\weasel\output\WinSparkle.dll"
 
@@ -159,8 +168,6 @@ retry_delete_dll:
 
   ; Copy DLL to System32
   DetailPrint "安装 DLL 到 System32..."
-  nsExec::ExecToLog 'regsvr32 /u /s "$SYSDIR\cb-weasel.dll"'
-  Sleep 500
   Delete "$SYSDIR\cb-weasel.dll"
   CopyFiles "$INSTDIR\cb-weasel\cb-weaselx64.dll" "$SYSDIR\cb-weasel.dll"
 
@@ -210,6 +217,8 @@ Section "创建桌面快捷方式" SecDesktop
 SectionEnd
 
 Section "Uninstall"
+  SetRegView 64
+
   ; Stop processes
   nsExec::ExecToLog 'taskkill /F /IM WeaselServer.exe'
   nsExec::ExecToLog 'taskkill /F /IM CommitBall.exe'
@@ -218,22 +227,27 @@ Section "Uninstall"
   nsExec::ExecToLog 'taskkill /F /IM CommitBall-Agent.exe'
   Sleep 1000
 
-  ; Unregister TSF
-  nsExec::ExecToLog 'regsvr32 /u /s "$INSTDIR\cb-weasel\cb-weaselx64.dll"'
+  ; Unregister TSF and remove language profile through CB-Weasel setup helper.
+  DetailPrint "注销 CB-Weasel 输入法..."
+  IfFileExists "$INSTDIR\cb-weasel\WeaselSetup.exe" 0 unregister_tsf_missing
+    nsExec::ExecToLog '"$INSTDIR\cb-weasel\WeaselSetup.exe" /u'
+    Goto unregister_tsf_done
+  unregister_tsf_missing:
+    DetailPrint "未找到 WeaselSetup.exe，跳过输入法注销 helper。"
+  unregister_tsf_done:
 
   ; Remove DLL from System32
-  Delete "$SYSDIR\cb-weasel.dll"
-
-  ; Remove TSF TIP registration
-  DeleteRegKey HKLM "SOFTWARE\Microsoft\CTF\TIP\${REG_TIP_CLSID}"
+  Delete /REBOOTOK "$SYSDIR\cb-weasel.dll"
 
   ; Remove registry
   DeleteRegKey HKLM "${REG_RIME_KEY}"
+  DeleteRegKey HKCU "${REG_RIME_KEY}"
   DeleteRegKey HKLM "${REG_UNINST_KEY}"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "CBWeaselServer"
 
   ; Remove files
-  RMDir /r "$INSTDIR\cb-weasel"
+  Delete /REBOOTOK "$INSTDIR\cb-weasel\cb-weaselx64.dll"
+  RMDir /r /REBOOTOK "$INSTDIR\cb-weasel"
   Delete "$INSTDIR\CommitBall.exe"
   Delete "$INSTDIR\CommitBall-BallShell.exe"
   Delete "$INSTDIR\CommitBall-Bar.exe"

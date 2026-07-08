@@ -6,6 +6,7 @@
 extern HWND g_hWnd;
 extern DWORD g_lastOutputTime;
 extern bool g_running;
+extern bool g_exiting;
 
 const wchar_t CORE_WINDOW_CLASS_NAME[] = L"CommitBallCoreWindowClass";
 
@@ -39,21 +40,36 @@ inline void CoreWindowShutdown() {
 }
 
 inline void HandleCorePipeMessage(WPARAM wParam, LPARAM lParam) {
-    if (lParam == 1) {
+    CorePipeMessageKind kind = (CorePipeMessageKind)lParam;
+    auto cleanupPayload = [&]() {
+        if (!wParam) return;
+        if (kind == CORE_PIPE_DIRECT_INPUT || kind == CORE_PIPE_DIRECT_COMMAND) delete (std::string*)wParam;
+        else if (kind == CORE_PIPE_KEYBOARD_MESSAGE || kind == CORE_PIPE_BUBBLE) delete (std::wstring*)wParam;
+    };
+
+    if (g_exiting) {
+        cleanupPayload();
+        return;
+    }
+    if (kind == CORE_PIPE_DIRECT_INPUT) {
         std::string* pText = (std::string*)wParam;
         InsertDirectInput(*pText);
         delete pText;
-    } else if (lParam == 2) {
+    } else if (kind == CORE_PIPE_BUBBLE) {
         std::wstring* pText = (std::wstring*)wParam;
         extern void SendBallShellBubble(const wchar_t* text);
         SendBallShellBubble(pText->c_str());
         delete pText;
-    } else if (lParam == 3) {
+    } else if (kind == CORE_PIPE_STATE_CHANGED) {
         extern void OnStateChanged();
         OnStateChanged();
-    } else if (lParam == 4) {
+    } else if (kind == CORE_PIPE_CHECK_BALLSHELL) {
         extern void CheckBallShellHealth();
         CheckBallShellHealth();
+    } else if (kind == CORE_PIPE_DIRECT_COMMAND) {
+        std::string* pCmd = (std::string*)wParam;
+        ProcessDirectCommand(*pCmd);
+        delete pCmd;
     } else {
         std::wstring* pMsg = (std::wstring*)wParam;
         ProcessMessage(*pMsg);
@@ -62,6 +78,7 @@ inline void HandleCorePipeMessage(WPARAM wParam, LPARAM lParam) {
 }
 
 inline void HandleCoreOutputTimer() {
+    if (g_exiting) return;
     if (GetTickCount() - g_lastOutputTime >= FLUSH_INTERVAL) {
         FlushLiveBuffer();
         g_lastOutputTime = GetTickCount();

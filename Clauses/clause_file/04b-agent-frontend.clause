@@ -1,0 +1,50 @@
+[
+  {
+    "cuid": "beeabd87",
+    "accordance": ["AGENT_TERMINAL"],
+    "accordance-cuid": ["3444105d"],
+    "content": "Agent 的终端 UI 是一个无边框置顶深色主题窗口, 四行 Grid 布局: 标题栏 (可拖动, 含隐藏按钮 ▾), 标签栏 (多会话切换), 输出区 (只读 RichTextBox, 等宽字体), 输入栏 (> 提示符 + 输入框 + 状态提示). 窗口尺寸 480-680 × 360-480, 水平居中, 垂直位于工作区顶部 10%."
+  },
+  {
+    "cuid": "a44e3926",
+    "accordance": ["AGENT_UI_ROOT"],
+    "accordance-cuid": ["beeabd87"],
+    "content": "标签栏按类型分组渲染: 'Bar 指令' 区域 (bar-command 会话) 和 '会话' 区域 (正常会话), 中间有分隔线. 标签视觉状态: 前缀 ● 表示 busy/full, • 表示有未读; 标题截断到 16 字符; 出错的标签以高亮色标记. 右键关闭标签, 左键切换."
+  },
+  {
+    "cuid": "6e689c3b",
+    "accordance": ["AGENT_UI_ROOT"],
+    "accordance-cuid": ["beeabd87"],
+    "content": "输出区通过不同颜色区分内容类型 (LLM 输出, 用户输入回显, 错误/警告, 成功, 工具调用, 子任务进度, 静默提示). 输出中的 URL 和 Windows 路径自动转为可点击链接 (通过 shell 打开)."
+  },
+  {
+    "cuid": "32282a35",
+    "accordance": ["AGENT_UI_ROOT"],
+    "accordance-cuid": ["beeabd87"],
+    "content": "输入栏在 busy 时隐藏并显示提示 '连按 Esc x2 中断模型输出'; context-full 时显示 '模型上下文已满, 请新建会话'. 斜杠命令: /help, /vendor, /new, /session, /summary_to_panel, /repair_archives, /organize_agent_out. 其他文本作为对话内容发送. Ctrl+C 复制选中文本 (使用 Win32 API 避免 WPF 剪贴板异常)."
+  },
+  {
+    "cuid": "17f97234",
+    "accordance": ["AGENT_UI_ROOT"],
+    "accordance-cuid": ["beeabd87"],
+    "content": "子任务进度以 '│ ...' 滑动窗口动画显示: LLM 流式输出时, 保留最后 20 个字符, 通过原地修改 Run.Text 实现动画效果而非追加新行. 与工具调用区块视觉隔离."
+  },
+  {
+    "cuid": "0db8c54c",
+    "accordance": ["AGENT_UI_ROOT"],
+    "accordance-cuid": ["beeabd87"],
+    "content": "/session 命令进入会话选择菜单, 清空输出区并列表显示所有会话: ID, 状态 (open/busy/full/closed), 标题, 创建~更新时间, 消息数. 当前会话标记 *. 输入会话 ID 切换, /new 新建, Esc 取消; 离开菜单时恢复原会话渲染. 若选择 bar-command 历史会话, 关闭当前 Bar 指令会话并将所选会话作为唯一 Bar 指令会话."
+  },
+  {
+    "cuid": "b635ea28",
+    "accordance": ["AGENT_UI_ROOT"],
+    "accordance-cuid": ["beeabd87"],
+    "content": "工具调用在输出区以独立区块显示: 开始时 '→ {info}', 结束时 '[tool: {info}]'. 工具区块标记 Tag='tool', 后续 AppendOutput 自动新起段落保持视觉隔离. 出错时 '✗ {err}' 并标记标签页 HasError. 历史重载时通过 DisplayType 重新渲染存储的 display 消息."
+  },
+  {
+    "cuid": "b4b8fb07",
+    "accordance": ["AGENT_UI_ROOT"],
+    "accordance-cuid": ["beeabd87"],
+    "content": "窗口行为: 标题栏拖动 (DragMove); ▾ 按钮或 Esc 隐藏窗口 (隐藏前保存输入草稿, 恢复时填回); 显示时 Activate + SetForegroundWindow 强制抢焦点. Esc 处理优先级: 会话菜单内退出菜单 > busy 时连按 Esc x2 (1 秒内) 取消并清空队列 > 输出 500ms 内抑制误触 > 隐藏窗口. 关闭窗口时对所有 busy 标签页执行 CancellationToken 取消并补全未应答的 tool 调用."
+  }
+]

@@ -41,6 +41,15 @@ const int64_t SESSION_SPLIT_SIZE = 512 * 1024;
 const int FOCUS_TITLE_MAX = 128;
 #define WM_PIPE_MSG (WM_USER + 1)
 
+enum CorePipeMessageKind : LPARAM {
+    CORE_PIPE_KEYBOARD_MESSAGE = 0,
+    CORE_PIPE_DIRECT_INPUT = 1,
+    CORE_PIPE_BUBBLE = 2,
+    CORE_PIPE_STATE_CHANGED = 3,
+    CORE_PIPE_CHECK_BALLSHELL = 4,
+    CORE_PIPE_DIRECT_COMMAND = 5
+};
+
 const char CURRENT_DB[]   = "data/db/current.db";
 const char SESSIONS_DIR[] = "data/sessions";
 const char EXPORTS_DIR[]  = "data/exports";
@@ -420,11 +429,26 @@ inline bool RecorderInit() {
 }
 
 inline void RecorderCleanup() {
-    if (g_insertStmt) sqlite3_finalize(g_insertStmt);
-    if (g_db) sqlite3_close(g_db);
-    if (g_pipe != INVALID_HANDLE_VALUE) CloseHandle(g_pipe);
-    if (g_directPipe != INVALID_HANDLE_VALUE) CloseHandle(g_directPipe);
-    if (g_pUIAutomation) g_pUIAutomation->Release();
+    if (g_insertStmt) {
+        sqlite3_finalize(g_insertStmt);
+        g_insertStmt = nullptr;
+    }
+    if (g_db) {
+        sqlite3_close(g_db);
+        g_db = nullptr;
+    }
+    if (g_pipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(g_pipe);
+        g_pipe = INVALID_HANDLE_VALUE;
+    }
+    if (g_directPipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(g_directPipe);
+        g_directPipe = INVALID_HANDLE_VALUE;
+    }
+    if (g_pUIAutomation) {
+        g_pUIAutomation->Release();
+        g_pUIAutomation = nullptr;
+    }
     CoUninitialize();
 }
 
@@ -432,19 +456,6 @@ inline void FlushLiveBuffer() {
     std::string text = DbToText(g_db);
     if (!text.empty()) {
         FILE* f = fopen(LIVE_TXT, "w");
-        if (f) { fprintf(f, "%s", text.c_str()); fclose(f); }
-    }
-}
-
-inline void ExportSessionDb(const std::string& dbPath, const std::string& txtPath) {
-    sqlite3* db;
-    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) return;
-
-    std::string text = DbToText(db);
-    sqlite3_close(db);
-
-    if (!text.empty()) {
-        FILE* f = fopen(txtPath.c_str(), "w");
         if (f) { fprintf(f, "%s", text.c_str()); fclose(f); }
     }
 }
@@ -487,7 +498,9 @@ inline std::string Shorten(const std::string& s, size_t maxLen) {
 
 inline std::string FocusProcessName(const std::string& focus) {
     size_t bar = focus.rfind('|');
-    std::string proc = (bar != std::string::npos && bar + 1 < focus.size()) ? focus.substr(bar + 1) : focus;
+    std::string proc = "";
+    if (bar == std::string::npos) proc = focus;
+    else if (bar + 1 < focus.size()) proc = focus.substr(bar + 1);
     return TrimCopy(proc);
 }
 
@@ -504,301 +517,15 @@ inline void AddUniqueLimited(std::vector<std::string>& items, const std::string&
     if (items.size() < maxItems) items.push_back(clean);
 }
 
-inline void DeleteFilesInDirA(const std::string& path) {
-    WIN32_FIND_DATAA fd;
-    std::string pattern = path + "\\*";
-    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
-    do {
-        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-        std::string file = path + "\\" + fd.cFileName;
-        DeleteFileA(file.c_str());
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
-}
-
-inline std::string SafeFileStem(const std::string& s) {
-    std::string out;
-    for (char c : s) {
-        unsigned char uc = (unsigned char)c;
-        if ((uc >= 'a' && uc <= 'z') || (uc >= 'A' && uc <= 'Z') || (uc >= '0' && uc <= '9')) out += c;
-        else if (c == '-' || c == '_') out += c;
-        else if (out.empty() || out.back() != '_') out += '_';
-        if (out.size() >= 40) break;
-    }
-    while (!out.empty() && out.back() == '_') out.pop_back();
-    return out.empty() ? "focus" : out;
-}
-
-inline std::string ArchiveDataRelativePath(const std::string& path) {
-    std::string rel = path;
-    for (char& c : rel) if (c == '\\') c = '/';
-    const std::string prefix = "data/";
-    if (rel.rfind(prefix, 0) == 0) rel = rel.substr(prefix.size());
-    return rel;
-}
-
-struct ArchiveClusterInfo {
-    int id = 0;
-    std::string key;
-    std::string window;
-    std::string process;
-    std::string path;
-    std::string relPath;
-    std::vector<std::string> windowSamples;
-    std::vector<std::string> commitSamples;
-    int eventCount = 0;
-    int directInputCount = 0;
-};
-
-inline std::string ClusterRuleSummary(const ArchiveClusterInfo& cluster) {
-    std::string summary = "Process: ";
-    summary += cluster.process.empty() ? "(unknown)" : cluster.process;
-    summary += ", events=" + std::to_string(cluster.eventCount);
-    if (!cluster.windowSamples.empty()) {
-        summary += ", windows: ";
-        for (size_t i = 0; i < cluster.windowSamples.size(); ++i) {
-            if (i) summary += " / ";
-            summary += cluster.windowSamples[i];
-        }
-    }
-    if (!cluster.commitSamples.empty()) {
-        summary += ", commit notes: ";
-        for (size_t i = 0; i < cluster.commitSamples.size(); ++i) {
-            if (i) summary += " / ";
-            summary += cluster.commitSamples[i];
-        }
-    }
-    return Shorten(summary, 500);
-}
-
-inline void WriteArchiveClusters(sqlite3* db, const std::string& clusterDir, std::vector<ArchiveClusterInfo>& clusters) {
-    if (!db) return;
-    EnsureDir(clusterDir.c_str());
-    DeleteFilesInDirA(clusterDir);
-
-    std::map<std::string, size_t> clusterIndex;
-    std::string currentFocus = "unknown|unknown";
-
-    auto ensureCluster = [&](const std::string& focus) -> ArchiveClusterInfo& {
-        std::string process = FocusProcessName(focus);
-        if (process.empty()) process = "unknown";
-        std::string key = process;
-        auto it = clusterIndex.find(key);
-        if (it != clusterIndex.end()) return clusters[it->second];
-
-        ArchiveClusterInfo info;
-        info.id = (int)clusters.size() + 1;
-        info.key = key;
-        info.window = FocusWindowTitle(focus);
-        info.process = process;
-        AddUniqueLimited(info.windowSamples, info.window, 5, 100);
-        std::string stem = SafeFileStem(info.process.empty() ? info.window : info.process);
-        char filename[128];
-        snprintf(filename, sizeof(filename), "cluster_%02d_%s.txt", info.id, stem.c_str());
-        info.path = clusterDir + "\\" + filename;
-        info.relPath = ArchiveDataRelativePath(info.path);
-        clusters.push_back(info);
-        clusterIndex[key] = clusters.size() - 1;
-        return clusters.back();
-    };
-
-    sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db, "SELECT ts, type, content FROM log ORDER BY id", -1, &stmt, nullptr) != SQLITE_OK)
-        return;
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        const char* ts = (const char*)sqlite3_column_text(stmt, 0);
-        const char* type = (const char*)sqlite3_column_text(stmt, 1);
-        const char* content = (const char*)sqlite3_column_text(stmt, 2);
-        std::string typeStr = type ? type : "";
-        std::string contentStr = content ? content : "";
-        if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
-            currentFocus = contentStr;
-        }
-
-        ArchiveClusterInfo& cluster = ensureCluster(currentFocus);
-        if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
-            std::string window = FocusWindowTitle(contentStr);
-            AddUniqueLimited(cluster.windowSamples, window, 5, 100);
-            if (cluster.window.empty()) cluster.window = window;
-        }
-        cluster.eventCount++;
-        if (type && strcmp(type, "direct-input") == 0)
-            cluster.directInputCount++;
-        if (type && strcmp(type, "commit") == 0 && !contentStr.empty())
-            AddUniqueLimited(cluster.commitSamples, contentStr, 5, 180);
-
-        FILE* f = fopen(cluster.path.c_str(), "a");
-        if (f) {
-            fprintf(f, "[%s] [%s] %s\n", ts ? ts : "", type ? type : "", content ? content : "");
-            fclose(f);
-        }
-    }
-    sqlite3_finalize(stmt);
-
-    std::sort(clusters.begin(), clusters.end(), [](const auto& a, const auto& b) {
-        return a.eventCount > b.eventCount;
-    });
-}
-
-inline void GenerateSessionMetadata(const std::string& sessionId, const std::string& dbPath, const std::string& txtPath, const std::string& metaPath) {
-    sqlite3* db = nullptr;
-    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) return;
-
-    std::string startedAt, endedAt, firstDirect;
-    std::map<std::string, int> focusCounts;
-    std::map<std::string, int> processCounts;
-    std::vector<std::string> commitSamples;
-    int totalRows = 0;
-    int directInputCount = 0;
-    std::string clusterDir = metaPath;
-    size_t dot = clusterDir.rfind(".meta.json");
-    if (dot != std::string::npos) clusterDir = clusterDir.substr(0, dot);
-    clusterDir += "_clusters";
-    std::vector<ArchiveClusterInfo> clusters;
-    WriteArchiveClusters(db, clusterDir, clusters);
-
-    sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db, "SELECT ts, type, content FROM log ORDER BY id", -1, &stmt, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            const char* ts = (const char*)sqlite3_column_text(stmt, 0);
-            const char* type = (const char*)sqlite3_column_text(stmt, 1);
-            const char* content = (const char*)sqlite3_column_text(stmt, 2);
-            totalRows++;
-            if (ts && startedAt.empty()) startedAt = ts;
-            if (ts) endedAt = ts;
-            std::string typeStr = type ? type : "";
-            std::string contentStr = content ? content : "";
-            if (type && strncmp(type, "focus", 5) == 0 && !contentStr.empty()) {
-                focusCounts[contentStr]++;
-                std::string proc = FocusProcessName(contentStr);
-                if (!proc.empty()) processCounts[proc]++;
-            } else if (type && strcmp(type, "direct-input") == 0 && !contentStr.empty()) {
-                directInputCount++;
-                if (firstDirect.empty()) firstDirect = contentStr;
-            } else if (type && strcmp(type, "commit") == 0 && !contentStr.empty()) {
-                AddUniqueLimited(commitSamples, contentStr, 5, 180);
-            }
-        }
-        sqlite3_finalize(stmt);
-    }
-    sqlite3_close(db);
-
-    std::vector<std::pair<std::string, int>> ranked(focusCounts.begin(), focusCounts.end());
-    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
-    std::vector<std::pair<std::string, int>> rankedProc(processCounts.begin(), processCounts.end());
-    std::sort(rankedProc.begin(), rankedProc.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
-
-    std::string title = "CommitBall session";
-    if (!firstDirect.empty()) {
-        title = Shorten(firstDirect, 80);
-    } else if (!ranked.empty()) {
-        std::string windowTitle = FocusWindowTitle(ranked[0].first);
-        title = Shorten(windowTitle.empty() ? ranked[0].first : windowTitle, 80);
-    }
-
-    std::vector<std::string> tags;
-    for (size_t i = 0; i < rankedProc.size() && tags.size() < 4; ++i) {
-        AddUniqueLimited(tags, rankedProc[i].first, 5, 32);
-    }
-    if (!commitSamples.empty()) AddUniqueLimited(tags, "commit", 5, 32);
-
-    std::string ruleSummary;
-    if (!ranked.empty()) {
-        ruleSummary += "Top windows: ";
-        for (size_t i = 0; i < ranked.size() && i < 3; ++i) {
-            if (i) ruleSummary += "; ";
-            std::string titlePart = FocusWindowTitle(ranked[i].first);
-            std::string procPart = FocusProcessName(ranked[i].first);
-            ruleSummary += Shorten(titlePart.empty() ? ranked[i].first : titlePart, 80);
-            if (!procPart.empty()) ruleSummary += " (" + procPart + ")";
-            ruleSummary += " x" + std::to_string(ranked[i].second);
-        }
-        ruleSummary += ". ";
-    }
-    if (!commitSamples.empty()) {
-        ruleSummary += "Commit notes: ";
-        for (size_t i = 0; i < commitSamples.size(); ++i) {
-            if (i) ruleSummary += " / ";
-            ruleSummary += commitSamples[i];
-        }
-        ruleSummary += ". ";
-    }
-    if (ruleSummary.empty()) {
-        ruleSummary = "Recorded " + std::to_string(totalRows) + " events";
-        if (!startedAt.empty() || !endedAt.empty())
-            ruleSummary += ", from " + startedAt + " to " + endedAt;
-        ruleSummary += ".";
-    }
-    ruleSummary = Shorten(ruleSummary, 600);
-
-    FILE* f = fopen(metaPath.c_str(), "w");
-    if (!f) return;
-    fprintf(f, "{\n");
-    fprintf(f, "  \"session_id\": \"%s\",\n", JsonEscape(sessionId).c_str());
-    fprintf(f, "  \"started_at\": \"%s\",\n", JsonEscape(startedAt).c_str());
-    fprintf(f, "  \"ended_at\": \"%s\",\n", JsonEscape(endedAt).c_str());
-    fprintf(f, "  \"txt_path\": \"%s\",\n", JsonEscape(txtPath).c_str());
-    fprintf(f, "  \"db_path\": \"%s\",\n", JsonEscape(dbPath).c_str());
-    fprintf(f, "  \"cluster_strategy\": \"process\",\n");
-    fprintf(f, "  \"cluster_dir\": \"%s\",\n", JsonEscape(ArchiveDataRelativePath(clusterDir)).c_str());
-    fprintf(f, "  \"cluster_count\": %d,\n", (int)clusters.size());
-    fprintf(f, "  \"title\": \"%s\",\n", JsonEscape(title).c_str());
-    fprintf(f, "  \"work_tags\": [");
-    for (size_t i = 0; i < tags.size(); ++i) {
-        if (i) fprintf(f, ", ");
-        fprintf(f, "\"%s\"", JsonEscape(tags[i]).c_str());
-    }
-    fprintf(f, "],\n");
-    fprintf(f, "  \"rule_summary\": \"%s\",\n", JsonEscape(ruleSummary).c_str());
-    fprintf(f, "  \"source\": \"rule\",\n");
-    fprintf(f, "  \"event_count\": %d,\n", totalRows);
-    fprintf(f, "  \"direct_input_count\": %d,\n", directInputCount);
-    fprintf(f, "  \"focus_top\": [");
-    for (size_t i = 0; i < ranked.size() && i < 5; ++i) {
-        if (i) fprintf(f, ", ");
-        fprintf(f, "{\"window\": \"%s\", \"process\": \"%s\", \"count\": %d}",
-            JsonEscape(FocusWindowTitle(ranked[i].first)).c_str(),
-            JsonEscape(FocusProcessName(ranked[i].first)).c_str(),
-            ranked[i].second);
-    }
-    fprintf(f, "],\n");
-    fprintf(f, "  \"clusters\": [");
-    for (size_t i = 0; i < clusters.size(); ++i) {
-        const auto& cluster = clusters[i];
-        if (i) fprintf(f, ", ");
-        fprintf(f, "{");
-        fprintf(f, "\"id\": \"cluster_%02d\", ", cluster.id);
-        fprintf(f, "\"window\": \"%s\", ", JsonEscape(cluster.window).c_str());
-        fprintf(f, "\"process\": \"%s\", ", JsonEscape(cluster.process).c_str());
-        fprintf(f, "\"txt_path\": \"%s\", ", JsonEscape(cluster.relPath).c_str());
-        fprintf(f, "\"event_count\": %d, ", cluster.eventCount);
-        fprintf(f, "\"direct_input_count\": %d, ", cluster.directInputCount);
-        fprintf(f, "\"window_samples\": [");
-        for (size_t j = 0; j < cluster.windowSamples.size(); ++j) {
-            if (j) fprintf(f, ", ");
-            fprintf(f, "\"%s\"", JsonEscape(cluster.windowSamples[j]).c_str());
-        }
-        fprintf(f, "], ");
-        fprintf(f, "\"rule_summary\": \"%s\"", JsonEscape(ClusterRuleSummary(cluster)).c_str());
-        fprintf(f, "}");
-    }
-    fprintf(f, "]\n");
-    fprintf(f, "}\n");
-    fclose(f);
-    Log("Session metadata written: %s", metaPath.c_str());
-}
-
 inline void CheckSessionSplit() {
     if (GetDbSize() >= SESSION_SPLIT_SIZE * 9 / 10) {
         if (!GetConfigBool("auto_analysed")) {
-            extern bool IsAgentRunning();
-            extern void InvokeAgentAnalyse();
-            if (IsAgentRunning()) {
-                SetConfigBool("auto_analysed", true);
-                InvokeAgentAnalyse();
+            extern bool IsAgentSummaryBusy();
+            extern bool InvokeAgentAnalyse();
+            if (!IsAgentSummaryBusy()) {
+                if (InvokeAgentAnalyse()) {
+                    SetConfigBool("auto_analysed", true);
+                }
             }
         }
     }
@@ -812,12 +539,7 @@ inline void CheckSessionSplit() {
     EnsureDir(sessionDir.c_str());
     std::string sessionPath = sessionDir + "\\" + sessionTs + ".db";
 
-    std::string exportDir = std::string(EXPORTS_DIR) + "\\" + month;
-    EnsureDir(exportDir.c_str());
-    std::string exportPath = exportDir + "\\commitball_" + sessionTs + ".txt";
-    std::string metaPath = exportDir + "\\commitball_" + sessionTs + ".meta.json";
-
-    Log("Session split: size=%lld, exporting...", (long long)GetDbSize());
+    Log("Session split: size=%lld, archiving db...", (long long)GetDbSize());
 
     sqlite3_finalize(g_insertStmt);
     g_insertStmt = nullptr;
@@ -831,9 +553,6 @@ inline void CheckSessionSplit() {
     }
 
     rename(CURRENT_DB, sessionPath.c_str());
-
-    ExportSessionDb(sessionPath, exportPath);
-    GenerateSessionMetadata(sessionTs, sessionPath, exportPath, metaPath);
 
     OpenDb(CURRENT_DB);
 
@@ -910,6 +629,18 @@ inline void ProcessDirectCommand(const std::string& cmd) {
         SaveBallShellWindowState(payload.c_str());
         return;
     }
+    if (cmd == "BAR_SHOW_PANEL") {
+        extern void SendBarCommand(const char* command);
+        SendBarCommand("SHOW_PANEL");
+        return;
+    }
+    const std::string barNoticePrefix = "BAR_NOTICE ";
+    if (cmd.rfind(barNoticePrefix, 0) == 0) {
+        extern void SendBarCommand(const char* command);
+        std::string msg = "NOTICE " + cmd.substr(barNoticePrefix.size());
+        SendBarCommand(msg.c_str());
+        return;
+    }
     if (cmd == "RELOAD_TRIGGER") {
         ReloadBarTriggerConfig();
         return;
@@ -920,7 +651,7 @@ inline void ProcessDirectCommand(const std::string& cmd) {
         if (SetBarTriggerConfig(trigger)) {
             Log("Bar trigger command applied");
             std::wstring* bubble = new std::wstring(L"Bar \x5524\x9192\x5E8F\x5217\x5DF2\x66F4\x65B0");
-            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, CORE_PIPE_BUBBLE);
         } else {
             Log("Invalid bar trigger from Bar: %s", trigger.c_str());
         }
@@ -939,11 +670,11 @@ inline void ProcessDirectCommand(const std::string& cmd) {
         }
 
         SetEyeModeConfig(enabled);
-        PostMessage(g_hWnd, WM_PIPE_MSG, 0, 3);
+        PostMessage(g_hWnd, WM_PIPE_MSG, 0, CORE_PIPE_STATE_CHANGED);
         std::wstring* bubble = new std::wstring(enabled
             ? L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5F00\x542F"
             : L"\x773C\x775B\x6A21\x5F0F\x5DF2\x5173\x95ED");
-        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, CORE_PIPE_BUBBLE);
         return;
     }
     const std::string bubblePrefix = "BUBBLE ";
@@ -954,7 +685,7 @@ inline void ProcessDirectCommand(const std::string& cmd) {
             std::wstring wide(wideLen, L'\0');
             MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wide[0], wideLen);
             std::wstring* bubble = new std::wstring(wide.c_str());
-            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, 2);
+            PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)bubble, CORE_PIPE_BUBBLE);
         }
     }
 }
@@ -1029,7 +760,7 @@ inline void InsertFocusEvent(const std::wstring& title, const std::wstring& proc
 }
 
 inline void CheckFocusChange() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     HWND currentHwnd = GetForegroundWindow();
     if (currentHwnd != g_lastFocusHwnd) {
         std::wstring title, process;
@@ -1042,7 +773,7 @@ inline void CheckFocusChange() {
 }
 
 inline void CheckFocusTimer() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     HWND currentHwnd = GetForegroundWindow();
     if (currentHwnd != g_lastFocusHwnd) {
         std::wstring title, process;
@@ -1064,7 +795,7 @@ inline void CheckFocusTimer() {
 }
 
 inline void CheckTimerEvent() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     if (GetTickCount() - g_lastTimerEvent >= 600000) {
         std::string ts = GetTimestamp();
         sqlite3_reset(g_insertStmt);
@@ -1101,7 +832,7 @@ inline void CheckAwayEvent() {
 }
 
 inline void CheckSessionTimeout() {
-    if (g_state != RECORDING) return;
+    if (g_state != RECORDING || g_awayLogged) return;
     if (GetTickCount() - g_recordingStartTime < 3600000) return;
 
     Log("Session timeout: 1h reached, splitting session");
@@ -1223,24 +954,89 @@ inline LRESULT CALLBACK LLKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) 
 inline void CreatePipeServer() {
     const int BUF_SIZE = 4096;
     char readBuf[BUF_SIZE];
+    OVERLAPPED ov = {};
+    HANDLE hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!hEvent) {
+        Log("CreatePipeServer: CreateEvent failed (err=%d)", GetLastError());
+        return;
+    }
+    ov.hEvent = hEvent;
 
     while (g_running) {
-        g_pipe = CreateNamedPipeW(
+        HANDLE hPipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\CommitBall",
-            PIPE_ACCESS_INBOUND,
+            PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
             4096, 4096, 0, NULL);
+        g_pipe = hPipe;
 
-        if (g_pipe == INVALID_HANDLE_VALUE) {
+        if (hPipe == INVALID_HANDLE_VALUE) {
             Sleep(1000);
             continue;
         }
 
-        if (ConnectNamedPipe(g_pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+        ResetEvent(hEvent);
+        BOOL connected = ConnectNamedPipe(hPipe, &ov);
+        DWORD connectErr = connected ? ERROR_SUCCESS : GetLastError();
+        bool shouldRead = false;
+        if (connected || connectErr == ERROR_PIPE_CONNECTED) {
+            shouldRead = true;
+        } else if (connectErr == ERROR_IO_PENDING) {
+            while (g_running) {
+                DWORD wait = WaitForSingleObject(hEvent, 100);
+                if (wait == WAIT_OBJECT_0) {
+                    DWORD transferred = 0;
+                    if (GetOverlappedResult(hPipe, &ov, &transferred, FALSE))
+                        shouldRead = true;
+                    else
+                        Log("CreatePipeServer: ConnectNamedPipe overlapped failed (err=%d)", GetLastError());
+                    break;
+                }
+                if (wait != WAIT_TIMEOUT) {
+                    Log("CreatePipeServer: connect wait failed (wait=%d err=%d)", wait, GetLastError());
+                    break;
+                }
+            }
+            if (!g_running) CancelIoEx(hPipe, &ov);
+        } else {
+            Log("CreatePipeServer: ConnectNamedPipe failed (err=%d)", connectErr);
+        }
+
+        if (shouldRead) {
             std::string acc;
             DWORD bytesRead;
-            while (g_running && ReadFile(g_pipe, readBuf, BUF_SIZE, &bytesRead, NULL)) {
+            while (g_running) {
+                ResetEvent(hEvent);
+                bytesRead = 0;
+                BOOL readOk = ReadFile(hPipe, readBuf, BUF_SIZE, &bytesRead, &ov);
+                DWORD readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                if (!readOk && readErr == ERROR_IO_PENDING) {
+                    while (g_running) {
+                        DWORD wait = WaitForSingleObject(hEvent, 100);
+                        if (wait == WAIT_OBJECT_0) {
+                            readOk = GetOverlappedResult(hPipe, &ov, &bytesRead, FALSE);
+                            readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                            break;
+                        }
+                        if (wait != WAIT_TIMEOUT) {
+                            Log("CreatePipeServer: read wait failed (wait=%d err=%d)", wait, GetLastError());
+                            readOk = FALSE;
+                            readErr = GetLastError();
+                            break;
+                        }
+                    }
+                    if (!g_running) {
+                        CancelIoEx(hPipe, &ov);
+                        break;
+                    }
+                }
+                if (!readOk) {
+                    if (readErr != ERROR_BROKEN_PIPE && readErr != ERROR_OPERATION_ABORTED)
+                        Log("CreatePipeServer: ReadFile failed (err=%d)", readErr);
+                    break;
+                }
+                if (bytesRead == 0) break;
                 acc.append(readBuf, bytesRead);
                 while (acc.size() >= 4) {
                     uint32_t msgLen;
@@ -1250,15 +1046,19 @@ inline void CreatePipeServer() {
                     std::wstring wmsg((const wchar_t*)(acc.data() + 4), msgLen / sizeof(wchar_t));
                     acc.erase(0, 4 + msgLen);
                     std::wstring* pMsg = new std::wstring(std::move(wmsg));
-                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pMsg, 0); // lParam=0: keyboard msg
+                    PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pMsg, CORE_PIPE_KEYBOARD_MESSAGE);
                 }
             }
         }
 
-        DisconnectNamedPipe(g_pipe);
-        CloseHandle(g_pipe);
-        g_pipe = INVALID_HANDLE_VALUE;
+        DisconnectNamedPipe(hPipe);
+        if (g_pipe == hPipe) {
+            CloseHandle(hPipe);
+            g_pipe = INVALID_HANDLE_VALUE;
+        }
     }
+
+    CloseHandle(hEvent);
 }
 
 inline void InsertDirectInput(const std::string& text) {
@@ -1276,11 +1076,18 @@ inline void InsertDirectInput(const std::string& text) {
 inline void CreateBarPipeServer() {
     const int BUF_SIZE = 4096;
     char readBuf[BUF_SIZE];
+    OVERLAPPED ov = {};
+    HANDLE hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!hEvent) {
+        Log("CreateBarPipeServer: CreateEvent failed (err=%d)", GetLastError());
+        return;
+    }
+    ov.hEvent = hEvent;
 
     while (g_running) {
         g_directPipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\CommitBall-direct",
-            PIPE_ACCESS_INBOUND,
+            PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1, BUF_SIZE, 0, 0, NULL);
 
@@ -1290,10 +1097,67 @@ inline void CreateBarPipeServer() {
         }
 
         HANDLE hPipe = g_directPipe;
-        if (ConnectNamedPipe(hPipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED) {
+        ResetEvent(hEvent);
+        BOOL connected = ConnectNamedPipe(hPipe, &ov);
+        DWORD connectErr = connected ? ERROR_SUCCESS : GetLastError();
+        bool shouldRead = false;
+        if (connected || connectErr == ERROR_PIPE_CONNECTED) {
+            shouldRead = true;
+        } else if (connectErr == ERROR_IO_PENDING) {
+            while (g_running) {
+                DWORD wait = WaitForSingleObject(hEvent, 100);
+                if (wait == WAIT_OBJECT_0) {
+                    DWORD transferred = 0;
+                    if (GetOverlappedResult(hPipe, &ov, &transferred, FALSE))
+                        shouldRead = true;
+                    else
+                        Log("CreateBarPipeServer: ConnectNamedPipe overlapped failed (err=%d)", GetLastError());
+                    break;
+                }
+                if (wait != WAIT_TIMEOUT) {
+                    Log("CreateBarPipeServer: connect wait failed (wait=%d err=%d)", wait, GetLastError());
+                    break;
+                }
+            }
+            if (!g_running) CancelIoEx(hPipe, &ov);
+        } else {
+            Log("CreateBarPipeServer: ConnectNamedPipe failed (err=%d)", connectErr);
+        }
+
+        if (shouldRead) {
             std::string acc;
             DWORD bytesRead;
-            while (g_running && ReadFile(hPipe, readBuf, BUF_SIZE, &bytesRead, NULL)) {
+            while (g_running) {
+                ResetEvent(hEvent);
+                bytesRead = 0;
+                BOOL readOk = ReadFile(hPipe, readBuf, BUF_SIZE, &bytesRead, &ov);
+                DWORD readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                if (!readOk && readErr == ERROR_IO_PENDING) {
+                    while (g_running) {
+                        DWORD wait = WaitForSingleObject(hEvent, 100);
+                        if (wait == WAIT_OBJECT_0) {
+                            readOk = GetOverlappedResult(hPipe, &ov, &bytesRead, FALSE);
+                            readErr = readOk ? ERROR_SUCCESS : GetLastError();
+                            break;
+                        }
+                        if (wait != WAIT_TIMEOUT) {
+                            Log("CreateBarPipeServer: read wait failed (wait=%d err=%d)", wait, GetLastError());
+                            readOk = FALSE;
+                            readErr = GetLastError();
+                            break;
+                        }
+                    }
+                    if (!g_running) {
+                        CancelIoEx(hPipe, &ov);
+                        break;
+                    }
+                }
+                if (!readOk) {
+                    if (readErr != ERROR_BROKEN_PIPE && readErr != ERROR_OPERATION_ABORTED)
+                        Log("CreateBarPipeServer: ReadFile failed (err=%d)", readErr);
+                    break;
+                }
+                if (bytesRead == 0) break;
                 acc.append(readBuf, bytesRead);
             }
             if (!acc.empty()) {
@@ -1301,21 +1165,27 @@ inline void CreateBarPipeServer() {
                 while (!text.empty() && (text.back() == '\r' || text.back() == '\n'))
                     text.pop_back();
                 if (!text.empty()) {
-                    if (text.rfind("CMD ", 0) == 0) {
-                        ProcessDirectCommand(text.substr(4));
+                    if (text == "CMD __EXIT__") {
+                        Log("Direct pipe exit wake received");
+                    } else if (text.rfind("CMD ", 0) == 0) {
+                        std::string* pCmd = new std::string(text.substr(4));
+                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pCmd, CORE_PIPE_DIRECT_COMMAND);
                     } else {
                         std::string* pText = new std::string(std::move(text));
-                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, 1); // lParam=1: direct-input
+                        PostMessage(g_hWnd, WM_PIPE_MSG, (WPARAM)pText, CORE_PIPE_DIRECT_INPUT);
                     }
                 }
             }
         }
 
         DisconnectNamedPipe(hPipe);
-        CloseHandle(hPipe);
-        if (g_directPipe == hPipe)
+        if (g_directPipe == hPipe) {
+            CloseHandle(hPipe);
             g_directPipe = INVALID_HANDLE_VALUE;
+        }
     }
+
+    CloseHandle(hEvent);
 }
 
 inline void ProcessMessage(const std::wstring& msg) {

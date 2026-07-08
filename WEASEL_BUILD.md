@@ -228,11 +228,16 @@ cscript.exe render.js weasel.props BOOST_ROOT PLATFORM_TOOLSET VERSION_MAJOR VER
 # 编译（指定 PlatformToolset 确保使用 v143）
 $msbuild = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
 & $msbuild weasel.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /t:Build /verbosity:minimal
+
+# 安装包还需要 WeaselSetup.exe；该项目只有 Win32 配置，需通过 sln 构建以正确解析 SolutionDir
+& $msbuild weasel.sln /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /t:WeaselSetup /verbosity:minimal
 ```
 
 产物在 `output/` 目录下，关键文件：
 - `cb-weaselx64.dll` — TSF 输入法 DLL（新 GUID，不与官方 Weasel 冲突）
 - `WeaselServer.exe` — 算法服务（含 CommitBallBridge）
+- `WeaselDeployer.exe` — 部署工具
+- `WeaselSetup.exe` — 安装包使用的输入法注册/注销 helper（Win32 可执行文件）
 
 ## 10. OpenCC 数据（必需）
 
@@ -276,6 +281,6 @@ Copy-Item "$env:TEMP\weasel-official\data\opencc\*" "output\data\opencc\" -Force
 |------|------|------|
 | Win32 构建失败 | Boost x86 lib 命名带 `x32` 后缀 | 不影响 x64 |
 | `build.bat opencc` 失败 | OpenCC cmake 配置问题 | 繁简自动转换不可用 |
-| WeaselSetup.exe 不可用 | 需要 Win32 weasel.dll | 用 regsvr32 替代 |
+| 直接构建 `WeaselSetup.vcxproj` 找不到 `wtl/atlapp.h` | 直接构建时 `$(SolutionDir)` 解析不对 | 用 `weasel.sln /t:WeaselSetup /p:Platform=Win32` 构建 |
 | get-rime.ps1 报错 | 文件编码无 BOM | 重新保存为 UTF-8 BOM |
 | `default.yaml` 含不存在的 `quick5` | plum prelude 方案包未同步 | 启动时报 ERROR 日志，安装时移除 |

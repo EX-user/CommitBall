@@ -1,6 +1,32 @@
+diff --git a/.gitignore b/.gitignore
+index e46b9242fe413be453c97010d7ac5a59c803534e..b1569778ad42622161925241c4fefe199beda068 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -21,6 +21,7 @@ compile_commands.json
+ /output/*.exe
+ /output/rime.dll
+ /output/weasel*.dll
++/output/cb-weasel*.dll
+ /output/*.ime
+ /output/*.txt
+ /output/*.bat
+@@ -49,10 +50,11 @@ Thumbs.db
+ *.VC.db
+ release-notes.html
+ *.7z
++rime-*-Windows-msvc-*/
+ RELEASE_CHANGELOG.md
+ deps/
+ arm64x_wrapper/*.o
+ arm64x_wrapper/*.dll
+ arm64x_wrapper/*.ime
+ arm64x_wrapper/*.lib
+-arm64x_wrapper/*.exp
+\ No newline at end of file
++arm64x_wrapper/*.exp
 diff --git a/RimeWithWeasel/CommitBallBridge.cpp b/RimeWithWeasel/CommitBallBridge.cpp
 new file mode 100644
-index 0000000..7cbe97f
+index 0000000000000000000000000000000000000000..7cbe97f03a9ce7e7bda2afb72959df8d35212341
 --- /dev/null
 +++ b/RimeWithWeasel/CommitBallBridge.cpp
 @@ -0,0 +1,39 @@
@@ -45,7 +71,7 @@ index 0000000..7cbe97f
 +}
 diff --git a/RimeWithWeasel/CommitBallBridge.h b/RimeWithWeasel/CommitBallBridge.h
 new file mode 100644
-index 0000000..d9d6ada
+index 0000000000000000000000000000000000000000..d9d6adaa6d6766f76db57845b8562c6fad3031ac
 --- /dev/null
 +++ b/RimeWithWeasel/CommitBallBridge.h
 @@ -0,0 +1,7 @@
@@ -57,7 +83,7 @@ index 0000000..d9d6ada
 +    void NotifyKeystroke(wchar_t ch);
 +}
 diff --git a/RimeWithWeasel/RimeWithWeasel.cpp b/RimeWithWeasel/RimeWithWeasel.cpp
-index c4d3a5e..d53820e 100644
+index c4d3a5e22c1e708950e8a55d32a0ec6d14c86c09..d53820e2eabaa922c7fcc37ab897d5e585c97b19 100644
 --- a/RimeWithWeasel/RimeWithWeasel.cpp
 +++ b/RimeWithWeasel/RimeWithWeasel.cpp
 @@ -4,6 +4,7 @@
@@ -146,7 +172,7 @@ index c4d3a5e..d53820e 100644
    }
  
 diff --git a/RimeWithWeasel/RimeWithWeasel.vcxproj b/RimeWithWeasel/RimeWithWeasel.vcxproj
-index ac5b0bf..d0a0554 100644
+index ac5b0bffdee423f839e24b3a86e3b4fc9fe150a3..d0a0554f97f5ae4df1d89ee43773d95012c9e606 100644
 --- a/RimeWithWeasel/RimeWithWeasel.vcxproj
 +++ b/RimeWithWeasel/RimeWithWeasel.vcxproj
 @@ -260,6 +260,7 @@
@@ -166,7 +192,7 @@ index ac5b0bf..d0a0554 100644
      <ClInclude Include="targetver.h" />
    </ItemGroup>
 diff --git a/RimeWithWeasel/WeaselUtility.cpp b/RimeWithWeasel/WeaselUtility.cpp
-index 9a07343..2b83938 100644
+index 9a07343b46d01d022ac67c2bf65b187d1b213a45..2b839389c53bb4da2ca4131562bf61b1b96e63fc 100644
 --- a/RimeWithWeasel/WeaselUtility.cpp
 +++ b/RimeWithWeasel/WeaselUtility.cpp
 @@ -5,7 +5,7 @@
@@ -179,7 +205,7 @@ index 9a07343..2b83938 100644
    LSTATUS ret = RegOpenKey(HKEY_CURRENT_USER, KEY, &hKey);
    if (ret == ERROR_SUCCESS) {
 diff --git a/WeaselDeployer/Configurator.cpp b/WeaselDeployer/Configurator.cpp
-index 1502322..877b6dd 100644
+index 15023226746b715a55935d8d043762348b3acc42..877b6ddd643ff2068d4b5c42dca336132ef6055f 100644
 --- a/WeaselDeployer/Configurator.cpp
 +++ b/WeaselDeployer/Configurator.cpp
 @@ -42,7 +42,7 @@ void Configurator::Initialize() {
@@ -228,7 +254,7 @@ index 1502322..877b6dd 100644
    }
    if (GetLastError() == ERROR_ALREADY_EXISTS) {
 diff --git a/WeaselDeployer/SwitcherSettingsDialog.cpp b/WeaselDeployer/SwitcherSettingsDialog.cpp
-index 587cbc7..007aeb1 100644
+index 587cbc714149302897dfebe179804fba7131f1bc..007aeb14b65c6065a2f6df58dbf9c9006d9fa4f0 100644
 --- a/WeaselDeployer/SwitcherSettingsDialog.cpp
 +++ b/WeaselDeployer/SwitcherSettingsDialog.cpp
 @@ -114,9 +114,9 @@ LRESULT SwitcherSettingsDialog::OnGetSchemata(WORD, WORD, HWND hWndCtl, BOOL&) {
@@ -244,7 +270,7 @@ index 587cbc7..007aeb1 100644
    if (ret == ERROR_SUCCESS) {
      WCHAR value[MAX_PATH];
 diff --git a/WeaselDeployer/WeaselDeployer.cpp b/WeaselDeployer/WeaselDeployer.cpp
-index a578014..d497d7c 100644
+index a57801435a7cd33247884614f650a230e7b9f0a3..d497d7c386021fdde45763c10ba1e0b4383a6717 100644
 --- a/WeaselDeployer/WeaselDeployer.cpp
 +++ b/WeaselDeployer/WeaselDeployer.cpp
 @@ -40,7 +40,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
@@ -257,7 +283,7 @@ index a578014..d497d7c 100644
      ret = 1;
    } else if (GetLastError() == ERROR_ALREADY_EXISTS) {
 diff --git a/WeaselServer/WeaselServerApp.cpp b/WeaselServer/WeaselServerApp.cpp
-index e09c4c5..ef08c29 100644
+index e09c4c5ed2a5f716a4d8b4b112eb49e441be3633..ef08c2939087483f50c7b556e5fd1889a1fc864e 100644
 --- a/WeaselServer/WeaselServerApp.cpp
 +++ b/WeaselServer/WeaselServerApp.cpp
 @@ -17,7 +17,7 @@ int WeaselServerApp::Run() {
@@ -270,7 +296,7 @@ index e09c4c5..ef08c29 100644
        MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL))
      win_sparkle_set_lang("zh-TW");
 diff --git a/WeaselServer/WeaselServerApp.h b/WeaselServer/WeaselServerApp.h
-index d5e32e0..122c672 100644
+index d5e32e0067af10b4b90f6cd17353fb19b82a2817..122c6724715d764a24184d2502963e5782583e58 100644
 --- a/WeaselServer/WeaselServerApp.h
 +++ b/WeaselServer/WeaselServerApp.h
 @@ -37,7 +37,7 @@ class WeaselServerApp {
@@ -283,193 +309,159 @@ index d5e32e0..122c672 100644
      if (!ret && channel == L"testing") {
        feed_url = GetCustomResource("TestingManualUpdateFeedURL", "APPCAST");
 diff --git a/WeaselSetup/WeaselSetup.cpp b/WeaselSetup/WeaselSetup.cpp
-index ccaf86f..ea0ab23 100644
+index ccaf86f3db97fddbca143eeb6fd1e10235937b22..000a1e429a236f3573eb0c67ce02bb56dc00c522 100644
 --- a/WeaselSetup/WeaselSetup.cpp
 +++ b/WeaselSetup/WeaselSetup.cpp
-@@ -59,7 +59,7 @@ static int CustomInstall(bool installing) {
-   bool silent = false;
-   std::wstring user_dir;
+@@ -186,46 +186,46 @@ static int Run(LPTSTR lpCmdLine) {
+   }
+ 
+   if (auto res = GetParamByPrefix(lpCmdLine, L"/userdir:")) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"RimeUserDir", res, REG_SZ);
+-  }
+-
+-  if (!wcscmp(L"/ls", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"Language", L"chs", REG_SZ);
+-  } else if (!wcscmp(L"/lt", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"Language", L"cht", REG_SZ);
+-  } else if (!wcscmp(L"/le", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"Language", L"eng", REG_SZ);
+-  }
+-
+-  if (!wcscmp(L"/eu", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel\\Updates",
+-                          L"CheckForUpdates", L"1", REG_SZ);
+-  }
+-  if (!wcscmp(L"/du", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel\\Updates",
+-                          L"CheckForUpdates", L"0", REG_SZ);
+-  }
+-
+-  if (!wcscmp(L"/toggleime", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"ToggleImeOnOpenClose", L"yes", REG_SZ);
+-  }
+-  if (!wcscmp(L"/toggleascii", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"ToggleImeOnOpenClose", L"no", REG_SZ);
+-  }
+-  if (!wcscmp(L"/testing", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"UpdateChannel", L"testing", REG_SZ);
+-  }
+-  if (!wcscmp(L"/release", lpCmdLine)) {
+-    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
+-                          L"UpdateChannel", L"release", REG_SZ);
+-  }
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"RimeUserDir", res, REG_SZ);
++  }
++
++  if (!wcscmp(L"/ls", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"Language", L"chs", REG_SZ);
++  } else if (!wcscmp(L"/lt", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"Language", L"cht", REG_SZ);
++  } else if (!wcscmp(L"/le", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"Language", L"eng", REG_SZ);
++  }
++
++  if (!wcscmp(L"/eu", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel\\Updates",
++                          L"CheckForUpdates", L"1", REG_SZ);
++  }
++  if (!wcscmp(L"/du", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel\\Updates",
++                          L"CheckForUpdates", L"0", REG_SZ);
++  }
++
++  if (!wcscmp(L"/toggleime", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"ToggleImeOnOpenClose", L"yes", REG_SZ);
++  }
++  if (!wcscmp(L"/toggleascii", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"ToggleImeOnOpenClose", L"no", REG_SZ);
++  }
++  if (!wcscmp(L"/testing", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"UpdateChannel", L"testing", REG_SZ);
++  }
++  if (!wcscmp(L"/release", lpCmdLine)) {
++    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
++                          L"UpdateChannel", L"release", REG_SZ);
++  }
+ 
+   if (!IsProcAdmin()) {
+     return RestartAsAdmin(lpCmdLine);
+diff --git a/WeaselSetup/imesetup.cpp b/WeaselSetup/imesetup.cpp
+index 0880e7ff0402e525966ccaf16aefb8d4bb1da33c..94d069f56b8b8e9699b008a4196a7691ddf0527e 100644
+--- a/WeaselSetup/imesetup.cpp
++++ b/WeaselSetup/imesetup.cpp
+@@ -8,28 +8,28 @@
+ #include <WeaselUtility.h>
+ #include "InstallOptionsDlg.h"
+ 
+-// {A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}
+-static const GUID c_clsidTextService = {
+-    0xa3f4cded,
+-    0xb1e9,
+-    0x41ee,
+-    {0x9c, 0xa6, 0x7b, 0x4d, 0xd, 0xe6, 0xcb, 0xa}};
+-
+-// {3D02CAB6-2B8E-4781-BA20-1C9267529467}
+-static const GUID c_guidProfile = {
+-    0x3d02cab6,
+-    0x2b8e,
+-    0x4781,
+-    {0xba, 0x20, 0x1c, 0x92, 0x67, 0x52, 0x94, 0x67}};
++// {1DAC3806-5705-46F1-A305-7066F9663F07}
++static const GUID c_clsidTextService = {
++    0x1dac3806,
++    0x5705,
++    0x46f1,
++    {0xa3, 0x05, 0x70, 0x66, 0xf9, 0x66, 0x3f, 0x07}};
++
++// {9CC9AF36-FB0A-4AEA-8565-1C051D6D2164}
++static const GUID c_guidProfile = {
++    0x9cc9af36,
++    0xfb0a,
++    0x4aea,
++    {0x85, 0x65, 0x1c, 0x05, 0x1d, 0x6d, 0x21, 0x64}};
+ 
+ // if in the future, option hant is extended, maybe a function to generate this
+ // info is required
+-#define PSZTITLE_HANS                                                     \
+-  L"0804:{A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}{3D02CAB6-2B8E-4781-BA20-" \
+-  L"1C9267529467}"
+-#define PSZTITLE_HANT                                                     \
+-  L"0404:{A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}{3D02CAB6-2B8E-4781-BA20-" \
+-  L"1C9267529467}"
++#define PSZTITLE_HANS                                                     \
++  L"0804:{1DAC3806-5705-46F1-A305-7066F9663F07}{9CC9AF36-FB0A-4AEA-8565-" \
++  L"1C051D6D2164}"
++#define PSZTITLE_HANT                                                     \
++  L"0404:{1DAC3806-5705-46F1-A305-7066F9663F07}{9CC9AF36-FB0A-4AEA-8565-" \
++  L"1C051D6D2164}"
+ #define ILOT_UNINSTALL 0x00000001
+ typedef HRESULT(WINAPI* PTF_INSTALLLAYOUTORTIP)(LPCWSTR psz, DWORD dwFlags);
+ 
+@@ -436,7 +436,7 @@ int uninstall(bool silent) {
+   // 注销输入法
+   int retval = 0;
  
 -  const WCHAR KEY[] = L"Software\\Rime\\Weasel";
 +  const WCHAR KEY[] = L"Software\\Rime\\CBWeasel";
    HKEY hKey;
    LSTATUS ret = RegOpenKey(HKEY_CURRENT_USER, KEY, &hKey);
    if (ret == ERROR_SUCCESS) {
-@@ -186,18 +186,18 @@ static int Run(LPTSTR lpCmdLine) {
-   }
- 
-   if (auto res = GetParamByPrefix(lpCmdLine, L"/userdir:")) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"RimeUserDir", res, REG_SZ);
-   }
- 
-   if (!wcscmp(L"/ls", lpCmdLine)) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"Language", L"chs", REG_SZ);
-   } else if (!wcscmp(L"/lt", lpCmdLine)) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"Language", L"cht", REG_SZ);
-   } else if (!wcscmp(L"/le", lpCmdLine)) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"Language", L"eng", REG_SZ);
-   }
- 
-@@ -211,19 +211,19 @@ static int Run(LPTSTR lpCmdLine) {
-   }
- 
-   if (!wcscmp(L"/toggleime", lpCmdLine)) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"ToggleImeOnOpenClose", L"yes", REG_SZ);
-   }
-   if (!wcscmp(L"/toggleascii", lpCmdLine)) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"ToggleImeOnOpenClose", L"no", REG_SZ);
-   }
-   if (!wcscmp(L"/testing", lpCmdLine)) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"UpdateChannel", L"testing", REG_SZ);
-   }
-   if (!wcscmp(L"/release", lpCmdLine)) {
--    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\weasel",
-+    return SetRegKeyValue(HKEY_CURRENT_USER, L"Software\\Rime\\CBWeasel",
-                           L"UpdateChannel", L"release", REG_SZ);
-   }
- 
-diff --git a/WeaselSetup/imesetup.cpp b/WeaselSetup/imesetup.cpp
-index 0880e7f..23a49c5 100644
---- a/WeaselSetup/imesetup.cpp
-+++ b/WeaselSetup/imesetup.cpp
-@@ -8,34 +8,32 @@
- #include <WeaselUtility.h>
- #include "InstallOptionsDlg.h"
- 
--// {A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}
-+// {1DAC3806-5705-46F1-A305-7066F9663F07}
- static const GUID c_clsidTextService = {
--    0xa3f4cded,
--    0xb1e9,
--    0x41ee,
--    {0x9c, 0xa6, 0x7b, 0x4d, 0xd, 0xe6, 0xcb, 0xa}};
-+    0x1dac3806,
-+    0x5705,
-+    0x46f1,
-+    {0xa3, 0x05, 0x70, 0x66, 0xf9, 0x66, 0x3f, 0x07}};
- 
--// {3D02CAB6-2B8E-4781-BA20-1C9267529467}
-+// {9CC9AF36-FB0A-4AEA-8565-1C051D6D2164}
- static const GUID c_guidProfile = {
--    0x3d02cab6,
--    0x2b8e,
--    0x4781,
--    {0xba, 0x20, 0x1c, 0x92, 0x67, 0x52, 0x94, 0x67}};
-+    0x9cc9af36,
-+    0xfb0a,
-+    0x4aea,
-+    {0x85, 0x65, 0x1c, 0x05, 0x1d, 0x6d, 0x21, 0x64}};
- 
--// if in the future, option hant is extended, maybe a function to generate this
--// info is required
- #define PSZTITLE_HANS                                                     \
--  L"0804:{A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}{3D02CAB6-2B8E-4781-BA20-" \
--  L"1C9267529467}"
-+  L"0804:{1DAC3806-5705-46F1-A305-7066F9663F07}{9CC9AF36-FB0A-4AEA-8565-" \
-+  L"1C051D6D2164}"
- #define PSZTITLE_HANT                                                     \
--  L"0404:{A3F4CDED-B1E9-41EE-9CA6-7B4D0DE6CB0A}{3D02CAB6-2B8E-4781-BA20-" \
--  L"1C9267529467}"
-+  L"0404:{1DAC3806-5705-46F1-A305-7066F9663F07}{9CC9AF36-FB0A-4AEA-8565-" \
-+  L"1C051D6D2164}"
- #define ILOT_UNINSTALL 0x00000001
- typedef HRESULT(WINAPI* PTF_INSTALLLAYOUTORTIP)(LPCWSTR psz, DWORD dwFlags);
- 
- #define WEASEL_WER_KEY                            \
-   L"SOFTWARE\\Microsoft\\Windows\\Windows Error " \
--  L"Reporting\\LocalDumps\\WeaselServer.exe"
-+  L"Reporting\\LocalDumps\\CBWeaselServer.exe"
- 
- BOOL copy_file(const std::wstring& src, const std::wstring& dest) {
-   BOOL ret = CopyFile(src.c_str(), dest.c_str(), FALSE);
-@@ -126,7 +124,7 @@ int install_ime_file(std::wstring& srcPath,
-   WCHAR path[MAX_PATH];
-   GetModuleFileNameW(GetModuleHandle(NULL), path, _countof(path));
- 
--  std::wstring srcFileName = L"weasel";
-+  std::wstring srcFileName = L"cb-weasel";
- 
-   srcFileName += ext;
-   WCHAR drive[_MAX_DRIVE];
-@@ -136,7 +134,7 @@ int install_ime_file(std::wstring& srcPath,
-   srcPath = std::wstring(drive) + dir + srcFileName;
- 
-   GetSystemDirectoryW(path, _countof(path));
--  std::wstring destPath = std::wstring(path) + L"\\weasel" + ext;
-+  std::wstring destPath = std::wstring(path) + L"\\cb-weasel" + ext;
- 
-   int retval = 0;
-   // 复制 .dll/.ime 到系统目录
-@@ -168,7 +166,7 @@ int install_ime_file(std::wstring& srcPath,
-         std::wstring srcPathARM32 = srcPath;
-         ireplace_last(srcPathARM32, ext, L"ARM" + ext);
- 
--        std::wstring destPathARM32 = std::wstring(sysarm32) + L"\\weasel" + ext;
-+        std::wstring destPathARM32 = std::wstring(sysarm32) + L"\\cb-weasel" + ext;
-         if (!copy_file(srcPathARM32, destPathARM32)) {
-           MSG_NOT_SILENT_ID_CAP(silent, destPathARM32.c_str(),
-                                 IDS_STR_INSTALL_FAILED, MB_ICONERROR | MB_OK);
-@@ -205,7 +203,7 @@ int install_ime_file(std::wstring& srcPath,
- 
-       // Since weaselARM64X is just a redirector we don't have separate
-       // HANS and HANT variants.
--      srcPath = std::wstring(drive) + dir + L"weaselARM64X" + ext;
-+      srcPath = std::wstring(drive) + dir + L"cb-weaselARM64X" + ext;
-     } else {
-       ireplace_last(srcPath, ext, L"x64" + ext);
-     }
-@@ -232,7 +230,7 @@ int uninstall_ime_file(const std::wstring& ext,
-   WCHAR path[MAX_PATH];
-   GetSystemDirectoryW(path, _countof(path));
-   std::wstring imePath(path);
--  imePath += L"\\weasel" + ext;
-+  imePath += L"\\cb-weasel" + ext;
-   retval += func(imePath, false, false, false, false, silent);
-   delete_file(imePath);
-   if (is_wow64()) {
-@@ -247,7 +245,7 @@ int uninstall_ime_file(const std::wstring& ext,
-     if (is_arm64_machine()) {
-       WCHAR sysarm32[MAX_PATH];
-       if (get_wow_arm32_system_dir(sysarm32, _countof(sysarm32)) > 0) {
--        std::wstring imePathARM32 = std::wstring(sysarm32) + L"\\weasel" + ext;
-+        std::wstring imePathARM32 = std::wstring(sysarm32) + L"\\cb-weasel" + ext;
-         retval += func(imePathARM32, false, true, true, false, silent);
-         delete_file(imePathARM32);
-       }
-@@ -381,7 +379,7 @@ int install(bool hant, bool silent) {
-     return 1;
-   }
- 
--  const std::wstring executable = L"WeaselServer.exe";
-+  const std::wstring executable = L"CBWeaselServer.exe";
-   ret = SetRegKeyValue(HKEY_LOCAL_MACHINE, WEASEL_REG_KEY, L"ServerExecutable",
-                        executable.c_str(), REG_SZ);
-   if (FAILED(HRESULT_FROM_WIN32(ret))) {
-@@ -488,7 +486,7 @@ bool has_installed() {
-   WCHAR path[MAX_PATH];
-   GetSystemDirectory(path, _countof(path));
-   std::wstring sysPath(path);
--  DWORD attr = GetFileAttributesW((sysPath + L"\\weasel.dll").c_str());
-+  DWORD attr = GetFileAttributesW((sysPath + L"\\cb-weasel.dll").c_str());
-   return (attr != INVALID_FILE_ATTRIBUTES &&
-           !(attr & FILE_ATTRIBUTE_DIRECTORY));
- }
 diff --git a/WeaselTSF/Globals.cpp b/WeaselTSF/Globals.cpp
-index c5d28b9..a1eb88e 100644
+index c5d28b9a07f76b38fcc6fb424e283deac6417e4b..a1eb88e719368832d7b2c52f9b566107ab776f79 100644
 --- a/WeaselTSF/Globals.cpp
 +++ b/WeaselTSF/Globals.cpp
 @@ -7,26 +7,26 @@ LONG g_cRefDll = -1;
@@ -515,7 +507,7 @@ index c5d28b9..a1eb88e 100644
  // {2AC87E79-3260-4B32-9DEA-F8390976C20B}
  static const GUID c_guidDisplayAttributeInput = {
 diff --git a/WeaselTSF/LanguageBar.cpp b/WeaselTSF/LanguageBar.cpp
-index 0ab85be..cd158cc 100644
+index 0ab85bec76a5be9c16cdbd00816ae20a9e4594d9..cd158cc330801cc5100149768d2680f0852b8776 100644
 --- a/WeaselTSF/LanguageBar.cpp
 +++ b/WeaselTSF/LanguageBar.cpp
 @@ -37,9 +37,9 @@ static void HMENU2ITfMenu(HMENU hMenu, ITfMenu* pTfMenu) {
@@ -540,7 +532,7 @@ index 0ab85be..cd158cc 100644
            dir.empty()) {
          WCHAR _path[MAX_PATH] = {0};
 diff --git a/WeaselTSF/Register.cpp b/WeaselTSF/Register.cpp
-index 69dccc5..8283617 100644
+index 69dccc5215a02aedf340d1b3ca4093658d662d55..82836174d6c7fd45d5f8bd46460f8337a862d6ff 100644
 --- a/WeaselTSF/Register.cpp
 +++ b/WeaselTSF/Register.cpp
 @@ -31,7 +31,7 @@ HKL FindIME(LANGID langid) {
@@ -562,7 +554,7 @@ index 69dccc5..8283617 100644
          memcpy(achFileName, wrapperPath, MAX_PATH);
        }
 diff --git a/WeaselTSF/WeaselTSF.cpp b/WeaselTSF/WeaselTSF.cpp
-index 2e7dcff..764607e 100644
+index 2e7dcffd9c69be198c5c8e37c85856918d4c5cef..764607ebe89a0eb87810920d7947e282002ea4e2 100644
 --- a/WeaselTSF/WeaselTSF.cpp
 +++ b/WeaselTSF/WeaselTSF.cpp
 @@ -240,7 +240,7 @@ bool WeaselTSF::_EnsureServerConnected() {
@@ -575,35 +567,16 @@ index 2e7dcff..764607e 100644
          int count = 0;
          HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 diff --git a/WeaselTSF/WeaselTSF.rc b/WeaselTSF/WeaselTSF.rc
-index 648bad1..e112c0e 100644
---- a/WeaselTSF/WeaselTSF.rc
-+++ b/WeaselTSF/WeaselTSF.rc
-@@ -1,4 +1,4 @@
--��/ /   M i c r o s o f t   V i s u a l   C + +   g e n e r a t e d   r e s o u r c e   s c r i p t .  
-+/ /   M i c r o s o f t   V i s u a l   C + +   g e n e r a t e d   r e s o u r c e   s c r i p t .  
-  / /  
-  # i n c l u d e   " r e s o u r c e . h "  
-   
-@@ -15,13 +15,13 @@
-  # i f n d e f   A P S T U D I O _ I N V O K E D  
-  # i n c l u d e   < . . / i n c l u d e / r e s o u r c e . h >  
-      # i f d e f   W I N 6 4  
--             # d e f i n e   F I L E _ N A M E   " w e a s e l x 6 4 . d l l "  
-+             # d e f i n e   F I L E _ N A M E   " c b - w e a s e l x 6 4 . d l l "  
-      # e l i f   d e f i n e d ( A R M 6 4 )  
--             # d e f i n e   F I L E _ N A M E   " w e a s e l A R M 6 4 . d l l "  
-+             # d e f i n e   F I L E _ N A M E   " c b - w e a s e l A R M 6 4 . d l l "  
-      # e l i f   d e f i n e d ( A R M )  
--             # d e f i n e   F I L E _ N A M E   " w e a s e l A R M . d l l "  
-+             # d e f i n e   F I L E _ N A M E   " c b - w e a s e l A R M . d l l "  
-      # e l s e  
--             # d e f i n e   F I L E _ N A M E   " w e a s e l . d l l "  
-+             # d e f i n e   F I L E _ N A M E   " c b - w e a s e l . d l l "  
-      # e n d i f  
-      # d e f i n e   S T R Z 2 ( x )   # x  
-      # d e f i n e   S T R Z ( x )   S T R Z 2 ( x )  
+index 648bad1d09558829b6f53d375e5469e239cdf6c2..e112c0e78c896298c3de9fbdf3c19d32fef34d20 100644
+GIT binary patch
+delta 49
+pcmdl~bE0M=(<NrsWQHUL-N~1ko1v^w78vU~ODaTcvo-5?3jmcp4<`Ts
+
+delta 27
+jcmX?6v#EyZ|Gy2Fm?z(0Zkn9H(lq%6OUmXT)^8R7%;ODv
+
 diff --git a/WeaselTSF/WeaselTSF.vcxproj b/WeaselTSF/WeaselTSF.vcxproj
-index 3257ea6..19e4b5e 100644
+index 3257ea66cd5e5b29fce58302fbcd4fba947acf8e..19e4b5e344a4df9fd9e8c3a659bc79fd09eecc5a 100644
 --- a/WeaselTSF/WeaselTSF.vcxproj
 +++ b/WeaselTSF/WeaselTSF.vcxproj
 @@ -1,4 +1,4 @@
@@ -754,7 +727,7 @@ index 3257ea6..19e4b5e 100644
        <GenerateDebugInformation>true</GenerateDebugInformation>
        <SubSystem>Windows</SubSystem>
 diff --git a/WeaselTSF/dllmain.cpp b/WeaselTSF/dllmain.cpp
-index 212eea1..c391e52 100644
+index 212eea1058562a8720ad45b3bd97aee18246c93d..c391e520e32a391c3a5dfcd17b10e9d4ca55a6ad 100644
 --- a/WeaselTSF/dllmain.cpp
 +++ b/WeaselTSF/dllmain.cpp
 @@ -39,7 +39,7 @@ LONG WINAPI _UnhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionPointers) {
@@ -767,7 +740,7 @@ index 212eea1..c391e52 100644
    _stprintf_s(szFileName, MAX_PATH, _T("%s\\%s-%s-%s.%lu.dmp"), _path,
                pszBaseName, pszDllBaseName, szDateTime, dwProcessId);
 diff --git a/WeaselTSF/xmake.lua b/WeaselTSF/xmake.lua
-index e13d9be..fe32f26 100644
+index e13d9be869ef86d48012901f40f847c9c827b16d..fe32f265ca5c00c179f9f5168369953e494be2b5 100644
 --- a/WeaselTSF/xmake.lua
 +++ b/WeaselTSF/xmake.lua
 @@ -5,13 +5,13 @@ target("WeaselTSF")
@@ -798,7 +771,7 @@ index e13d9be..fe32f26 100644
 +    os.cp(path.join(target:targetdir(), "cb-weasel*.pdb"), "$(projectdir)/output")
    end)
 diff --git a/arm64x_wrapper/WeaselTSF_arm64.def b/arm64x_wrapper/WeaselTSF_arm64.def
-index 8e3a547..8a4d6d6 100644
+index 8e3a5472a9f76fd8813292bbee4028de2be2f477..8a4d6d61f96de1737e41929835420a915ed1923a 100644
 --- a/arm64x_wrapper/WeaselTSF_arm64.def
 +++ b/arm64x_wrapper/WeaselTSF_arm64.def
 @@ -1,5 +1,5 @@
@@ -814,7 +787,7 @@ index 8e3a547..8a4d6d6 100644
 +	DllUnregisterServer = cb-weaselARM64.dll.DllUnregisterServer
 \ No newline at end of file
 diff --git a/arm64x_wrapper/WeaselTSF_x64.def b/arm64x_wrapper/WeaselTSF_x64.def
-index 11ed1b5..d7c7f78 100644
+index 11ed1b5e4882d1ed1ec49f138eb85d423c7546c2..d7c7f78f57b4a418d651181e37386e53c3fed96b 100644
 --- a/arm64x_wrapper/WeaselTSF_x64.def
 +++ b/arm64x_wrapper/WeaselTSF_x64.def
 @@ -1,5 +1,5 @@
@@ -830,7 +803,7 @@ index 11ed1b5..d7c7f78 100644
 +	DllUnregisterServer = cb-weaselx64.dll.DllUnregisterServer
 \ No newline at end of file
 diff --git a/get-rime.ps1 b/get-rime.ps1
-index dd394b2..1e2e004 100755
+index dd394b22c06b937efb4261722df33eebe0296891..1e2e00444ea7960babd2cda7368821a25fe12540 100755
 --- a/get-rime.ps1
 +++ b/get-rime.ps1
 @@ -351,9 +351,9 @@ if ($null -ne $response.assets -and $response.assets.Count -gt 0) {
@@ -846,7 +819,7 @@ index dd394b2..1e2e004 100755
          try {
            $weaselRoot = (Get-ItemProperty -Path $registryPath -ErrorAction Stop).'WeaselRoot'
 diff --git a/include/WeaselConstants.h b/include/WeaselConstants.h
-index 09625e4..dea79cf 100644
+index 09625e4d34705a27354b4de81debfc6dfecd7f43..dea79cf4ddc7713c5bf3b66b00e92e55c671a55d 100644
 --- a/include/WeaselConstants.h
 +++ b/include/WeaselConstants.h
 @@ -1,7 +1,7 @@
@@ -860,7 +833,7 @@ index 09625e4..dea79cf 100644
  
  #define STRINGIZE(x) #x
 diff --git a/include/WeaselIPC.h b/include/WeaselIPC.h
-index d260ac2..c5766b2 100644
+index d260ac2b7dab1cd8eb6717279e4445385800722f..c5766b2626630797a65a1a9c175a80a6bc4c20ae 100644
 --- a/include/WeaselIPC.h
 +++ b/include/WeaselIPC.h
 @@ -6,8 +6,8 @@
@@ -875,7 +848,7 @@ index d260ac2..c5766b2 100644
  #define WEASEL_IPC_METADATA_SIZE 1024
  #define WEASEL_IPC_BUFFER_SIZE (4 * 1024)
 diff --git a/include/WeaselUtility.h b/include/WeaselUtility.h
-index 742f157..570223a 100755
+index 742f15744b77445b023b3bb4311e5fd2fbc1fcb3..570223aec5a9ccc217a1ae1eb080681ae74ba0b5 100755
 --- a/include/WeaselUtility.h
 +++ b/include/WeaselUtility.h
 @@ -1,4 +1,5 @@
@@ -914,22 +887,3 @@ index 742f157..570223a 100755
                          L"Language", lang) == ERROR_SUCCESS) {
      if (lang == L"chs")
        return MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
-diff --git a/output/rime-install-config.bat b/output/rime-install-config.bat
-index 7dfc62a..80ee971 100644
---- a/output/rime-install-config.bat
-+++ b/output/rime-install-config.bat
-@@ -11,7 +11,7 @@ set plum_dir=%APPDATA%\plum
- rem Location of Rime user directory
- rem set rime_dir=%APPDATA%\Rime
- 
--set key=HKEY_CURRENT_USER\SOFTWARE\Rime\Weasel
-+set key=HKEY_CURRENT_USER\SOFTWARE\Rime\CBWeasel
- set name=RimeUserDir
- for /f "tokens=2*" %%a in ('reg query "%key%" /v "%name%"') do set rime_dir=%%b
- 
-diff --git a/plum b/plum
---- a/plum
-+++ b/plum
-@@ -1 +1 @@
--Subproject commit cab9ed35289f2022b6888503750d2dfb1851dbe0
-+Subproject commit cab9ed35289f2022b6888503750d2dfb1851dbe0-dirty

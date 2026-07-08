@@ -11,9 +11,14 @@ HANDLE g_barProcess = nullptr;
 HANDLE g_agentProcess = nullptr;
 HANDLE g_ballShellProcess = nullptr;
 HANDLE g_childJob = nullptr;
+HANDLE g_pipeThread = nullptr;
+HANDLE g_barPipeThread = nullptr;
+HANDLE g_mutex = nullptr;
+HHOOK g_keyboardHook = nullptr;
+HHOOK g_mouseHook = nullptr;
+bool g_exiting = false;
 
 bool EnsureAgentRunning();
-void RequestCommitBallExit();
 void FastCommitBallExit();
 bool IsBallShellEnabled();
 void PushBallShellState();
@@ -83,8 +88,8 @@ void AssignChildToJob(HANDLE process, const char* label) {
         Log("AssignProcessToJobObject(%s) failed (err=%d)", label, GetLastError());
 }
 
-void FlushBeforeHardExit() {
-    ExitLog("FlushBeforeHardExit begin state=%d db=%p stmt=%p", (int)g_state, g_db, g_insertStmt);
+void FlushBeforeExit() {
+    ExitLog("FlushBeforeExit begin state=%d db=%p stmt=%p", (int)g_state, g_db, g_insertStmt);
     g_state = STOPPED;
 
     if (g_db) {
@@ -107,10 +112,11 @@ void FlushBeforeHardExit() {
         ExitLog("sqlite3_close rc=%d", rc);
         g_db = nullptr;
     }
-    ExitLog("FlushBeforeHardExit end");
+    ExitLog("FlushBeforeExit end");
 }
 
 bool LaunchBar() {
+    if (g_exiting) return false;
     if (g_barProcess) {
         DWORD exitCode = 0;
         if (GetExitCodeProcess(g_barProcess, &exitCode) && exitCode == STILL_ACTIVE)
@@ -188,6 +194,10 @@ std::wstring GetBarStatusText() {
 }
 
 void SendBarCommand(const char* command) {
+    if (g_exiting) {
+        Log("SendBarCommand skipped during exit: %s", command ? command : "");
+        return;
+    }
     if (!EnsureBarRunning()) {
         Log("SendBarCommand: bar not running");
         return;
@@ -225,6 +235,7 @@ void SendShowLockedToBar() {
 }
 
 bool LaunchAgent() {
+    if (g_exiting) return false;
     if (g_agentProcess) {
         DWORD exitCode = 0;
         if (GetExitCodeProcess(g_agentProcess, &exitCode) && exitCode == STILL_ACTIVE)
@@ -251,6 +262,8 @@ bool LaunchAgent() {
     CloseHandle(pi.hThread);
     g_agentProcess = pi.hProcess;
     AssignChildToJob(g_agentProcess, "Agent");
+    Log("Launched CommitBall-Agent.exe (pid=%d)", pi.dwProcessId);
+    ExitLog("LaunchAgent pid=%lu process=%p", pi.dwProcessId, g_agentProcess);
 
     WaitForInputIdle(pi.hProcess, 3000);
 
@@ -264,6 +277,10 @@ bool LaunchAgent() {
 }
 
 void SendShowToAgent() {
+    if (g_exiting) {
+        Log("SendShowToAgent skipped during exit");
+        return;
+    }
     if (!EnsureAgentRunning()) {
         Log("SendShowToAgent: agent not running");
         return;
@@ -321,6 +338,10 @@ std::wstring GetAgentStatusText() {
 }
 
 bool SendInvokeToAgent(const char* json, const char* verb) {
+    if (g_exiting) {
+        Log("SendInvokeToAgent skipped during exit");
+        return false;
+    }
     if (!EnsureAgentRunning()) {
         Log("SendInvokeToAgent: agent not running");
         return false;
@@ -350,14 +371,25 @@ bool SendInvokeToAgent(const char* json, const char* verb) {
     msg += " ";
     msg += json;
     msg += "\r\n";
-    DWORD written;
-    WriteFile(hPipe, msg.c_str(), (DWORD)msg.size(), &written, NULL);
+    DWORD written = 0;
+    BOOL writeOk = WriteFile(hPipe, msg.c_str(), (DWORD)msg.size(), &written, NULL);
     CloseHandle(hPipe);
-    Log("SendInvokeToAgent: sent %s %d bytes", verb, (int)msg.size());
-    return true;
+    Log("SendInvokeToAgent: sent %s ok=%d written=%lu/%d", verb, writeOk, written, (int)msg.size());
+    return writeOk && written == msg.size();
 }
 
-void InvokeAgentAnalyse() {
+DWORD g_lastAgentAnalyseSubmitFailTime = 0;
+
+bool ShouldSkipAgentAnalyseSubmitRetry() {
+    DWORD now = GetTickCount();
+    return g_lastAgentAnalyseSubmitFailTime != 0 && now - g_lastAgentAnalyseSubmitFailTime < 5 * 60 * 1000;
+}
+
+bool InvokeAgentAnalyse() {
+    if (ShouldSkipAgentAnalyseSubmitRetry()) {
+        Log("InvokeAgentAnalyse: skipped during submit retry cooldown");
+        return false;
+    }
     time_t now = time(NULL);
     struct tm ti;
     localtime_s(&ti, &now);
@@ -371,7 +403,14 @@ void InvokeAgentAnalyse() {
     json += timeBuf;
     json += "\",\"/summary_to_panel\"]";
     Log("InvokeAgentAnalyse: %s", json.c_str());
-    SendInvokeToAgent(json.c_str(), "INVOKE_NEW");
+    bool sent = SendInvokeToAgent(json.c_str(), "INVOKE_NEW");
+    if (!sent) {
+        g_lastAgentAnalyseSubmitFailTime = GetTickCount();
+        Log("InvokeAgentAnalyse: submit failed, retry cooldown started");
+    } else {
+        g_lastAgentAnalyseSubmitFailTime = 0;
+    }
+    return sent;
 }
 
 void InvokeAgentRepairArchives() {
@@ -444,6 +483,7 @@ std::string JsonWide(const std::wstring& text) {
 }
 
 bool LaunchBallShell() {
+    if (g_exiting) return false;
     if (IsBallShellRunning()) return true;
 
     wchar_t exePath[MAX_PATH];
@@ -490,7 +530,7 @@ void PushBallShellState() {
 
 void PushBallShellStatus() {
     if (!IsBallShellEnabled()) return;
-    std::string json = "STATUS {\"Recording\":\"";
+    std::string json = "HOST_STATUS {\"Recording\":\"";
     json += JsonWide(GetStatusText());
     json += "\",\"Db\":\"";
     json += JsonWide(GetDbInfoText());
@@ -514,21 +554,27 @@ void SendBallShellBubble(const wchar_t* text) {
 
 void ShutdownBallShellProcess() {
     if (!g_ballShellProcess) return;
+    ExitLog("ShutdownBallShellProcess begin process=%p enabled=%d", g_ballShellProcess, IsBallShellEnabled());
     if (IsBallShellEnabled()) {
-        SendBallShellLine("SHUTDOWN {}");
+        bool sent = SendBallShellLine("SHUTDOWN {}");
+        ExitLog("ShutdownBallShellProcess send SHUTDOWN ok=%d", sent);
     }
     DWORD wait = WaitForSingleObject(g_ballShellProcess, 600);
+    ExitLog("ShutdownBallShellProcess wait=%lu", wait);
     if (wait == WAIT_TIMEOUT) {
         DWORD exitCode = 0;
         if (GetExitCodeProcess(g_ballShellProcess, &exitCode) && exitCode == STILL_ACTIVE) {
-            Log("BallShell shutdown: timeout, terminating");
-            TerminateProcess(g_ballShellProcess, 0);
-            WaitForSingleObject(g_ballShellProcess, 300);
+            ExitLog("ShutdownBallShellProcess timeout exitCode=%lu terminating", exitCode);
+            BOOL termOk = TerminateProcess(g_ballShellProcess, 0);
+            ExitLog("ShutdownBallShellProcess TerminateProcess ok=%d err=%lu", termOk, GetLastError());
+            DWORD wait2 = WaitForSingleObject(g_ballShellProcess, 300);
+            ExitLog("ShutdownBallShellProcess post-terminate wait=%lu", wait2);
         }
     }
     CloseHandle(g_ballShellProcess);
     g_ballShellProcess = nullptr;
     g_ballShellActive = false;
+    ExitLog("ShutdownBallShellProcess end");
 }
 
 void SaveBallShellWindowState(const char* json) {
@@ -551,7 +597,7 @@ void EnsureBallShellStarted() {
 }
 
 void CheckBallShellHealth() {
-    if (!g_running) return;
+    if (!g_running || g_exiting) return;
     if (!IsBallShellRunning()) {
         Log("BallShell not running, restarting");
         EnsureBallShellStarted();
@@ -588,6 +634,10 @@ void OpenLiveText() {
 void HandleBallUiCommand(const char* command) {
     if (!command || !command[0]) return;
     Log("Ball UI command: %s", command);
+    if (g_exiting && strcmp(command, "exit_commitball") != 0) {
+        Log("Ball UI command skipped during exit: %s", command);
+        return;
+    }
     if (strcmp(command, "open_data_directory") == 0) OpenDataDirectory();
     else if (strcmp(command, "open_live_text") == 0) OpenLiveText();
     else if (strcmp(command, "open_bar_locked") == 0) SendShowLockedToBar();
@@ -598,12 +648,29 @@ void HandleBallUiCommand(const char* command) {
 
 DWORD g_lastAutoCheckTime = 0;
 
+bool IsAgentSummaryBusy() {
+    if (!IsAgentRunning()) return false;
+    FILE* f = fopen("data/agent-summary-status", "r");
+    if (!f) return false;
+
+    char state[32] = {};
+    int n = fscanf(f, "%31s", state);
+    fclose(f);
+
+    return n >= 1 && strcmp(state, "busy") == 0;
+}
+
 void CheckAutoAnalyse() {
+    if (g_exiting) return;
     if (GetTickCount() - g_lastAutoCheckTime < 60000) return;
     g_lastAutoCheckTime = GetTickCount();
 
-    if (!IsAgentRunning()) return;
+    if (IsAgentSummaryBusy()) {
+        Log("CheckAutoAnalyse: summary_to_panel already running, skip");
+        return;
+    }
 
+    bool panelExpired = true;
     WIN32_FILE_ATTRIBUTE_DATA fileInfo;
     if (GetFileAttributesExA("data/agent-out/panel.html", GetFileExInfoStandard, &fileInfo)) {
         SYSTEMTIME stUtc, stLocal;
@@ -619,13 +686,17 @@ void CheckAutoAnalyse() {
         tmFile.tm_isdst = -1;
         time_t fileTime = mktime(&tmFile);
         time_t now = time(NULL);
-        if (now - fileTime >= 4 * 3600) {
-            InvokeAgentAnalyse();
-        }
+        panelExpired = now - fileTime >= 4 * 3600;
+    } else {
+        Log("CheckAutoAnalyse: panel.html missing, treating as expired");
+    }
+    if (panelExpired) {
+        InvokeAgentAnalyse();
     }
 }
 
 bool SendQuitToPipe(const wchar_t* pipeName, const char* label) {
+    ExitLog("%s shutdown: SendQuitToPipe begin", label);
     HANDLE hPipe = INVALID_HANDLE_VALUE;
     for (int i = 0; i < 8; ++i) {
         hPipe = CreateFileW(pipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
@@ -639,30 +710,39 @@ bool SendQuitToPipe(const wchar_t* pipeName, const char* label) {
     }
     if (hPipe != INVALID_HANDLE_VALUE) {
         DWORD written;
-        WriteFile(hPipe, "QUIT\r\n", 6, &written, NULL);
+        BOOL ok = WriteFile(hPipe, "QUIT\r\n", 6, &written, NULL);
         CloseHandle(hPipe);
-        return true;
+        ExitLog("%s shutdown: SendQuitToPipe write ok=%d written=%lu", label, ok, written);
+        return ok && written == 6;
     } else {
         Log("%s shutdown: pipe connect failed (err=%d)", label, GetLastError());
+        ExitLog("%s shutdown: pipe connect failed err=%lu", label, GetLastError());
         return false;
     }
 }
 
 void ShutdownChildProcess(HANDLE& process, const wchar_t* pipeName, const char* label) {
     if (!process) return;
-    SendQuitToPipe(pipeName, label);
+    ExitLog("%s shutdown: begin process=%p", label, process);
+    bool sent = SendQuitToPipe(pipeName, label);
+    ExitLog("%s shutdown: quit sent=%d", label, sent);
 
     DWORD wait = WaitForSingleObject(process, 600);
+    ExitLog("%s shutdown: wait=%lu", label, wait);
     if (wait == WAIT_TIMEOUT) {
         DWORD exitCode = 0;
         if (GetExitCodeProcess(process, &exitCode) && exitCode == STILL_ACTIVE) {
             Log("%s shutdown: timeout, terminating", label);
-            TerminateProcess(process, 0);
-            WaitForSingleObject(process, 300);
+            ExitLog("%s shutdown: timeout exitCode=%lu terminating", label, exitCode);
+            BOOL termOk = TerminateProcess(process, 0);
+            ExitLog("%s shutdown: TerminateProcess ok=%d err=%lu", label, termOk, GetLastError());
+            DWORD wait2 = WaitForSingleObject(process, 300);
+            ExitLog("%s shutdown: post-terminate wait=%lu", label, wait2);
         }
     }
     CloseHandle(process);
     process = nullptr;
+    ExitLog("%s shutdown: end", label);
 }
 
 State g_state = STOPPED;
@@ -685,32 +765,50 @@ IUIAutomation* g_pUIAutomation = nullptr;
 
 const wchar_t MUTEX_NAME[] = L"CommitBallMutex";
 
-void RequestCommitBallExit() {
-    Log("Exit requested from menu");
-    g_running = false;
-    if (g_pipe != INVALID_HANDLE_VALUE) {
-        CloseHandle(g_pipe);
-        g_pipe = INVALID_HANDLE_VALUE;
-    }
-    if (g_directPipe != INVALID_HANDLE_VALUE) {
-        CloseHandle(g_directPipe);
-        g_directPipe = INVALID_HANDLE_VALUE;
-    }
-    if (g_hWnd) DestroyWindow(g_hWnd);
-    PostQuitMessage(0);
+void CloseExitHandle(HANDLE& handle, const char* label) {
+    if (handle == INVALID_HANDLE_VALUE || handle == nullptr) return;
+    BOOL ok = CloseHandle(handle);
+    ExitLog("CloseHandle(%s) ok=%d err=%lu", label, ok, GetLastError());
+    handle = INVALID_HANDLE_VALUE;
 }
 
-void FastCommitBallExit() {
-    ExitLog("FastCommitBallExit entered g_hWnd=%p g_pipe=%p g_directPipe=%p job=%p ballShell=%p bar=%p agent=%p",
-        g_hWnd, g_pipe, g_directPipe, g_childJob, g_ballShellProcess, g_barProcess, g_agentProcess);
-    g_running = false;
-    if (g_hWnd) {
-        BOOL showOk = ShowWindow(g_hWnd, SW_HIDE);
-        ExitLog("ShowWindow(SW_HIDE) previousVisible=%d err=%lu", showOk, GetLastError());
+void CancelExitIo(HANDLE handle, const char* label) {
+    if (handle == INVALID_HANDLE_VALUE || handle == nullptr) return;
+    BOOL ok = CancelIoEx(handle, NULL);
+    ExitLog("CancelIoEx(%s) ok=%d err=%lu", label, ok, GetLastError());
+}
+
+void WakePipeServer(const wchar_t* pipeName, const char* label, const char* message = nullptr) {
+    ExitLog("WakePipeServer(%s) begin", label);
+    for (int i = 0; i < 3; ++i) {
+        HANDLE hPipe = CreateFileW(pipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (hPipe != INVALID_HANDLE_VALUE) {
+            ExitLog("WakePipeServer(%s) connected attempt=%d", label, i + 1);
+            if (message && message[0]) {
+                DWORD written = 0;
+                BOOL ok = WriteFile(hPipe, message, (DWORD)strlen(message), &written, NULL);
+                ExitLog("WakePipeServer(%s) write ok=%d written=%lu", label, ok, written);
+            }
+            CloseHandle(hPipe);
+            return;
+        }
+        DWORD err = GetLastError();
+        ExitLog("WakePipeServer(%s) attempt=%d err=%lu", label, i + 1, err);
+        if (err == ERROR_PIPE_BUSY) WaitNamedPipeW(pipeName, 100);
+        Sleep(50);
     }
+}
 
-    FlushBeforeHardExit();
+void WaitAndCloseThread(HANDLE& thread, const char* label, DWORD timeoutMs) {
+    if (!thread) return;
+    ExitLog("WaitAndCloseThread(%s) begin timeout=%lu", label, timeoutMs);
+    DWORD wait = WaitForSingleObject(thread, timeoutMs);
+    ExitLog("WaitAndCloseThread(%s) wait=%lu", label, wait);
+    CloseHandle(thread);
+    thread = nullptr;
+}
 
+void ArmExternalTaskkill() {
     DWORD selfPid = GetCurrentProcessId();
     wchar_t killCmd[256];
     swprintf_s(killCmd, L"cmd.exe /c ping 127.0.0.1 -n 3 >nul & taskkill /F /PID %lu >> data\\log\\exit-taskkill.log 2>&1", selfPid);
@@ -719,50 +817,73 @@ void FastCommitBallExit() {
     ksi.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION kpi = {};
     BOOL killStarted = CreateProcessW(NULL, killCmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &ksi, &kpi);
-    ExitLog("external taskkill CreateProcess ok=%d err=%lu", killStarted, GetLastError());
+    ExitLog("ArmExternalTaskkill CreateProcess ok=%d err=%lu", killStarted, GetLastError());
     if (killStarted) {
         CloseHandle(kpi.hThread);
         CloseHandle(kpi.hProcess);
     }
-    if (g_pipe != INVALID_HANDLE_VALUE) {
-        BOOL closeOk = CloseHandle(g_pipe);
-        ExitLog("CloseHandle(g_pipe) ok=%d err=%lu", closeOk, GetLastError());
-        g_pipe = INVALID_HANDLE_VALUE;
+}
+
+void FastCommitBallExit() {
+    if (g_exiting) {
+        ExitLog("FastCommitBallExit re-entered, ignoring");
+        return;
     }
-    if (g_directPipe != INVALID_HANDLE_VALUE) {
-        BOOL closeOk = CloseHandle(g_directPipe);
-        ExitLog("CloseHandle(g_directPipe) ok=%d err=%lu", closeOk, GetLastError());
-        g_directPipe = INVALID_HANDLE_VALUE;
+    g_exiting = true;
+    g_running = false;
+    ExitLog("FastCommitBallExit entered g_hWnd=%p g_pipe=%p g_directPipe=%p job=%p ballShell=%p bar=%p agent=%p",
+        g_hWnd, g_pipe, g_directPipe, g_childJob, g_ballShellProcess, g_barProcess, g_agentProcess);
+
+    if (g_hWnd) {
+        BOOL showOk = ShowWindow(g_hWnd, SW_HIDE);
+        ExitLog("ShowWindow(SW_HIDE) previousVisible=%d err=%lu", showOk, GetLastError());
     }
+
+    WakePipeServer(L"\\\\.\\pipe\\CommitBall", "CommitBall");
+    WakePipeServer(L"\\\\.\\pipe\\CommitBall-direct", "CommitBall-direct", "CMD __EXIT__\n");
+    CancelExitIo(g_pipe, "g_pipe");
+    CancelExitIo(g_directPipe, "g_directPipe");
+    CloseExitHandle(g_pipe, "g_pipe");
+    CloseExitHandle(g_directPipe, "g_directPipe");
+
+    FlushBeforeExit();
+
+    ShutdownBallShellProcess();
+    ShutdownChildProcess(g_barProcess, L"\\\\.\\pipe\\CommitBall-bar", "Bar");
+    ShutdownChildProcess(g_agentProcess, L"\\\\.\\pipe\\CommitBall-Agent", "Agent");
+
+    WaitAndCloseThread(g_pipeThread, "CommitBall pipe", 1200);
+    WaitAndCloseThread(g_barPipeThread, "CommitBall direct pipe", 1200);
+
+    ArmExternalTaskkill();
+
     if (g_childJob) {
-        BOOL jobOk = TerminateJobObject(g_childJob, 0);
-        ExitLog("TerminateJobObject ok=%d err=%lu", jobOk, GetLastError());
         BOOL closeOk = CloseHandle(g_childJob);
         ExitLog("CloseHandle(g_childJob) ok=%d err=%lu", closeOk, GetLastError());
         g_childJob = nullptr;
     }
-    if (g_ballShellProcess) {
-        BOOL termOk = TerminateProcess(g_ballShellProcess, 0);
-        ExitLog("TerminateProcess(ballShell) ok=%d err=%lu", termOk, GetLastError());
+    if (g_keyboardHook) {
+        BOOL ok = UnhookWindowsHookEx(g_keyboardHook);
+        ExitLog("UnhookWindowsHookEx(keyboard) ok=%d err=%lu", ok, GetLastError());
+        g_keyboardHook = nullptr;
     }
-    if (g_barProcess) {
-        BOOL termOk = TerminateProcess(g_barProcess, 0);
-        ExitLog("TerminateProcess(bar) ok=%d err=%lu", termOk, GetLastError());
+    if (g_mouseHook) {
+        BOOL ok = UnhookWindowsHookEx(g_mouseHook);
+        ExitLog("UnhookWindowsHookEx(mouse) ok=%d err=%lu", ok, GetLastError());
+        g_mouseHook = nullptr;
     }
-    if (g_agentProcess) {
-        BOOL termOk = TerminateProcess(g_agentProcess, 0);
-        ExitLog("TerminateProcess(agent) ok=%d err=%lu", termOk, GetLastError());
+    ExitLog("RecorderCleanup begin");
+    RecorderCleanup();
+    ExitLog("RecorderCleanup end");
+    if (g_mutex) {
+        BOOL releaseOk = ReleaseMutex(g_mutex);
+        ExitLog("ReleaseMutex ok=%d err=%lu", releaseOk, GetLastError());
+        BOOL closeOk = CloseHandle(g_mutex);
+        ExitLog("CloseHandle(g_mutex) ok=%d err=%lu", closeOk, GetLastError());
+        g_mutex = nullptr;
     }
-    HANDLE self = OpenProcess(PROCESS_TERMINATE, FALSE, selfPid);
-    ExitLog("OpenProcess(self) handle=%p err=%lu", self, GetLastError());
-    if (self) {
-        BOOL selfOk = TerminateProcess(self, 0);
-        ExitLog("TerminateProcess(self handle) ok=%d err=%lu", selfOk, GetLastError());
-        CloseHandle(self);
-    }
-    ExitLog("calling TerminateProcess(GetCurrentProcess)");
-    TerminateProcess(GetCurrentProcess(), 0);
-    ExitLog("returned from TerminateProcess(GetCurrentProcess), calling ExitProcess");
+    DWORD selfPid = GetCurrentProcessId();
+    ExitLog("calling ExitProcess(0)");
     ExitProcess(0);
 }
 
@@ -775,33 +896,44 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     srand((unsigned int)GetTickCount());
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    HANDLE hMutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
+    g_mutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (hMutex) CloseHandle(hMutex);
+        if (g_mutex) {
+            CloseHandle(g_mutex);
+            g_mutex = nullptr;
+        }
         return 0;
     }
 
     if (!RecorderInit()) {
-        if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
+        if (g_mutex) {
+            ReleaseMutex(g_mutex);
+            CloseHandle(g_mutex);
+            g_mutex = nullptr;
+        }
         return 1;
     }
     InitChildJob();
 
     if (!CoreWindowInit(hInstance)) {
         RecorderCleanup();
-        if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
+        if (g_mutex) {
+            ReleaseMutex(g_mutex);
+            CloseHandle(g_mutex);
+            g_mutex = nullptr;
+        }
         return 1;
     }
 
-    HHOOK hook = SetWindowsHookEx(WH_KEYBOARD_LL, LLKeyboardProc, NULL, 0);
-    HHOOK mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LLMouseProc, NULL, 0);
+    g_keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, LLKeyboardProc, NULL, 0);
+    g_mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LLMouseProc, NULL, 0);
 
-    HANDLE hPipeThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
+    g_pipeThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
         CreatePipeServer();
         return 0;
     }, NULL, 0, NULL);
 
-    HANDLE hBarPipeThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
+    g_barPipeThread = CreateThread(NULL, 0, [](LPVOID) -> DWORD {
         CreateBarPipeServer();
         return 0;
     }, NULL, 0, NULL);
@@ -818,23 +950,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         DispatchMessage(&msg);
     }
 
-    g_running = false;
-    if (g_pipe != INVALID_HANDLE_VALUE) { CloseHandle(g_pipe); g_pipe = INVALID_HANDLE_VALUE; }
-    if (g_directPipe != INVALID_HANDLE_VALUE) { CloseHandle(g_directPipe); g_directPipe = INVALID_HANDLE_VALUE; }
-    ShutdownBallShellProcess();
-    ShutdownChildProcess(g_barProcess, L"\\\\.\\pipe\\CommitBall-bar", "Bar");
-    ShutdownChildProcess(g_agentProcess, L"\\\\.\\pipe\\CommitBall-Agent", "Agent");
-    WaitForSingleObject(hPipeThread, 2000);
-    CloseHandle(hPipeThread);
-    WaitForSingleObject(hBarPipeThread, 500);
-    CloseHandle(hBarPipeThread);
-
-    UnhookWindowsHookEx(hook);
-    UnhookWindowsHookEx(mouseHook);
-    CoreWindowShutdown();
-    RecorderCleanup();
-
-    if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
-    if (g_childJob) { CloseHandle(g_childJob); g_childJob = nullptr; }
+    FastCommitBallExit();
     return 0;
 }

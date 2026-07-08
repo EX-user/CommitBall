@@ -153,7 +153,7 @@ namespace CommitBallAgent
 
             if (!Config.IsConfigured)
             {
-                AppendOutput("CommitBall Agent Terminal v0.2.1\n\n", "#FFFFFF");
+                AppendOutput("CommitBall Agent Terminal v0.2.3\n\n", "#FFFFFF");
                 AppendOutput("未检测到 API 配置。请使用 /vendor 命令配置：\n\n", "#E8915A");
                 AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
                 AppendOutput("常用提供商：\n");
@@ -336,7 +336,7 @@ namespace CommitBallAgent
 
         private void RenderSession(AgentTabState tab)
         {
-            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.1\n");
+            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.3\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
             for (int i = 0; i < tab.Session.Messages.Count; i++)
             {
@@ -391,7 +391,7 @@ namespace CommitBallAgent
                 });
             }
             var tab = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.1\n");
+            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.3\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
             return Task.FromResult(tab);
         }
@@ -414,7 +414,7 @@ namespace CommitBallAgent
             if (_tabs.Count == 0)
             {
                 var newTab = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-                AppendOutput(newTab, $"CommitBall Agent Terminal v0.2.1\n");
+                AppendOutput(newTab, $"CommitBall Agent Terminal v0.2.3\n");
                 AppendOutput(newTab, FormatSessionHeader(newTab.Session));
             }
             else if (_activeTab == tab)
@@ -454,9 +454,7 @@ namespace CommitBallAgent
                 e.Handled = true;
                 if (tab != null && tab.IsInSessionMenu)
                 {
-                    tab.IsInSessionMenu = false;
-                    tab.Document.Blocks.Clear();
-                    RenderSession(tab);
+                    LeaveSessionMenu(tab);
                     return;
                 }
                 if (tab != null && tab.IsBusy)
@@ -506,15 +504,23 @@ namespace CommitBallAgent
 
         private void Window_Closing(object? sender, CancelEventArgs e)
         {
+            PrepareForShutdown();
+        }
+
+        public void PrepareForShutdown()
+        {
             foreach (var tab in _tabs.ToArray())
             {
                 if (tab.IsBusy)
                 {
+                    Log($"PrepareForShutdown: cancel busy session {tab.Session.Id}");
                     tab.Cts?.Cancel();
                     FixIncompleteToolCalls(tab.Session);
                 }
                 Memory.Save(tab.Session);
             }
+            WriteStatus("idle");
+            Log($"PrepareForShutdown complete tabs={_tabs.Count}");
         }
 
         private void OutputBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -693,9 +699,9 @@ namespace CommitBallAgent
                 var prompt =
                     "现在开始 CommitBall 归档修复和 meta 模型分析任务。\n" +
                     "请严格按以下步骤执行：\n" +
-                    "1. 先调用 repair_archives 工具。这个工具只做机器修复：扫描 data/sessions，导出缺失 txt，生成缺失 meta/cluster；如果对应 meta.json 已存在，工具不会修改它。\n" +
+                    "1. 先调用 repair_archives 工具。这个工具只做机器修复：扫描 data/sessions；只生成缺失的 .txt、.raw.txt、meta.json 和 _clusters/ 文件；已存在的派生产物不会覆盖。这个工具不做模型总结。\n" +
                     "2. 使用 list 工具查看 exports/，递归定位所有 *.meta.json；必要时按 YYYY-MM 子目录逐个 list。\n" +
-                    "3. 逐个检查 meta 是否已经有模型总结信息。判定为已完成的条件是：summary_source 为 agent，summary 非空；如果 clusters 存在，重要 cluster 也应有 summary_source=agent 且 agent_summary 非空。\n" +
+                    "3. 逐个检查 meta 是否已经有模型总结信息。判定为已完成的条件是：顶层 summary_source 为 agent 且 summary 非空；如果 clusters 存在，重要 cluster 也应有 summary_source=agent 且 agent_summary 非空。\n" +
                     "4. 对没有完成模型总结的 meta，调用 subtask。每个 subtask 负责一个 meta 文件：读取该 meta，读取 txt_path 指向的导出文本，读取 clusters 中重要 cluster 的 txt_path，然后调用 update_meta 更新 title、work_tags、summary 和必要的 cluster_summaries。\n" +
                     "5. subtask 必须基于 read 读到的内容总结，不要猜测不存在的事实；不要用 write 覆盖 meta，只能用 update_meta。\n" +
                     "6. 所有待处理 meta 都完成后，给出简短结果：机器修复结果、检查了多少 meta、更新了多少 meta、跳过了多少已完成 meta。\n";
@@ -787,9 +793,9 @@ namespace CommitBallAgent
             if (lower == "summary_task_exp_decay_memory.md") return "memory";
             if (lower.EndsWith("-report.md")) return "reports";
             if (lower.EndsWith("-extract.md")) return "extracts";
-            if (lower.Contains("reminder") && lower.EndsWith(".md")) return "reminders";
-            if (lower.Contains("response") && lower.EndsWith(".md")) return "responses";
-            if (lower.Contains("summary") || lower.Contains("analysis")) return "analysis";
+            if (lower.Contains("reminder") && lower.EndsWith(".md")) return "scratch";
+            if (lower.Contains("response") && lower.EndsWith(".md")) return "scratch";
+            if (lower.Contains("summary") || lower.Contains("analysis")) return "scratch";
             if (lower.EndsWith(".md") || lower.EndsWith(".txt") || lower.EndsWith(".json") || lower.EndsWith(".py")) return "scratch";
             return "";
         }
@@ -857,9 +863,6 @@ namespace CommitBallAgent
         {
             return category.Equals("reports", StringComparison.OrdinalIgnoreCase) ||
                    category.Equals("extracts", StringComparison.OrdinalIgnoreCase) ||
-                   category.Equals("reminders", StringComparison.OrdinalIgnoreCase) ||
-                   category.Equals("responses", StringComparison.OrdinalIgnoreCase) ||
-                   category.Equals("analysis", StringComparison.OrdinalIgnoreCase) ||
                    category.Equals("scratch", StringComparison.OrdinalIgnoreCase) ||
                    category.Equals("memory", StringComparison.OrdinalIgnoreCase);
         }
@@ -902,7 +905,7 @@ namespace CommitBallAgent
         {
             if (input == "/new")
             {
-                tab.IsInSessionMenu = false;
+                LeaveSessionMenu(tab);
                 await CreateNewTabAsync();
                 return;
             }
@@ -920,10 +923,42 @@ namespace CommitBallAgent
                 return;
             }
 
-            tab.IsInSessionMenu = false;
+            LeaveSessionMenu(tab);
             await Memory.EnsureNamedAsync(tab.Session);
-            var targetTab = CreateTab(target, renderHistory: true, switchTo: true);
+            var targetTab = OpenSessionFromMenu(target);
             targetTab.IsInSessionMenu = false;
+        }
+
+        private void LeaveSessionMenu(AgentTabState tab)
+        {
+            if (!tab.IsInSessionMenu) return;
+            tab.IsInSessionMenu = false;
+            tab.Document.Blocks.Clear();
+            RenderSession(tab);
+        }
+
+        private AgentTabState OpenSessionFromMenu(Session session)
+        {
+            if (!Memory.IsBarCommandSession(session))
+                return CreateTab(session, renderHistory: true, switchTo: true);
+
+            var currentBar = _barCommandTab;
+            if (currentBar != null && _tabs.Contains(currentBar) && currentBar.Session.Id != session.Id)
+                CloseTab(currentBar);
+
+            var existing = _tabs.FirstOrDefault(t => t.Session.Id == session.Id);
+            if (existing != null)
+            {
+                existing.Kind = AgentTabState.TabKind.BarCommand;
+                _barCommandTab = existing;
+                SwitchToTab(existing);
+                RefreshAllTabs();
+                return existing;
+            }
+
+            var tab = CreateTab(session, renderHistory: true, switchTo: true, kind: AgentTabState.TabKind.BarCommand);
+            _barCommandTab = tab;
+            return tab;
         }
 
         private static string FormatSessionHeader(Session session)
@@ -1006,8 +1041,9 @@ namespace CommitBallAgent
                 {
                     AppendOutput(tab, "[等待 agent-out 写入锁]\n", "#AAAAAE");
                     agentOutWriteLease = await Task.Run(() => Tools.AcquireAgentOutWriteLease(tab.Session.Id), tab.Cts.Token);
-                    AppendOutput(tab, "[agent-out 写入锁已获取，summary_to_panel 执行期间其他会话写入会等待]\n", "#AAAAAE");
+                    AppendOutput(tab, "[agent-out 写入锁已获取，summary_to_panel 执行期间其他会话写入会失败]\n", "#AAAAAE");
                 }
+
                 await Runtime.RunAsync(
                     tab.Session,
                     input,
@@ -1184,7 +1220,7 @@ namespace CommitBallAgent
                 return continuation;
 
             continuation = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-            AppendOutput(continuation, $"CommitBall Agent Terminal v0.2.1\n");
+            AppendOutput(continuation, $"CommitBall Agent Terminal v0.2.3\n");
             AppendOutput(continuation, FormatSessionHeader(continuation.Session));
             AppendOutput(continuation, $"[上一会话上下文已满，未执行的队列指令已转入此新会话]\n\n", "#E8915A");
             source.QueueContinuationTab = continuation;
@@ -1434,7 +1470,7 @@ namespace CommitBallAgent
             if (normalized.Count == 0) return;
 
             var target = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-            AppendOutput(target, $"CommitBall Agent Terminal v0.2.1\n");
+            AppendOutput(target, $"CommitBall Agent Terminal v0.2.3\n");
             AppendOutput(target, FormatSessionHeader(target.Session));
             AppendOutput(target, "[Core 指令新会话]\n\n", "#AAAAAE");
 
@@ -1464,7 +1500,7 @@ namespace CommitBallAgent
                 CloseTab(_barCommandTab);
 
             _barCommandTab = CreateTab(Memory.CreateNew(Memory.PurposeBarCommand), renderHistory: false, switchTo: switchTo, kind: AgentTabState.TabKind.BarCommand);
-            AppendOutput(_barCommandTab, $"CommitBall Agent Terminal v0.2.1\n");
+            AppendOutput(_barCommandTab, $"CommitBall Agent Terminal v0.2.3\n");
             AppendOutput(_barCommandTab, FormatSessionHeader(_barCommandTab.Session));
             AppendOutput(_barCommandTab, "[Bar 指令专用会话]\n\n", "#AAAAAE");
             return _barCommandTab;
@@ -1474,10 +1510,10 @@ namespace CommitBallAgent
         {
             try
             {
-                using var pipe = new NamedPipeClientStream(".", "CommitBall-bar", PipeDirection.Out);
+                using var pipe = new NamedPipeClientStream(".", "CommitBall-direct", PipeDirection.Out);
                 pipe.Connect(250);
                 var safe = text.Replace("\r", " ").Replace("\n", " ").Trim();
-                var bytes = System.Text.Encoding.UTF8.GetBytes("NOTICE " + safe + "\r\n");
+                var bytes = System.Text.Encoding.UTF8.GetBytes("CMD BAR_NOTICE " + safe);
                 pipe.Write(bytes, 0, bytes.Length);
             }
             catch

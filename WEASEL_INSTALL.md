@@ -1,6 +1,6 @@
 # CB-Weasel 安装与卸载
 
-> 基于 x64-only 构建（无 Win32），不使用 WeaselSetup.exe。
+> 基于 x64 CB-Weasel 构建；安装包同时使用 Win32 `WeaselSetup.exe` 作为注册/注销 helper。
 > 已改名为 CB-Weasel，可与官方 Weasel 共存（独立注册表路径、TSF CLSID、DLL 名）。
 
 ## 安装前置条件
@@ -9,6 +9,7 @@
 
 ```powershell
 Test-Path weasel\output\cb-weaselx64.dll            # 构建产物（注意 cb- 前缀）
+Test-Path weasel\output\WeaselSetup.exe             # 安装包 helper
 Test-Path weasel\output\data\opencc\TSCharacters.ocd2  # OpenCC（缺少→繁体）
 Test-Path weasel\output\data\default.yaml         # 输入方案
 ```
