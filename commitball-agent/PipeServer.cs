@@ -41,7 +41,19 @@ namespace CommitBallAgent
                                 }
                                 AgentWindow.Log($"PipeServer: received {msg.Substring(0, Math.Min(msg.Length, 160))}");
                                 if (msg == "SHOW")
-                                    _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => _window.Show()));
+                                {
+                                    _window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
+                                    {
+                                        try
+                                        {
+                                            _window.Show();
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            AgentWindow.Log("PipeServer SHOW failed on UI thread: " + ex);
+                                        }
+                                    }));
+                                }
                                 else if (msg == "QUIT")
                                 {
                                     AgentWindow.Log("PipeServer: shutdown requested");
