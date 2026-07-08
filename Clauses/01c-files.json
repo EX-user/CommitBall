@@ -2,12 +2,12 @@
   {
     "title": "FILE_ROOT",
     "accordance": ["SYS_ROOT"],
-    "content": "文本文件是数据库之外的主要持久化方式, 服务于多种用途: 为用户提供可读的原始记录 (live.txt, exports, notes), 为 Agent 提供分析上下文 (exports, agent-out), 存储配置 (agent-config.json, ball-shell-state.json), 维护 Agent 会话记忆 (agent-memory), 以及协助排故 (log 文件). 文件分布在 data/ 目录下, 按进程和用途分子目录组织."
+    "content": "文本文件是数据库之外的主要持久化方式, 服务于多种用途: 为用户提供可读的原始记录 (live.txt, exports, notes), 为 Agent 提供分析上下文 (exports, agent-out), 存储配置和窗口状态 (agent-config.json, ball-shell-state.json, bar-window-state.json), 维护 Agent 会话记忆 (agent-memory), 以及协助排故 (log 文件). 文件分布在 data/ 目录下, 按进程和用途分子目录组织."
   },
   {
     "title": "CONFIG_ROOT",
     "accordance": ["FILE_ROOT"],
-    "content": "配置和状态类文件是系统运行的轻量持久化层, 不含用户行为记录. 分为三类: 1) 运行时配置 (data/agent-config.json 存储 Agent API 凭据, SQLite config 表存储 bar_trigger/eye_mode/auto_analysed); 2) 进程状态标志 (data/bar-status, data/agent-status, data/agent-summary-status, 供 Core 轮询读取); 3) 窗口几何状态 (data/ball-shell-state.json, 双重写入). 此外还有安装时附带的只读静态资源 (prompt 文件和模板)."
+    "content": "配置和状态类文件是系统运行的轻量持久化层, 不含用户行为记录. 分为三类: 1) 运行时配置 (data/agent-config.json 存储 Agent API 凭据, SQLite config 表存储 bar_trigger/eye_mode/auto_analysed); 2) 进程状态标志 (data/bar-status, data/agent-status, data/agent-summary-status, 供 Core 轮询读取); 3) 窗口几何状态 (data/ball-shell-state.json, data/bar-window-state.json). 此外还有安装时附带的只读静态资源 (prompt 文件和模板)."
   },
   {
     "title": "FILE_STATIC_RESOURCES",
@@ -17,7 +17,7 @@
   {
     "title": "DATA_LAYOUT",
     "accordance": ["FILE_ROOT"],
-    "content": "所有用户数据存储在 data/ 目录下, 按用途分层: data/db/current.db (活跃数据库); data/sessions/YYYY-MM/<ts>.db (归档数据库); data/exports/YYYY-MM/ (归档文本 .txt/.raw.txt + .meta.json + _clusters/ 子目录); data/live/live.txt (实时文本快照); data/notes/YYYY-MM-DD.txt (每日笔记); data/agent-out/ (Agent 输出: panel.html, index.json, memory/, reports/YYYY-MM/, extracts/YYYY-MM/, scratch/YYYY-MM/ 四类写入目录); data/agent-memory/<id>.json (会话内存); data/log/*.log (Core/Bar/Agent 三个进程的日志, BallShell 无日志文件); data/agent-config.json, data/*-status, data/ball-shell-state.json (配置和状态文件). 安装目录根下还有 commitball.pos (BallShell 旧式位置文件, 不在 data/ 内)."
+    "content": "所有用户数据存储在 data/ 目录下, 按用途分层: data/db/current.db (活跃数据库); data/sessions/YYYY-MM/<ts>.db (归档数据库); data/exports/YYYY-MM/ (归档文本 .txt/.raw.txt + .meta.json + _clusters/ 子目录); data/live/live.txt (实时文本快照); data/notes/YYYY-MM-DD.txt (每日笔记); data/agent-out/ (Agent 输出: panel.html, index.json, memory/, reports/YYYY-MM/, extracts/YYYY-MM/, scratch/YYYY-MM/ 四类写入目录); data/agent-memory/<id>.json (会话内存); data/log/*.log (Core/Bar/Agent 三个进程的日志, BallShell 无日志文件); data/agent-config.json, data/*-status, data/ball-shell-state.json, data/bar-window-state.json (配置和状态文件). 安装目录根下还有 commitball.pos (BallShell 旧式位置文件, 不在 data/ 内)."
   },
   {
     "title": "FILE_NOTES",
@@ -41,8 +41,13 @@
   },
   {
     "title": "FILE_BALL_STATE",
-    "accordance": ["CONFIG_TABLE"],
+    "accordance": ["CONFIG_TABLE", "BALL_WINDOW_STATE"],
     "content": "BallShell 的窗口几何状态 (x, y, edge, visible) 存储在 data/ball-shell-state.json. 存在双重写入: BallShell 在拖动结束和窗口关闭时直接写入; Core 收到 BallShell 的 UI_WINDOW_STATE pipe 消息后也写入同一文件. 此外 BallShell 还在程序根目录写入 commitball.pos (旧式位置格式 'x y edgeInt') 作为兼容."
+  },
+  {
+    "title": "FILE_BAR_STATE",
+    "accordance": ["CONFIG_ROOT", "BAR_WINDOW_STATE"],
+    "content": "Bar 的窗口几何状态 (Left, Top, Width, SavedAt) 存储在 data/bar-window-state.json. Bar 进程在拖动结束, 隐藏和退出时直接覆盖写入该文件; 启动时读取并按当前屏幕工作区校正后恢复位置."
   },
   {
     "title": "FILE_AGENT_ARCHIVE_REPAIR",

@@ -2,7 +2,12 @@
   {
     "title": "BALL_SHELL",
     "accordance": ["SYS_MULTIPROC"],
-    "content": "CommitBall-BallShell.exe 是 C# WPF 悬浮球 UI, 负责球的皮肤渲染, 动画, 右键菜单, 气泡通知, 拖动和边缘吸附. 它始终置顶显示 (每 2 秒重新断言 HWND_TOPMOST), 启动后出现在屏幕右下角附近."
+    "content": "CommitBall-BallShell.exe 是 C# WPF 悬浮球 UI, 负责球的皮肤渲染, 动画, 右键菜单, 气泡通知, 拖动和边缘吸附. 它始终置顶显示 (每 2 秒重新断言 HWND_TOPMOST), 启动后优先恢复上次保存的位置; 无已保存状态时出现在屏幕右下角附近."
+  },
+  {
+    "title": "BALL_WINDOW_STATE",
+    "accordance": ["BALL_SHELL"],
+    "content": "BallShell 持久化窗口位置和吸边状态. BallShell 在拖动结束和窗口关闭时保存 x, y, edge, visible 到 data/ball-shell-state.json, 并写入旧式 commitball.pos 作为兼容; 下次启动时优先恢复该位置和吸边状态. 关闭 CommitBall 或卸载/重装后只要 data/ 和兼容位置文件保留, BallShell 再启动应恢复到上次保存的位置."
   },
   {
     "title": "BALL_PIPE_PROTOCOL",

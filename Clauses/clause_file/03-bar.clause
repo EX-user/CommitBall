@@ -24,10 +24,16 @@
     "content": "唤醒时的焦点机制: ShowBar() 调用 WPF Activate() 和 InputBox.Focus(), 然后通过 AttachThreadInput 技巧将当前前台窗口的线程输入队列附加到 Bar 线程, 调用 SetForegroundWindow 抢夺焦点, 最后分离. 这是为了绕过 Windows 对 SetForegroundWindow 的限制."
   },
   {
-    "cuid": "65b291ec",
+    "cuid": "97fcbeea",
     "accordance": ["BAR_WAKE"],
     "accordance-cuid": ["7f7c9482"],
-    "content": "输入条默认从屏幕下方约 3/4 处居中弹出, 宽度为屏幕工作区的 30% (最小 480px, 最大 680px)."
+    "content": "输入条无已保存窗口状态时, 默认从屏幕下方约 3/4 处居中弹出, 宽度为屏幕工作区的 30% (最小 480px, 最大 680px)."
+  },
+  {
+    "cuid": "6f15de7d",
+    "accordance": ["BAR_GEOMETRY"],
+    "accordance-cuid": ["97fcbeea"],
+    "content": "Bar 和 BallShell 一样持久化窗口位置. Bar 在拖动结束, 隐藏或退出时保存 Left, Top, Width 到 data/bar-window-state.json; 下次启动时优先恢复该位置, 并按当前屏幕工作区校正, 防止窗口恢复到屏幕外. 关闭 CommitBall 或卸载/重装后只要 data/ 保留, Bar 再启动应恢复到上次保存的位置."
   },
   {
     "cuid": "a0df400f",

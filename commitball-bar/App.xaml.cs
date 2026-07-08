@@ -102,6 +102,7 @@ namespace CommitBallBar
         protected override void OnExit(ExitEventArgs e)
         {
             WriteLog("OnExit");
+            try { _bar?.SaveWindowState(); } catch { }
             _pipe?.Dispose();
             if (_mutex != null)
             {

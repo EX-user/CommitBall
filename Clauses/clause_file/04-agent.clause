@@ -18,10 +18,10 @@
     "content": "Agent 的 pipe 入口 (CommitBall-Agent) 接收 Core 的指令: SHOW (显示窗口), QUIT (退出), INVOKE_NEW <json> (创建新会话执行命令数组), INVOKE_BAR <json> (路由到 bar-command 会话执行). 传入的 json 是一个字符串数组, 逐条入队执行."
   },
   {
-    "cuid": "b17d2e37",
+    "cuid": "e87f0593",
     "accordance": ["AGENT_PIPE_ENTRY"],
     "accordance-cuid": ["eb0549ee"],
-    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到唯一的专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. bar-command 上下文满后自动关闭并新建; 手动加载 bar-command 历史会话时替换当前 Bar 指令会话."
+    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到唯一的专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. Agent 启动时普通初始会话仍跳过 bar-command 类型, 但会额外加载最近一个 bar-command 历史会话作为 Bar 指令标签页. bar-command 上下文满后自动关闭并新建; 手动加载 bar-command 历史会话时替换当前 Bar 指令会话."
   },
   {
     "cuid": "b34ba804",

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -36,6 +37,7 @@ namespace CommitBallBar
         private int _prefixIndex = -1;
         private System.Windows.Threading.DispatcherTimer? _toastTimer;
         private static readonly string StatusPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "bar-status");
+        private static readonly string WindowStatePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "bar-window-state.json");
 
         private static readonly (string label, string prefix)[] Prefixes = new[]
         {
@@ -48,6 +50,7 @@ namespace CommitBallBar
         {
             InitializeComponent();
             PositionWindow();
+            Closed += (_, _) => SaveWindowState();
             PreviewMouseDown += BarWindow_PreviewMouseDown;
             InputBox.LostKeyboardFocus += InputBox_LostKeyboardFocus;
             Deactivated += (_, _) => ScheduleAutoHideCheck(180);
@@ -113,9 +116,76 @@ namespace CommitBallBar
         private void PositionWindow()
         {
             var workArea = SystemParameters.WorkArea;
-            Width = Math.Max(480, Math.Min(680, workArea.Width * 0.3));
+            var defaultWidth = Math.Max(480, Math.Min(680, workArea.Width * 0.3));
+            if (TryLoadWindowState(out var state))
+            {
+                Width = Math.Max(480, Math.Min(680, state.Width > 0 ? state.Width : defaultWidth));
+                Left = ClampToWorkArea(state.Left, workArea.Left, workArea.Right - Width);
+                Top = ClampToWorkArea(state.Top, workArea.Top, workArea.Bottom - EstimateWindowHeight());
+                App.WriteLog($"Bar position restored: Left={Left} Top={Top} Width={Width}");
+                return;
+            }
+
+            Width = defaultWidth;
             Left = (workArea.Width - Width) / 2 + workArea.Left;
-            Top = workArea.Height * 3 / 4 - ActualHeight / 2;
+            Top = workArea.Height * 3 / 4 - EstimateWindowHeight() / 2 + workArea.Top;
+        }
+
+        private static double EstimateWindowHeight()
+        {
+            return 64;
+        }
+
+        private static double ClampToWorkArea(double value, double min, double max)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return min;
+            if (max < min)
+                return min;
+            return Math.Max(min, Math.Min(max, value));
+        }
+
+        private static bool TryLoadWindowState(out BarWindowState state)
+        {
+            state = new BarWindowState();
+            try
+            {
+                if (!File.Exists(WindowStatePath)) return false;
+                var json = File.ReadAllText(WindowStatePath);
+                state = JsonSerializer.Deserialize<BarWindowState>(json) ?? new BarWindowState();
+                return state.Width > 0;
+            }
+            catch (Exception ex)
+            {
+                App.WriteLog("Bar position restore failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        public void SaveWindowState()
+        {
+            try
+            {
+                if (double.IsNaN(Left) || double.IsInfinity(Left) ||
+                    double.IsNaN(Top) || double.IsInfinity(Top) ||
+                    double.IsNaN(Width) || double.IsInfinity(Width))
+                    return;
+
+                var dir = Path.GetDirectoryName(WindowStatePath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                var state = new BarWindowState
+                {
+                    Left = Left,
+                    Top = Top,
+                    Width = Width,
+                    SavedAt = DateTime.Now
+                };
+                File.WriteAllText(WindowStatePath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception ex)
+            {
+                App.WriteLog("Bar position save failed: " + ex.Message);
+            }
         }
 
         public void ShowBar(bool locked = false)
@@ -191,6 +261,7 @@ namespace CommitBallBar
 
         private void HideBar()
         {
+            SaveWindowState();
             _panelWindow?.HidePanel();
             InputBox.Clear();
             _historyIndex = -1;
@@ -354,7 +425,12 @@ namespace CommitBallBar
         private void DragBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ChangedButton == MouseButton.Left)
+            {
                 DragMove();
+                SaveWindowState();
+                if (_panelEnabled && _panelWindow?.Visibility == Visibility.Visible)
+                    _panelWindow.PositionAbove(Left, Width, Top);
+            }
         }
 
         private void LockBtn_Click(object sender, RoutedEventArgs e)
@@ -450,6 +526,14 @@ namespace CommitBallBar
             {
                 App.WriteLog("SendToCommitBall failed: " + ex.Message);
             }
+        }
+
+        private sealed class BarWindowState
+        {
+            public double Left { get; set; }
+            public double Top { get; set; }
+            public double Width { get; set; }
+            public DateTime SavedAt { get; set; }
         }
     }
 }

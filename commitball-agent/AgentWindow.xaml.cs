@@ -169,6 +169,14 @@ namespace CommitBallAgent
             var initialTab = CreateTab(initialSession, renderHistory: Config.IsConfigured);
             SwitchToTab(initialTab);
 
+            var latestBarSession = Memory.LoadLatestBarCommandSession();
+            if (latestBarSession != null)
+                _barCommandTab = CreateTab(
+                    latestBarSession,
+                    renderHistory: Config.IsConfigured,
+                    switchTo: false,
+                    kind: AgentTabState.TabKind.BarCommand);
+
             if (!Config.IsConfigured)
             {
                 AppendOutput("CommitBall Agent Terminal v0.2.3\n\n", "#FFFFFF");

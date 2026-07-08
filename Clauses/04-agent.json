@@ -17,7 +17,7 @@
   {
     "title": "AGENT_INVOKE_ROUTING",
     "accordance": ["AGENT_PIPE_ENTRY"],
-    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到唯一的专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. 启动时自动加载的初始会话跳过 bar-command 类型. bar-command 上下文满后自动关闭并新建; 手动加载 bar-command 历史会话时替换当前 Bar 指令会话."
+    "content": "INVOKE_NEW (自动分析和归档补全) 每次创建新会话标签页. INVOKE_BAR (Bar 指令模式输入) 路由到唯一的专用 bar-command 标签页, 其 Purpose 字段标记为 'bar_command'. Agent 启动时普通初始会话仍跳过 bar-command 类型, 但会额外加载最近一个 bar-command 历史会话作为 Bar 指令标签页. bar-command 上下文满后自动关闭并新建; 手动加载 bar-command 历史会话时替换当前 Bar 指令会话."
   },
   {
     "title": "AGENT_API_CONFIG",
