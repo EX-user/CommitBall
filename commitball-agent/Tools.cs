@@ -145,6 +145,7 @@ namespace CommitBallAgent
                 "- 涉及 Bar/Ball 控制时使用专用 tools，不要要求用户输入 slash command。",
                 "- 修改唤醒序列用 set_bar_trigger；开关眼睛模式用 set_eye_mode；机器修复归档文件用 repair_archives。",
                 "- repair_archives 扫描 data/sessions，只创建缺失的归档 txt/raw/meta/cluster 派生产物；不会覆盖已有派生产物，也不做模型分析。",
+                "- 执行用户要求时，适时调用 show_ball_bubble 用短纯文本告知当前进展，并在完成或失败时用 show_ball_bubble 告知结果。",
                 "- 如果请求来自 CommitBall Bar 的指令模式，要不时调用 show_ball_bubble 用短纯文本更新进度，并在结束时给出结果；不要使用 emoji 或装饰符号。",
                 "",
                 "Agent-Out Organization",
