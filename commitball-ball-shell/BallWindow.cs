@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -18,9 +19,11 @@ public sealed class BallWindow : Window
     private readonly PipeBallBackend _backend;
     private readonly DispatcherTimer _topmostTimer;
     private readonly DispatcherTimer _bubbleTimer;
+    private readonly DispatcherTimer _menuDismissTimer;
     private BubbleWindow? _bubbleWindow;
     private BallEdge _snappedEdge = BallEdge.None;
     private ContextMenu? _openMenu;
+    private IntPtr _openMenuHwnd = IntPtr.Zero;
 
     public BallWindow(PipeBallBackend backend)
     {
@@ -49,6 +52,11 @@ public sealed class BallWindow : Window
             Interval = TimeSpan.FromMilliseconds(100)
         };
         _bubbleTimer.Tick += (_, _) => UpdateBubbleWindow();
+        _menuDismissTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(80)
+        };
+        _menuDismissTimer.Tick += (_, _) => DismissMenuOnOutsideClick();
 
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) =>
@@ -63,6 +71,7 @@ public sealed class BallWindow : Window
         {
             _topmostTimer.Stop();
             _bubbleTimer.Stop();
+            _menuDismissTimer.Stop();
             CloseBubbleWindow();
         };
         Deactivated += (_, _) => EnsureTopmost();
@@ -79,6 +88,7 @@ public sealed class BallWindow : Window
         Closed += (_, _) =>
         {
             CloseBubbleWindow();
+            CloseContextMenu();
             _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft());
         };
     }
@@ -378,17 +388,20 @@ public sealed class BallWindow : Window
 
     private void OpenContextMenu()
     {
-        if (_openMenu?.IsOpen == true)
-        {
-            _openMenu.IsOpen = false;
-        }
+        CloseContextMenu();
 
         _surface.RequestHalfBlink();
         var menu = new ContextMenu
         {
             StaysOpen = false,
-            Focusable = false
+            Focusable = false,
+            Placement = PlacementMode.AbsolutePoint
         };
+        if (TryGetCursorPointDip(out var cursor))
+        {
+            menu.HorizontalOffset = cursor.X;
+            menu.VerticalOffset = cursor.Y;
+        }
         _openMenu = menu;
         var status = _backend.GetStatus();
         AddStatus(menu, $"记录：{status.RecordingStatus}");
@@ -409,29 +422,73 @@ public sealed class BallWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(CommandItem("退出 CommitBall", "exit_commitball"));
         menu.PlacementTarget = this;
-        Mouse.AddPreviewMouseDownOutsideCapturedElementHandler(menu, OnContextMenuOutsideMouseDown);
-        menu.Opened += (_, _) => Mouse.Capture(menu, CaptureMode.SubTree);
+        menu.Opened += (_, _) =>
+        {
+            _openMenuHwnd = ((HwndSource?)PresentationSource.FromVisual(menu))?.Handle ?? IntPtr.Zero;
+            _menuDismissTimer.Start();
+        };
         menu.Closed += (_, _) =>
         {
-            Mouse.RemovePreviewMouseDownOutsideCapturedElementHandler(menu, OnContextMenuOutsideMouseDown);
             if (ReferenceEquals(_openMenu, menu))
             {
                 _openMenu = null;
             }
-            if (Mouse.Captured is not null)
-            {
-                Mouse.Capture(null);
-            }
+            _openMenuHwnd = IntPtr.Zero;
+            _menuDismissTimer.Stop();
         };
         menu.IsOpen = true;
     }
 
-    private static void OnContextMenuOutsideMouseDown(object sender, MouseButtonEventArgs e)
+    private void CloseContextMenu()
     {
-        if (sender is ContextMenu { IsOpen: true } menu)
+        if (_openMenu?.IsOpen == true)
         {
-            menu.IsOpen = false;
+            _openMenu.IsOpen = false;
         }
+    }
+
+    private void DismissMenuOnOutsideClick()
+    {
+        var menu = _openMenu;
+        if (menu?.IsOpen != true)
+        {
+            _menuDismissTimer.Stop();
+            return;
+        }
+
+        var mousePressed =
+            WasMouseButtonPressed(VkLbutton) ||
+            WasMouseButtonPressed(VkRbutton) ||
+            WasMouseButtonPressed(VkMbutton);
+        if (!mousePressed)
+        {
+            return;
+        }
+
+        if (!GetCursorPos(out var cursor))
+        {
+            return;
+        }
+
+        if (IsPointInsideMenuOrBall(cursor))
+        {
+            return;
+        }
+
+        menu.IsOpen = false;
+    }
+
+    private bool IsPointInsideMenuOrBall(NativePoint cursor)
+    {
+        if (_openMenuHwnd != IntPtr.Zero &&
+            GetWindowRect(_openMenuHwnd, out var menuRect) &&
+            Contains(menuRect, cursor))
+        {
+            return true;
+        }
+
+        var ball = DipRectToDevice(GetScreenBallBounds());
+        return Contains(ball, cursor);
     }
 
     private static void AddStatus(ContextMenu menu, string text)
@@ -486,6 +543,9 @@ public sealed class BallWindow : Window
     private const int SpiGetworkarea = 0x0030;
     private const int SmCxscreen = 0;
     private const int SmCyscreen = 1;
+    private const int VkLbutton = 0x01;
+    private const int VkRbutton = 0x02;
+    private const int VkMbutton = 0x04;
     private static readonly IntPtr HwndTopmost = new(-1);
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
@@ -506,6 +566,25 @@ public sealed class BallWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int key);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+
+    private static bool WasMouseButtonPressed(int key)
+    {
+        return (GetAsyncKeyState(key) & 0x0001) != 0;
+    }
+
+    private static bool Contains(NativeRect rect, NativePoint point)
+    {
+        return point.X >= rect.Left &&
+               point.X < rect.Right &&
+               point.Y >= rect.Top &&
+               point.Y < rect.Bottom;
+    }
 
     private static Point ScreenPointFromLParam(IntPtr lParam)
     {
@@ -537,6 +616,19 @@ public sealed class BallWindow : Window
     {
         var source = PresentationSource.FromVisual(this);
         return source?.CompositionTarget?.TransformToDevice.Transform(point) ?? point;
+    }
+
+    private NativeRect DipRectToDevice(Rect rect)
+    {
+        var topLeft = DipPointToDevice(new Point(rect.Left, rect.Top));
+        var bottomRight = DipPointToDevice(new Point(rect.Right, rect.Bottom));
+        return new NativeRect
+        {
+            Left = (int)Math.Floor(topLeft.X),
+            Top = (int)Math.Floor(topLeft.Y),
+            Right = (int)Math.Ceiling(bottomRight.X),
+            Bottom = (int)Math.Ceiling(bottomRight.Y)
+        };
     }
 
     private double DeviceDistanceToDip(double value)
