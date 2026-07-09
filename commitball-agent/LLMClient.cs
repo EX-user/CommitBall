@@ -212,12 +212,12 @@ namespace CommitBallAgent
         {
             var url = $"{NormalizeBaseUrl(Config.BaseUrl)}/chat/completions";
 
+            var sanitizedMessages = SanitizeMessagesForApi(messages, out var sanitizeFixes);
             var msgList = new List<object>();
-            foreach (var m in messages)
-            {
-                if (m.Role == "display") continue;
+            foreach (var m in sanitizedMessages)
                 msgList.Add(m.ToApiFormat());
-            }
+            if (sanitizeFixes > 0)
+                AgentWindow.Log($"ChatAsync: sanitized messages {messages.Count}->{sanitizedMessages.Count}, fixes={sanitizeFixes}");
 
             var bodyDict = new Dictionary<string, object>
             {
@@ -295,7 +295,11 @@ namespace CommitBallAgent
                                 toolCallsMap[idx] = call;
                             }
                             if (tc.TryGetProperty("id", out var idEl))
-                                call.Id = idEl.GetString() ?? "";
+                            {
+                                var streamedId = idEl.GetString();
+                                if (!string.IsNullOrWhiteSpace(streamedId))
+                                    call.Id = streamedId;
+                            }
                             if (tc.TryGetProperty("function", out var fnEl))
                             {
                                 if (fnEl.TryGetProperty("name", out var nameEl))
@@ -322,6 +326,7 @@ namespace CommitBallAgent
             }
 
             sw.Stop();
+            NormalizeStreamedToolCalls(toolCallsMap);
             var result = new LLMResponse
             {
                 Content = content.ToString(),
@@ -331,6 +336,227 @@ namespace CommitBallAgent
                 ElapsedMs = sw.ElapsedMilliseconds
             };
             return result;
+        }
+
+        private static List<Message> SanitizeMessagesForApi(List<Message> messages, out int fixes)
+        {
+            fixes = 0;
+            var result = new List<Message>();
+            var pendingToolCallIds = new List<string>();
+            string? firstSystemContent = null;
+
+            foreach (var message in messages)
+            {
+                var role = NormalizeRole(message.Role);
+                if (role == "display")
+                {
+                    continue;
+                }
+
+                if (role == "system")
+                {
+                    if (firstSystemContent == null)
+                        firstSystemContent = message.Content ?? "";
+                    else
+                        fixes++;
+                    continue;
+                }
+
+                if (pendingToolCallIds.Count > 0 && role != "tool")
+                {
+                    AppendCancelledToolResults(result, pendingToolCallIds);
+                    fixes += pendingToolCallIds.Count;
+                    pendingToolCallIds.Clear();
+                }
+
+                if (role == "tool")
+                {
+                    var toolCallId = message.ToolCallId ?? "";
+                    if (RemovePendingToolCallId(pendingToolCallIds, toolCallId, out var normalizedToolCallId))
+                    {
+                        result.Add(new Message
+                        {
+                            Role = "tool",
+                            ToolCallId = normalizedToolCallId,
+                            Content = message.Content ?? ""
+                        });
+                    }
+                    else
+                    {
+                        fixes++;
+                    }
+                    continue;
+                }
+
+                if (role == "assistant")
+                {
+                    var toolCalls = SanitizeToolCallsForApi(message.ToolCalls, ref fixes);
+                    if (toolCalls.Count > 0)
+                    {
+                        result.Add(new Message
+                        {
+                            Role = "assistant",
+                            ToolCalls = toolCalls
+                        });
+                        foreach (var toolCall in toolCalls)
+                            pendingToolCallIds.Add(toolCall.Id);
+                    }
+                    else if (!string.IsNullOrEmpty(message.Content))
+                    {
+                        result.Add(new Message
+                        {
+                            Role = "assistant",
+                            Content = message.Content ?? ""
+                        });
+                    }
+                    else
+                    {
+                        fixes++;
+                    }
+                    continue;
+                }
+
+                if (!string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
+                    fixes++;
+                result.Add(new Message
+                {
+                    Role = "user",
+                    Content = message.Content ?? ""
+                });
+            }
+
+            if (pendingToolCallIds.Count > 0)
+            {
+                AppendCancelledToolResults(result, pendingToolCallIds);
+                fixes += pendingToolCallIds.Count;
+            }
+
+            if (firstSystemContent != null)
+                result.Insert(0, new Message { Role = "system", Content = firstSystemContent });
+
+            return result;
+        }
+
+        private static void NormalizeStreamedToolCalls(Dictionary<int, ToolCall> toolCallsMap)
+        {
+            var usedIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var pair in toolCallsMap)
+            {
+                var toolCall = pair.Value;
+                var id = toolCall.Id?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(id) || usedIds.Contains(id))
+                {
+                    id = $"call_{Guid.NewGuid():N}";
+                    toolCall.Id = id;
+                }
+                usedIds.Add(id);
+                toolCall.Name = toolCall.Name?.Trim() ?? "";
+            }
+        }
+
+        private static string NormalizeRole(string? role)
+        {
+            if (string.IsNullOrWhiteSpace(role))
+                return "user";
+            var normalized = role.Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "system" => "system",
+                "user" => "user",
+                "assistant" => "assistant",
+                "tool" => "tool",
+                "display" => "display",
+                _ => "user"
+            };
+        }
+
+        private static List<ToolCall> SanitizeToolCallsForApi(List<ToolCall>? toolCalls, ref int fixes)
+        {
+            var result = new List<ToolCall>();
+            if (toolCalls == null || toolCalls.Count == 0)
+                return result;
+
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var toolCall in toolCalls)
+            {
+                var id = toolCall.Id?.Trim() ?? "";
+                var name = toolCall.Name?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    id = $"call_sanitized_{Guid.NewGuid():N}";
+                    fixes++;
+                }
+                if (string.IsNullOrWhiteSpace(name) || !seenIds.Add(id))
+                {
+                    fixes++;
+                    continue;
+                }
+
+                var arguments = NormalizeToolArgumentsForApi(toolCall.Arguments, ref fixes);
+                result.Add(new ToolCall
+                {
+                    Id = id,
+                    Name = name,
+                    Arguments = arguments
+                });
+            }
+            return result;
+        }
+
+        private static string NormalizeToolArgumentsForApi(string? arguments, ref int fixes)
+        {
+            if (string.IsNullOrWhiteSpace(arguments))
+            {
+                fixes++;
+                return "{}";
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(arguments);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    return arguments;
+            }
+            catch { }
+
+            fixes++;
+            return "{}";
+        }
+
+        private static bool RemovePendingToolCallId(List<string> pendingToolCallIds, string toolCallId, out string normalizedToolCallId)
+        {
+            normalizedToolCallId = toolCallId;
+            if (string.IsNullOrWhiteSpace(toolCallId))
+            {
+                if (pendingToolCallIds.Count == 0)
+                    return false;
+                normalizedToolCallId = pendingToolCallIds[0];
+                pendingToolCallIds.RemoveAt(0);
+                return true;
+            }
+            for (var i = 0; i < pendingToolCallIds.Count; i++)
+            {
+                if (pendingToolCallIds[i] == toolCallId)
+                {
+                    pendingToolCallIds.RemoveAt(i);
+                    normalizedToolCallId = toolCallId;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static void AppendCancelledToolResults(List<Message> messages, List<string> pendingToolCallIds)
+        {
+            foreach (var toolCallId in pendingToolCallIds)
+            {
+                messages.Add(new Message
+                {
+                    Role = "tool",
+                    ToolCallId = toolCallId,
+                    Content = "[cancelled]"
+                });
+            }
         }
 
         private static string Truncate(string? s, int maxLen)

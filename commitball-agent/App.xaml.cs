@@ -17,6 +17,11 @@ namespace CommitBallAgent
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            DispatcherUnhandledException += (_, ex) =>
+            {
+                AgentWindow.Log("DispatcherUnhandledException: " + ex.Exception);
+            };
             AgentWindow.Log($"App OnStartup pid={Environment.ProcessId}");
 
             bool created;

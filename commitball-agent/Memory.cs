@@ -175,6 +175,25 @@ namespace CommitBallAgent
             return string.Equals(session.Purpose, PurposeBarCommand, StringComparison.OrdinalIgnoreCase);
         }
 
+        public static Session? LoadLatestBarCommandSession()
+        {
+            Directory.CreateDirectory(Config.MemoryDir);
+            Session? latest = null;
+            foreach (var file in Directory.GetFiles(Config.MemoryDir, "*.json"))
+            {
+                try
+                {
+                    var session = JsonSerializer.Deserialize<Session>(File.ReadAllText(file), JsonOpts);
+                    if (session == null || !string.IsNullOrEmpty(session.ParentSessionId)) continue;
+                    if (!IsBarCommandSession(session)) continue;
+                    if (latest == null || session.UpdatedAt > latest.UpdatedAt)
+                        latest = session;
+                }
+                catch { }
+            }
+            return latest;
+        }
+
         public static List<(string Id, DateTime UpdatedAt, int MsgCount, string Title)> ListSessions(bool includeBarCommand = true)
         {
             Directory.CreateDirectory(Config.MemoryDir);

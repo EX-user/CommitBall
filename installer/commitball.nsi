@@ -1,5 +1,5 @@
 ; CB-Weasel + CommitBall Installer
-; Based on Weasel NSIS installer, simplified for x64-only + CB-Weasel naming
+; Based on Weasel NSIS installer, simplified for CB-Weasel naming
 
 !include "MUI2.nsh"
 !include "x64.nsh"
@@ -11,7 +11,7 @@
   !define WEASEL_VERSION "0.17.4"
 !endif
 !ifndef COMMITBALL_VERSION
-  !define COMMITBALL_VERSION "0.2.3"
+  !define COMMITBALL_VERSION "0.2.4"
 !endif
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
@@ -132,16 +132,27 @@ Section "CB-Weasel 输入法" SecMain
 
   ; Release old DLL if locked
   DetailPrint "检查旧版本 DLL..."
-retry_delete_dll:
+retry_delete_dll_x64:
   ClearErrors
   Delete "$INSTDIR\cb-weasel\cb-weaselx64.dll"
-  IfErrors 0 dll_delete_ok
+  IfErrors 0 dll_delete_x64_ok
     MessageBox MB_ABORTRETRYIGNORE|MB_ICONEXCLAMATION \
       "cb-weaselx64.dll 无法删除，可能是卸载残留或正在使用中。这通常可以忽略……$\n$\n终止 = 取消安装$\n重试 = 关闭相关程序后重试$\n忽略 = 跳过此步骤继续安装" \
-      IDRETRY retry_delete_dll IDIGNORE dll_delete_skip
+      IDRETRY retry_delete_dll_x64 IDIGNORE dll_delete_x64_skip
     Abort
-  dll_delete_ok:
-  dll_delete_skip:
+  dll_delete_x64_ok:
+  dll_delete_x64_skip:
+
+retry_delete_dll_x86:
+  ClearErrors
+  Delete "$INSTDIR\cb-weasel\Win32\cb-weasel.dll"
+  IfErrors 0 dll_delete_x86_ok
+    MessageBox MB_ABORTRETRYIGNORE|MB_ICONEXCLAMATION \
+      "32 位 cb-weasel.dll 无法删除，可能是旧版输入法仍被 32 位程序占用。$\n$\n终止 = 取消安装$\n重试 = 关闭相关程序后重试$\n忽略 = 跳过此步骤继续安装" \
+      IDRETRY retry_delete_dll_x86 IDIGNORE dll_delete_x86_skip
+    Abort
+  dll_delete_x86_ok:
+  dll_delete_x86_skip:
 
   ; Core executables (cb-weasel subdirectory)
   SetOutPath "$INSTDIR\cb-weasel"
@@ -153,6 +164,14 @@ retry_delete_dll:
   File "..\weasel\output\WeaselSetup.exe"
   File "..\weasel\output\rime.dll"
   File "..\weasel\output\WinSparkle.dll"
+
+  ; 32-bit TSF DLL and dependencies for 32-bit applications.
+  SetOutPath "$INSTDIR\cb-weasel\Win32"
+  SetOverwrite try
+  File "..\weasel\output\cb-weasel.dll"
+  SetOverwrite on
+  File "..\weasel\output\Win32\rime.dll"
+  File "..\weasel\output\Win32\WinSparkle.dll"
 
   ; Data files (exclude unused schemas)
   SetOutPath "$INSTDIR\cb-weasel\data"
@@ -166,14 +185,19 @@ retry_delete_dll:
   SetOutPath "$INSTDIR\cb-weasel\data\preview"
   File "..\weasel\output\data\preview\*.*"
 
-  ; Copy DLL to System32
-  DetailPrint "安装 DLL 到 System32..."
+  ; Copy DLLs to system directories. On 64-bit Windows, $SYSDIR is System32.
+  DetailPrint "安装 64 位 DLL 到 System32..."
   Delete "$SYSDIR\cb-weasel.dll"
   CopyFiles "$INSTDIR\cb-weasel\cb-weaselx64.dll" "$SYSDIR\cb-weasel.dll"
+  DetailPrint "安装 32 位 DLL 到 SysWOW64..."
+  Delete "$WINDIR\SysWOW64\cb-weasel.dll"
+  CopyFiles "$INSTDIR\cb-weasel\Win32\cb-weasel.dll" "$WINDIR\SysWOW64\cb-weasel.dll"
 
   ; Register TSF
-  DetailPrint "注册 TSF 文本服务..."
+  DetailPrint "注册 64 位 TSF 文本服务..."
   nsExec::ExecToLog 'regsvr32 /s "$INSTDIR\cb-weasel\cb-weaselx64.dll"'
+  DetailPrint "注册 32 位 TSF 文本服务..."
+  nsExec::ExecToLog '"$WINDIR\SysWOW64\regsvr32.exe" /s "$INSTDIR\cb-weasel\Win32\cb-weasel.dll"'
 
   ; Write registry
   DetailPrint "写入注册表..."
@@ -236,8 +260,11 @@ Section "Uninstall"
     DetailPrint "未找到 WeaselSetup.exe，跳过输入法注销 helper。"
   unregister_tsf_done:
 
-  ; Remove DLL from System32
+  ; Remove DLLs from system directories
+  nsExec::ExecToLog 'regsvr32 /s /u "$INSTDIR\cb-weasel\cb-weaselx64.dll"'
+  nsExec::ExecToLog '"$WINDIR\SysWOW64\regsvr32.exe" /s /u "$INSTDIR\cb-weasel\Win32\cb-weasel.dll"'
   Delete /REBOOTOK "$SYSDIR\cb-weasel.dll"
+  Delete /REBOOTOK "$WINDIR\SysWOW64\cb-weasel.dll"
 
   ; Remove registry
   DeleteRegKey HKLM "${REG_RIME_KEY}"
@@ -247,6 +274,10 @@ Section "Uninstall"
 
   ; Remove files
   Delete /REBOOTOK "$INSTDIR\cb-weasel\cb-weaselx64.dll"
+  Delete /REBOOTOK "$INSTDIR\cb-weasel\Win32\cb-weasel.dll"
+  Delete /REBOOTOK "$INSTDIR\cb-weasel\Win32\rime.dll"
+  Delete /REBOOTOK "$INSTDIR\cb-weasel\Win32\WinSparkle.dll"
+  RMDir /REBOOTOK "$INSTDIR\cb-weasel\Win32"
   RMDir /r /REBOOTOK "$INSTDIR\cb-weasel"
   Delete "$INSTDIR\CommitBall.exe"
   Delete "$INSTDIR\CommitBall-BallShell.exe"
@@ -260,3 +291,4 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\Assets"
   RMDir "$INSTDIR"
 SectionEnd
+

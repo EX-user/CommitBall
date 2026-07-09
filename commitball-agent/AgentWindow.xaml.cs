@@ -25,6 +25,24 @@ namespace CommitBallAgent
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(
+            IntPtr hWnd,
+            IntPtr hWndInsertAfter,
+            int x,
+            int y,
+            int cx,
+            int cy,
+            uint uFlags);
+
+        private static readonly IntPtr HwndTopmost = new(-1);
+        private const int SwShownormal = 1;
+        private const uint SwpNoSize = 0x0001;
+        private const uint SwpShowWindow = 0x0040;
+
+        [DllImport("user32.dll")]
         private static extern bool OpenClipboard(IntPtr hWndNewOwner);
 
         [DllImport("user32.dll")]
@@ -151,9 +169,17 @@ namespace CommitBallAgent
             var initialTab = CreateTab(initialSession, renderHistory: Config.IsConfigured);
             SwitchToTab(initialTab);
 
+            var latestBarSession = Memory.LoadLatestBarCommandSession();
+            if (latestBarSession != null)
+                _barCommandTab = CreateTab(
+                    latestBarSession,
+                    renderHistory: Config.IsConfigured,
+                    switchTo: false,
+                    kind: AgentTabState.TabKind.BarCommand);
+
             if (!Config.IsConfigured)
             {
-                AppendOutput("CommitBall Agent Terminal v0.2.3\n\n", "#FFFFFF");
+                AppendOutput("CommitBall Agent Terminal v0.2.4\n\n", "#FFFFFF");
                 AppendOutput("未检测到 API 配置。请使用 /vendor 命令配置：\n\n", "#E8915A");
                 AppendOutput("  /vendor {\"base_url\":\"...\",\"model\":\"...\",\"api_key\":\"...\"}\n\n");
                 AppendOutput("常用提供商：\n");
@@ -336,7 +362,7 @@ namespace CommitBallAgent
 
         private void RenderSession(AgentTabState tab)
         {
-            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.3\n");
+            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.4\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
             for (int i = 0; i < tab.Session.Messages.Count; i++)
             {
@@ -391,7 +417,7 @@ namespace CommitBallAgent
                 });
             }
             var tab = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.3\n");
+            AppendOutput(tab, $"CommitBall Agent Terminal v0.2.4\n");
             AppendOutput(tab, FormatSessionHeader(tab.Session));
             return Task.FromResult(tab);
         }
@@ -414,7 +440,7 @@ namespace CommitBallAgent
             if (_tabs.Count == 0)
             {
                 var newTab = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-                AppendOutput(newTab, $"CommitBall Agent Terminal v0.2.3\n");
+                AppendOutput(newTab, $"CommitBall Agent Terminal v0.2.4\n");
                 AppendOutput(newTab, FormatSessionHeader(newTab.Session));
             }
             else if (_activeTab == tab)
@@ -443,6 +469,24 @@ namespace CommitBallAgent
             Height = Math.Max(360, Math.Min(480, workArea.Height * 0.4));
             Left = (workArea.Width - Width) / 2 + workArea.Left;
             Top = workArea.Top + workArea.Height * 0.1;
+        }
+
+        private void EnsureWindowInWorkArea()
+        {
+            var workArea = SystemParameters.WorkArea;
+            Width = Math.Max(480, Math.Min(680, Math.Min(Width, workArea.Width * 0.9)));
+            Height = Math.Max(360, Math.Min(480, Math.Min(Height, workArea.Height * 0.9)));
+
+            if (double.IsNaN(Left) || double.IsNaN(Top) ||
+                Left + Width < workArea.Left + 80 ||
+                Top + Height < workArea.Top + 80 ||
+                Left > workArea.Right - 80 ||
+                Top > workArea.Bottom - 80)
+            {
+                Left = (workArea.Width - Width) / 2 + workArea.Left;
+                Top = workArea.Top + workArea.Height * 0.1;
+                Log($"Show repositioned to visible area left={Left:F0} top={Top:F0} width={Width:F0} height={Height:F0}");
+            }
         }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
@@ -1220,7 +1264,7 @@ namespace CommitBallAgent
                 return continuation;
 
             continuation = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-            AppendOutput(continuation, $"CommitBall Agent Terminal v0.2.3\n");
+            AppendOutput(continuation, $"CommitBall Agent Terminal v0.2.4\n");
             AppendOutput(continuation, FormatSessionHeader(continuation.Session));
             AppendOutput(continuation, $"[上一会话上下文已满，未执行的队列指令已转入此新会话]\n\n", "#E8915A");
             source.QueueContinuationTab = continuation;
@@ -1470,7 +1514,7 @@ namespace CommitBallAgent
             if (normalized.Count == 0) return;
 
             var target = CreateTab(Memory.CreateNew(), renderHistory: false, switchTo: true);
-            AppendOutput(target, $"CommitBall Agent Terminal v0.2.3\n");
+            AppendOutput(target, $"CommitBall Agent Terminal v0.2.4\n");
             AppendOutput(target, FormatSessionHeader(target.Session));
             AppendOutput(target, "[Core 指令新会话]\n\n", "#AAAAAE");
 
@@ -1500,7 +1544,7 @@ namespace CommitBallAgent
                 CloseTab(_barCommandTab);
 
             _barCommandTab = CreateTab(Memory.CreateNew(Memory.PurposeBarCommand), renderHistory: false, switchTo: switchTo, kind: AgentTabState.TabKind.BarCommand);
-            AppendOutput(_barCommandTab, $"CommitBall Agent Terminal v0.2.3\n");
+            AppendOutput(_barCommandTab, $"CommitBall Agent Terminal v0.2.4\n");
             AppendOutput(_barCommandTab, FormatSessionHeader(_barCommandTab.Session));
             AppendOutput(_barCommandTab, "[Bar 指令专用会话]\n\n", "#AAAAAE");
             return _barCommandTab;
@@ -1564,13 +1608,26 @@ namespace CommitBallAgent
 
         public new void Show()
         {
+            Log($"Show begin visible={IsVisible} visibility={Visibility} state={WindowState} left={Left:F0} top={Top:F0} width={Width:F0} height={Height:F0}");
+            EnsureWindowInWorkArea();
+            if (WindowState == WindowState.Minimized)
+                WindowState = WindowState.Normal;
+            Visibility = Visibility.Visible;
             base.Show();
-            Activate();
+            Topmost = true;
             if (_activeTab != null)
                 SwitchToTab(_activeTab);
-            InputBox.Focus();
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            SetForegroundWindow(hwnd);
+            if (hwnd != IntPtr.Zero)
+            {
+                ShowWindow(hwnd, SwShownormal);
+                SetWindowPos(hwnd, HwndTopmost, (int)Left, (int)Top, 0, 0, SwpNoSize | SwpShowWindow);
+            }
+            Activate();
+            InputBox.Focus();
+            if (hwnd != IntPtr.Zero)
+                SetForegroundWindow(hwnd);
+            Log($"Show end visible={IsVisible} visibility={Visibility} state={WindowState} active={IsActive}");
         }
 
         public new void Hide()
@@ -1583,3 +1640,4 @@ namespace CommitBallAgent
         }
     }
 }
+

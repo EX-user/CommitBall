@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -21,6 +22,10 @@ public sealed class BallWindow : Window
     private BubbleWindow? _bubbleWindow;
     private BallEdge _snappedEdge = BallEdge.None;
     private ContextMenu? _openMenu;
+    private IntPtr _openMenuHwnd = IntPtr.Zero;
+    private IntPtr _menuMouseHook = IntPtr.Zero;
+    private LowLevelMouseProc? _menuMouseProc;
+    private IntPtr _hwnd = IntPtr.Zero;
 
     public BallWindow(PipeBallBackend backend)
     {
@@ -49,7 +54,6 @@ public sealed class BallWindow : Window
             Interval = TimeSpan.FromMilliseconds(100)
         };
         _bubbleTimer.Tick += (_, _) => UpdateBubbleWindow();
-
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) =>
         {
@@ -63,6 +67,7 @@ public sealed class BallWindow : Window
         {
             _topmostTimer.Stop();
             _bubbleTimer.Stop();
+            UninstallMenuMouseHook();
             CloseBubbleWindow();
         };
         Deactivated += (_, _) => EnsureTopmost();
@@ -79,13 +84,15 @@ public sealed class BallWindow : Window
         Closed += (_, _) =>
         {
             CloseBubbleWindow();
-            _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft());
+            CloseContextMenu();
+            _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft(), _surface.SkinId);
         };
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         var hwnd = new WindowInteropHelper(this).Handle;
+        _hwnd = hwnd;
         var exStyle = GetWindowLong(hwnd, GwlExstyle);
         SetWindowLong(hwnd, GwlExstyle, exStyle | WsExToolWindow | WsExNoActivate);
         HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
@@ -114,6 +121,12 @@ public sealed class BallWindow : Window
     private void RestoreInitialPosition()
     {
         var work = GetPrimaryWorkArea();
+        var saved = _backend.LoadWindowState();
+        if (!string.IsNullOrWhiteSpace(saved?.SkinId))
+        {
+            _surface.SetSkin(saved.SkinId);
+        }
+
         var legacy = _backend.LoadLegacyBallPosition();
         if (legacy is not null)
         {
@@ -131,7 +144,6 @@ public sealed class BallWindow : Window
             return;
         }
 
-        var saved = _backend.LoadWindowState();
         if (saved is not null && TryParseEdge(saved.Edge, out var edge))
         {
             SetSnappedEdge(edge);
@@ -183,7 +195,7 @@ public sealed class BallWindow : Window
                 break;
             case WmExitsizemove:
                 SnapToNearestEdge();
-                _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft());
+                _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft(), _surface.SkinId);
                 handled = true;
                 break;
         }
@@ -378,17 +390,20 @@ public sealed class BallWindow : Window
 
     private void OpenContextMenu()
     {
-        if (_openMenu?.IsOpen == true)
-        {
-            _openMenu.IsOpen = false;
-        }
+        CloseContextMenu();
 
         _surface.RequestHalfBlink();
         var menu = new ContextMenu
         {
             StaysOpen = false,
-            Focusable = false
+            Focusable = false,
+            Placement = PlacementMode.AbsolutePoint
         };
+        if (TryGetCursorPointDip(out var cursor))
+        {
+            menu.HorizontalOffset = cursor.X;
+            menu.VerticalOffset = cursor.Y;
+        }
         _openMenu = menu;
         var status = _backend.GetStatus();
         AddStatus(menu, $"记录：{status.RecordingStatus}");
@@ -409,29 +424,105 @@ public sealed class BallWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(CommandItem("退出 CommitBall", "exit_commitball"));
         menu.PlacementTarget = this;
-        Mouse.AddPreviewMouseDownOutsideCapturedElementHandler(menu, OnContextMenuOutsideMouseDown);
-        menu.Opened += (_, _) => Mouse.Capture(menu, CaptureMode.SubTree);
+        menu.Opened += (_, _) =>
+        {
+            _openMenuHwnd = ((HwndSource?)PresentationSource.FromVisual(menu))?.Handle ?? IntPtr.Zero;
+            InstallMenuMouseHook();
+        };
         menu.Closed += (_, _) =>
         {
-            Mouse.RemovePreviewMouseDownOutsideCapturedElementHandler(menu, OnContextMenuOutsideMouseDown);
-            if (ReferenceEquals(_openMenu, menu))
+            if (!ReferenceEquals(_openMenu, menu))
             {
-                _openMenu = null;
+                return;
             }
-            if (Mouse.Captured is not null)
-            {
-                Mouse.Capture(null);
-            }
+
+            _openMenu = null;
+            _openMenuHwnd = IntPtr.Zero;
+            UninstallMenuMouseHook();
         };
         menu.IsOpen = true;
     }
 
-    private static void OnContextMenuOutsideMouseDown(object sender, MouseButtonEventArgs e)
+    private void CloseContextMenu()
     {
-        if (sender is ContextMenu { IsOpen: true } menu)
+        if (_openMenu?.IsOpen == true)
         {
-            menu.IsOpen = false;
+            _openMenu.IsOpen = false;
         }
+    }
+
+    private void InstallMenuMouseHook()
+    {
+        if (_menuMouseHook != IntPtr.Zero)
+        {
+            return;
+        }
+
+        _menuMouseProc = MenuMouseHookProc;
+        _menuMouseHook = SetWindowsHookEx(WhMouseLl, _menuMouseProc, IntPtr.Zero, 0);
+    }
+
+    private void UninstallMenuMouseHook()
+    {
+        if (_menuMouseHook == IntPtr.Zero)
+        {
+            return;
+        }
+
+        UnhookWindowsHookEx(_menuMouseHook);
+        _menuMouseHook = IntPtr.Zero;
+        _menuMouseProc = null;
+    }
+
+    private IntPtr MenuMouseHookProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && IsMouseButtonDownMessage(wParam.ToInt32()))
+        {
+            var hook = Marshal.PtrToStructure<MouseHookStruct>(lParam);
+            var point = new NativePoint { X = hook.Point.X, Y = hook.Point.Y };
+            if (!IsPointInsideMenuOrBall(point))
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (_openMenu?.IsOpen == true)
+                    {
+                        _openMenu.IsOpen = false;
+                    }
+                });
+            }
+        }
+
+        return CallNextHookEx(_menuMouseHook, nCode, wParam, lParam);
+    }
+
+    private static bool IsMouseButtonDownMessage(int msg)
+    {
+        return msg is WmLbuttondown or WmRbuttondown or WmMbuttondown;
+    }
+
+    private bool IsPointInsideMenuOrBall(NativePoint cursor)
+    {
+        if (_openMenuHwnd != IntPtr.Zero &&
+            GetWindowRect(_openMenuHwnd, out var menuRect) &&
+            Contains(menuRect, cursor))
+        {
+            return true;
+        }
+
+        var ball = DipRectToDevice(GetScreenBallBounds());
+        if (Contains(ball, cursor))
+        {
+            return true;
+        }
+
+        var hwndAtPoint = WindowFromPoint(cursor);
+        if (hwndAtPoint == IntPtr.Zero || hwndAtPoint == _hwnd)
+        {
+            return false;
+        }
+
+        GetWindowThreadProcessId(hwndAtPoint, out var processId);
+        return processId == Environment.ProcessId;
     }
 
     private static void AddStatus(ContextMenu menu, string text)
@@ -452,10 +543,17 @@ public sealed class BallWindow : Window
         foreach (var skin in _surface.Skins)
         {
             var item = new MenuItem { Header = skin.DisplayName, Tag = skin.Id, IsCheckable = true, IsChecked = skin.Id == _surface.SkinId };
-            item.Click += (_, _) => _surface.SetSkin((string)item.Tag);
+            item.Click += (_, _) => SelectSkin((string)item.Tag);
             root.Items.Add(item);
         }
         return root;
+    }
+
+    private void SelectSkin(string id)
+    {
+        _surface.SetSkin(id);
+        UpdateBubbleWindow();
+        _backend.ReportWindowState(Left, Top, _snappedEdge, IsVisible, GetLegacyBallTopLeft(), _surface.SkinId);
     }
 
     private static MenuItem CreateHelpMenu()
@@ -486,6 +584,10 @@ public sealed class BallWindow : Window
     private const int SpiGetworkarea = 0x0030;
     private const int SmCxscreen = 0;
     private const int SmCyscreen = 1;
+    private const int WhMouseLl = 14;
+    private const int WmLbuttondown = 0x0201;
+    private const int WmRbuttondown = 0x0204;
+    private const int WmMbuttondown = 0x0207;
     private static readonly IntPtr HwndTopmost = new(-1);
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
@@ -506,6 +608,17 @@ public sealed class BallWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+
+    private static bool Contains(NativeRect rect, NativePoint point)
+    {
+        return point.X >= rect.Left &&
+               point.X < rect.Right &&
+               point.Y >= rect.Top &&
+               point.Y < rect.Bottom;
+    }
 
     private static Point ScreenPointFromLParam(IntPtr lParam)
     {
@@ -539,6 +652,19 @@ public sealed class BallWindow : Window
         return source?.CompositionTarget?.TransformToDevice.Transform(point) ?? point;
     }
 
+    private NativeRect DipRectToDevice(Rect rect)
+    {
+        var topLeft = DipPointToDevice(new Point(rect.Left, rect.Top));
+        var bottomRight = DipPointToDevice(new Point(rect.Right, rect.Bottom));
+        return new NativeRect
+        {
+            Left = (int)Math.Floor(topLeft.X),
+            Top = (int)Math.Floor(topLeft.Y),
+            Right = (int)Math.Ceiling(bottomRight.X),
+            Bottom = (int)Math.Ceiling(bottomRight.Y)
+        };
+    }
+
     private double DeviceDistanceToDip(double value)
     {
         var source = PresentationSource.FromVisual(this);
@@ -560,6 +686,23 @@ public sealed class BallWindow : Window
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out NativePoint point);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out int processId);
+
+    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hook, int nCode, IntPtr wParam, IntPtr lParam);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect
     {
@@ -574,6 +717,16 @@ public sealed class BallWindow : Window
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseHookStruct
+    {
+        public NativePoint Point;
+        public int MouseData;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
     }
 }
 

@@ -51,7 +51,7 @@ powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
 7. 发布 `commitball-ball-shell/publish/CommitBall-BallShell.exe` 和运行时皮肤资源
 8. 调用 NSIS 构建安装包
 
-产物：`installer/archives/CommitBall-0.2.3.0-installer.exe`
+产物：`installer/archives/CommitBall-0.2.4.0-installer.exe`
 
 ## 安装包内容
 
@@ -119,3 +119,4 @@ installer/
   archives/                # 构建产物（git 忽略）
   staging/                 # 临时文件（git 忽略）
 ```
+
