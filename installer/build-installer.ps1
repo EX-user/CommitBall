@@ -149,15 +149,16 @@ Write-Host "Building installer..."
 Push-Location $PSScriptRoot
 try {
     New-Item -ItemType Directory -Path archives -Force | Out-Null
-    & $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.2.3 commitball.nsi
+    & $nsis /INPUTCHARSET UTF8 /DWEASEL_VERSION=0.17.4 /DCOMMITBALL_VERSION=0.2.4 commitball.nsi
 } finally {
     Pop-Location
 }
 
 if ($LASTEXITCODE -eq 0) {
-    $exe = Get-Item (Join-Path $PSScriptRoot "archives\CommitBall-0.2.3.0-installer.exe")
+    $exe = Get-Item (Join-Path $PSScriptRoot "archives\CommitBall-0.2.4.0-installer.exe")
     $sizeMB = [math]::Round($exe.Length / 1MB, 1)
     Write-Host "`nDone! $($exe.FullName) ($sizeMB MB)" -ForegroundColor Green
 } else {
     Write-Error "NSIS build failed. Check errors above."
 }
+

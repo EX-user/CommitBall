@@ -11,7 +11,7 @@
   !define WEASEL_VERSION "0.17.4"
 !endif
 !ifndef COMMITBALL_VERSION
-  !define COMMITBALL_VERSION "0.2.3"
+  !define COMMITBALL_VERSION "0.2.4"
 !endif
 !ifndef PRODUCT_VERSION
   !define PRODUCT_VERSION "${COMMITBALL_VERSION}.0"
@@ -291,3 +291,4 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\Assets"
   RMDir "$INSTDIR"
 SectionEnd
+
