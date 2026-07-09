@@ -1,8 +1,8 @@
 # CB-Weasel 本地构建记录
 
-> 在 Windows 11 + VS 2022 Build Tools 环境下成功构建 x64 的完整流程。
+> 在 Windows 11 + VS 2022 Build Tools 环境下成功构建 x64/Win32 的完整流程。
 > 基于 Weasel（小狼毫）fork，改名为 CB-Weasel 以避免与官方安装冲突。
-> 仅覆盖 x64 Release 构建，Win32 因 Boost 命名问题未解决。
+> 安装包包含 64 位 TSF DLL 和 32 位 TSF DLL；32 位 DLL 用于兼容 32 位应用。
 
 ## 1. 前置依赖
 
@@ -149,6 +149,29 @@ cmd /c "`"$vcvarsall`" x64 && set PATH=C:\Program Files\7-Zip;%LOCALAPPDATA%\Mic
 
 流程：aria2c 下载 → 7z 解压 → b2 编译。
 
+如果需要重新生成 Win32 Boost 库，必须确认 `stage/lib/libboost_*-x32-*.lib` 内部是真正的 x86 机器类型。当前 Build Tools 环境下推荐先在 `deps/boost_1_84_0/project-config.jam` 中指定 VS setup 脚本：
+
+```jam
+using msvc : 14.3 : : <setup>"C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvarsall.bat" ;
+```
+
+然后清理旧的 x32 缓存并用 x86 环境重建：
+
+```powershell
+cd weasel\deps\boost_1_84_0
+Remove-Item .\stage\lib\*x32*.lib -Force
+Remove-Item .\bin.v2\libs -Recurse -Force -ErrorAction SilentlyContinue
+cmd /c "`"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat`" x86 && b2 -j%NUMBER_OF_PROCESSORS% --with-filesystem --with-json --with-locale --with-regex --with-serialization --with-system --with-thread define=BOOST_USE_WINAPI_VERSION=0x0603 toolset=msvc-14.3 link=static runtime-link=static --build-type=complete architecture=x86 address-model=32 stage"
+```
+
+验证：
+
+```powershell
+& "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\<版本>\bin\Hostx64\x86\dumpbin.exe" /headers .\stage\lib\libboost_thread-vc143-mt-s-x32-1_84.lib | Select-String "machine"
+```
+
+应看到 `14C machine (x86)`，不能是 `8664 machine (x64)`。
+
 **如果 bootstrap.bat 报 `'cl' 不是内部或外部命令`**，原因是 b2 的子进程未继承 vcvarsall.bat 的 PATH。手动进入 boost 目录单独运行 bootstrap.bat：
 
 ```powershell
@@ -208,7 +231,7 @@ cmd /c "`"$vcvarsall`" x64 && build.bat data"
 
 需要 bash（Git Bash）在 PATH 中。
 
-## 9. 编译 CB-Weasel x64
+## 9. 编译 CB-Weasel
 
 ```powershell
 cd weasel
@@ -229,12 +252,16 @@ cscript.exe render.js weasel.props BOOST_ROOT PLATFORM_TOOLSET VERSION_MAJOR VER
 $msbuild = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
 & $msbuild weasel.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /t:Build /verbosity:minimal
 
+# 安装包还需要 32 位 TSF DLL，用于兼容 32 位应用
+& $msbuild weasel.sln /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /t:WeaselTSF /verbosity:minimal
+
 # 安装包还需要 WeaselSetup.exe；该项目只有 Win32 配置，需通过 sln 构建以正确解析 SolutionDir
 & $msbuild weasel.sln /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /t:WeaselSetup /verbosity:minimal
 ```
 
 产物在 `output/` 目录下，关键文件：
 - `cb-weaselx64.dll` — TSF 输入法 DLL（新 GUID，不与官方 Weasel 冲突）
+- `cb-weasel.dll` — 32 位 TSF 输入法 DLL（供 32 位应用加载）
 - `WeaselServer.exe` — 算法服务（含 CommitBallBridge）
 - `WeaselDeployer.exe` — 部署工具
 - `WeaselSetup.exe` — 安装包使用的输入法注册/注销 helper（Win32 可执行文件）
@@ -279,7 +306,7 @@ Copy-Item "$env:TEMP\weasel-official\data\opencc\*" "output\data\opencc\" -Force
 
 | 问题 | 原因 | 影响 |
 |------|------|------|
-| Win32 构建失败 | Boost x86 lib 命名带 `x32` 后缀 | 不影响 x64 |
+| Win32 链接失败 | `libboost_*-x32-*.lib` 内部实际是 x64 产物 | 按步骤 6 重新构建 Win32 Boost |
 | `build.bat opencc` 失败 | OpenCC cmake 配置问题 | 繁简自动转换不可用 |
 | 直接构建 `WeaselSetup.vcxproj` 找不到 `wtl/atlapp.h` | 直接构建时 `$(SolutionDir)` 解析不对 | 用 `weasel.sln /t:WeaselSetup /p:Platform=Win32` 构建 |
 | get-rime.ps1 报错 | 文件编码无 BOM | 重新保存为 UTF-8 BOM |

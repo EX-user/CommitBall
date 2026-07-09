@@ -21,10 +21,13 @@ $runtimeUrl = "https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe"
 $runtimeInstaller = "$PSScriptRoot\redist\windowsdesktop-runtime-win-x64.exe"
 $checks = @(
     @{ Path = "$root\weasel\output\cb-weaselx64.dll";       Hint = "Build cb-weasel first: cd weasel; msbuild weasel.sln /p:Configuration=Release /p:Platform=x64" },
+    @{ Path = "$root\weasel\output\cb-weasel.dll";          Hint = "Build cb-weasel Win32 first: cd weasel; msbuild weasel.sln /p:Configuration=Release /p:Platform=Win32" },
     @{ Path = "$root\weasel\output\WeaselServer.exe";        Hint = "Build cb-weasel first (same as above)" },
     @{ Path = "$root\weasel\output\WeaselDeployer.exe";      Hint = "Build cb-weasel first (same as above)" },
     @{ Path = "$root\weasel\output\rime.dll";                Hint = "Run get-rime.ps1 to download librime" },
     @{ Path = "$root\weasel\output\WinSparkle.dll";           Hint = "Run get-rime.ps1 — WinSparkle is bundled with librime" },
+    @{ Path = "$root\weasel\output\Win32\rime.dll";          Hint = "Run get-rime.ps1 to download x86 librime, or build Win32 librime" },
+    @{ Path = "$root\weasel\output\Win32\WinSparkle.dll";    Hint = "Run get-rime.ps1 — x86 WinSparkle is bundled with librime" },
     @{ Path = "$root\weasel\output\data\default.yaml";       Hint = "Run: cd weasel; build.bat data" },
     @{ Path = "$root\weasel\output\data\opencc\TSCharacters.ocd2"; Hint = "Missing OpenCC data. Copy from official installer or run get-rime.ps1" },
     @{ Path = "$root\weasel\output\data\essay.txt";          Hint = "Run: cd weasel; build.bat data" },

@@ -85,9 +85,9 @@ public sealed class PipeBallBackend : IDisposable
         SendDirectCommand($"UI_COMMAND {name}");
     }
 
-    public void ReportWindowState(double x, double y, BallEdge edge, bool visible, Point? legacyBallTopLeft = null)
+    public void ReportWindowState(double x, double y, BallEdge edge, bool visible, Point? legacyBallTopLeft = null, string? skinId = null)
     {
-        var payload = JsonSerializer.Serialize(new BallWindowState(x, y, edge.ToString().ToLowerInvariant(), visible));
+        var payload = JsonSerializer.Serialize(new BallWindowState(x, y, edge.ToString().ToLowerInvariant(), visible, skinId));
         SaveWindowState(payload);
         if (legacyBallTopLeft is not null)
         {
@@ -236,7 +236,7 @@ public sealed class PipeBallBackend : IDisposable
     private sealed record BubbleMessage(string Text);
     private sealed record StatusMessage(string? Recording, string? Db, string? Bar, string? Agent);
 
-    public sealed record BallWindowState(double X, double Y, string Edge, bool Visible);
+    public sealed record BallWindowState(double X, double Y, string Edge, bool Visible, string? SkinId = null);
     public sealed record LegacyBallPosition(int X, int Y, BallEdge Edge);
 
     private void SaveWindowState(string payload)

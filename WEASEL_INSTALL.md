@@ -1,6 +1,6 @@
 # CB-Weasel 安装与卸载
 
-> 基于 x64 CB-Weasel 构建；安装包同时使用 Win32 `WeaselSetup.exe` 作为注册/注销 helper。
+> 基于 x64/Win32 CB-Weasel 构建；安装包同时使用 Win32 `WeaselSetup.exe` 作为注册/注销 helper。
 > 已改名为 CB-Weasel，可与官方 Weasel 共存（独立注册表路径、TSF CLSID、DLL 名）。
 
 ## 安装前置条件
@@ -9,6 +9,9 @@
 
 ```powershell
 Test-Path weasel\output\cb-weaselx64.dll            # 构建产物（注意 cb- 前缀）
+Test-Path weasel\output\cb-weasel.dll               # 32 位 TSF DLL，供 32 位应用加载
+Test-Path weasel\output\Win32\rime.dll              # 32 位 librime
+Test-Path weasel\output\Win32\WinSparkle.dll        # 32 位 WinSparkle
 Test-Path weasel\output\WeaselSetup.exe             # 安装包 helper
 Test-Path weasel\output\data\opencc\TSCharacters.ocd2  # OpenCC（缺少→繁体）
 Test-Path weasel\output\data\default.yaml         # 输入方案
@@ -22,15 +25,17 @@ Test-Path weasel\output\data\default.yaml         # 输入方案
 
 ```powershell
 Copy-Item weasel\output\cb-weaselx64.dll C:\Windows\System32\cb-weasel.dll -Force
+Copy-Item weasel\output\cb-weasel.dll C:\Windows\SysWOW64\cb-weasel.dll -Force
 ```
 
 ### 2. 注册 TSF 文本服务
 
 ```powershell
 regsvr32 /s weasel\output\cb-weaselx64.dll
+C:\Windows\SysWOW64\regsvr32.exe /s weasel\output\cb-weasel.dll
 ```
 
-无弹窗，静默注册。TSF 注册路径指向构建目录（非 System32），这是预期行为——两个 DLL 内容相同。
+无弹窗，静默注册。64 位 TSF 由系统 `regsvr32` 注册，32 位 TSF 由 `SysWOW64\regsvr32.exe` 注册。
 
 如果需要验证注册是否成功：
 
@@ -94,9 +99,11 @@ Start-Sleep -Seconds 1
 
 # 2. 取消注册 TSF
 regsvr32 /u weasel\output\cb-weaselx64.dll
+C:\Windows\SysWOW64\regsvr32.exe /u weasel\output\cb-weasel.dll
 
 # 3. 删除 DLL
 Remove-Item C:\Windows\System32\cb-weasel.dll -Force
+Remove-Item C:\Windows\SysWOW64\cb-weasel.dll -Force
 
 # 4. 清理注册表
 Remove-Item -Path "HKLM:\SOFTWARE\WOW6432Node\Rime\CBWeasel" -Recurse -Force -ErrorAction SilentlyContinue
@@ -121,6 +128,7 @@ Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Rime\CBWeasel" -ErrorAction Silentl
 
 # DLL 是否存在
 Test-Path C:\Windows\System32\cb-weasel.dll
+Test-Path C:\Windows\SysWOW64\cb-weasel.dll
 
 # 词典是否编译
 Get-ChildItem "$env:APPDATA\Rime\build\*.table.bin" -ErrorAction SilentlyContinue
