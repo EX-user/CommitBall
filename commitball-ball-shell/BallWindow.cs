@@ -431,10 +431,12 @@ public sealed class BallWindow : Window
         };
         menu.Closed += (_, _) =>
         {
-            if (ReferenceEquals(_openMenu, menu))
+            if (!ReferenceEquals(_openMenu, menu))
             {
-                _openMenu = null;
+                return;
             }
+
+            _openMenu = null;
             _openMenuHwnd = IntPtr.Zero;
             UninstallMenuMouseHook();
         };
